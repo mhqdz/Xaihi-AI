@@ -140,6 +140,8 @@ App.jsx 最终只剩：布局（drawer/stage/rail）、URL 深链、快捷键、
    正文已落库、底下却多一个"生成中…"的幽灵气泡。已在 sendText（收流点 + finally）
    与 attachStream.finish 里「先 clearTimeout 再 clear」，并加 ended/done 闸门
 8. 组件内的计数器（window.__renders）要放在函数体内，别放到模块顶层（只会加 1）
+9. openRuns 用"组下标"当 key：换会话必须清空，否则 A 会话展开的组会让 B 会话同下标的组也展开
+   （已在 openConv 里按 id 变化清空；同一会话内收尾不清，保住用户的展开态）
 ```
 
 ## 5. 测试与命令

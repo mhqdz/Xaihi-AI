@@ -643,6 +643,8 @@ export default function App() {
   }
 
   const openConv = async (id) => {
+    // 展开态按"组下标"记，换会话必须清（否则 A 会话展开的组会让 B 会话同一个下标的组也展开）
+    if (String(convIdRef.current || '') !== String(id || '')) setOpenRuns(new Set())
     stream.clear()   // 丢掉上一个会话残留的实时缓冲（结束/切换时不能留"生成中…"幽灵气泡）
     convIdRef.current = id
     setConvId(id)
