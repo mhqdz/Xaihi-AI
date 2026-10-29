@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import NumberFlow from '@number-flow/react'
 import { stream, useLiveMsg } from './conversation/streamStore'
 import { isGhostMsg as isGhostM, neighborRole, runStart, runStats, thinkBefore } from './conversation/messageGroups'
-
-marked.setOptions({ gfm: true, breaks: true })
+import { Sections } from './components/Markdown'
+import MessageCard from './components/MessageCard'
+import SysNote from './components/SysNote'
+import ToolGroup from './components/ToolGroup'
 
 // 实时气泡：订阅 streamStore，只它随 delta 重渲染（历史消息不参与）
 function LiveBubble({ busy }) {
@@ -76,12 +76,6 @@ function FigCell({ value }) {
       <NumberFlow className="nf" value={value} format={{ minimumIntegerDigits: 2 }} />
     </span>
   )
-}
-
-// Markdown 渲染（模型输出不可信 → 一律过 DOMPurify）
-function Md({ text }) {
-  const html = useMemo(() => DOMPurify.sanitize(marked.parse(String(text || ''))), [text])
-  return <div className="prose ef-prose md" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 const api = (p, opt) => fetch(p, opt).then(r => r.json())
@@ -173,32 +167,7 @@ function Elapsed({ t0 }) {
 }
 
 // 把回复按 markdown 标题切成"01 / 标题"编号段落；无标题则整段输出
-function Sections({ text }) {
-  const lines = String(text || '').split('\n')
-  const out = []
-  let buf = [], n = 0
-  const flush = () => {
-    if (buf.length) {
-      const body = buf.join('\n').trim()
-      if (body) out.push(<Md text={body} key={'b' + out.length} />)
-      buf = []
-    }
-  }
-  for (const raw of lines) {
-    const m = /^#{1,4}\s+(.*)$/.exec(raw.trim())
-    if (m) {
-      flush(); n++
-      out.push(
-        <div className="sec" key={'h' + n}>
-          <span className="secno">{pad(n)}</span>
-          <span className="secti">{m[1]}</span>
-        </div>)
-    } else buf.push(raw)
-  }
-  flush()
-  if (out.length === 0) return <Md text={text} />
-  return <>{out}</>
-}
+// （Sections / Md 已移到 components/Markdown.jsx）
 
 export default function App() {
   const [convs, setConvs] = useState([])
@@ -489,6 +458,9 @@ export default function App() {
     let n = maxSeq
     for (const m of visible) if (!m.seq) liveNo.set(m, ++n)
   }
+  // 阅读位置编号（data-vidx）：visible 下标 +1（空正文 assistant 也占号，与历史行为一致）
+  const vidxOf = new Map()
+  visible.forEach((m, i) => vidxOf.set(m, i + 1))
 
   const idxOfSeq = (seq) => visible.findIndex(m => (m.seq || 0) === seq)
   const curIdx = () => {
@@ -671,6 +643,7 @@ export default function App() {
   }
 
   const openConv = async (id) => {
+    stream.clear()   // 丢掉上一个会话残留的实时缓冲（结束/切换时不能留"生成中…"幽灵气泡）
     convIdRef.current = id
     setConvId(id)
     // 竖屏：抽屉是浮层，选完会话要收起来（否则遮住正文）
@@ -699,11 +672,11 @@ export default function App() {
     const running = async () => ((await api('/api/running').catch(() => [])) || []).includes(String(id))
     let live = { role: 'assistant', content: '', reasoning: '', at: now() }
     let pushTimer = null
-    const push = () => {
-      if (pushTimer) return
-      pushTimer = setTimeout(() => { pushTimer = null; stream.set({ ...live }) }, 80)
-    }
     let done = false
+    const push = () => {
+      if (pushTimer || done) return
+      pushTimer = setTimeout(() => { pushTimer = null; if (!done) stream.set({ ...live }) }, 80)
+    }
     const finish = async (msg) => {
       setPendingTools([])
       if (done) return
@@ -713,6 +686,8 @@ export default function App() {
         setMsgs(normalize(cc.messages || []))
         if (isAtBottom()) scrollToBottom()   // 用户没在底部就别把他拽回去
       }
+      if (pushTimer) { clearTimeout(pushTimer); pushTimer = null }
+      stream.clear()
       setSyncing(false); setBusy(false); setStatus(msg || '已同步'); refresh()
     }
     for (let attempt = 0; attempt < 60 && !done; attempt++) {
@@ -784,6 +759,8 @@ export default function App() {
     setMsgs(m => [...m, { role: 'user', content: t, at: now() }])
     scrollToBottom()   // 发送后回到最新位置
     let cur = convId
+    let ended = false        // 收流后置 true：节流里没落地的 push 不许再改写缓冲
+    let pushTimer = null
     try {
       const resp = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -792,10 +769,9 @@ export default function App() {
       })
       const reader = resp.body.getReader(); const dec = new TextDecoder()
       let buf = '', asst = { role: 'assistant', content: '', reasoning: '', at: now() }
-      let pushTimer = null
       const push = () => {
-        if (pushTimer) return
-        pushTimer = setTimeout(() => { pushTimer = null; stream.set({ ...asst }) }, 80)
+        if (pushTimer || ended) return
+        pushTimer = setTimeout(() => { pushTimer = null; if (!ended) stream.set({ ...asst }) }, 80)
       }
       for (;;) {
         const { value, done } = await reader.read(); if (done) break
@@ -839,6 +815,11 @@ export default function App() {
             else if (ev === 'usage') { if (d.tps > 0) setTps(d.tps) }
         }
       }
+      // 收流即定稿：先停掉节流里还没落地的 push，否则它会在 clear 之后把旧内容塞回缓冲
+      //（表现：正文已落库，底下却多一个"生成中…"的幽灵气泡）
+      ended = true
+      if (pushTimer) { clearTimeout(pushTimer); pushTimer = null }
+      stream.clear()
       await refresh(); if (cur) await openConv(cur)
     } catch (e) {
         // 不是用户主动停：若后端仍在跑，说明只是流断了 → 重新接上（而不是假装结束）
@@ -855,7 +836,13 @@ export default function App() {
         if (cur) { const cc = await api('/api/conv/' + cur).catch(() => null); if (cc) { setMsgs(normalize(cc.messages || [])); scrollToBottom() } }
       }
       else setStatus('✗ ' + e.message + '（可重试）')
-    } finally { abortRef.current = null; setBusy(false); refresh(); loadCtx(cur) }   // 中断/报错也刷新列表，避免会话"看不见"
+    } finally {
+      abortRef.current = null
+      ended = true
+      if (pushTimer) { clearTimeout(pushTimer); pushTimer = null }
+      stream.clear()
+      setBusy(false); refresh(); loadCtx(cur)   // 中断/报错也刷新列表，避免会话"看不见"
+    }
   }
 
   const act = async (kind, id, e) => {
@@ -919,12 +906,37 @@ export default function App() {
     </span>
   ) : null
 
-  // 分组/统计已抽到 conversation/messageGroups.js（纯函数，供 Step 2 的组件使用）
+  // 分组/统计是纯函数（conversation/messageGroups.js）；这里一次算好，作为 props 传给展示组件
   const isGhostMsg = isGhostM
-  const neighbor = (from, step) => neighborRole(msgs, from, step)
-  const runStartAt = (i) => runStart(msgs, i)
-  const runStatsAt = (s0) => runStats(msgs, s0)
-  const thinkBeforeAt = (i) => thinkBefore(msgs, i)
+  const seqOf = (m) => m.seq || liveNo.get(m) || 0
+
+  // 每个工具行的组信息：组起点 / 首尾 / 组统计 / 组前思考
+  // 同一份 msgs 下对象引用不变 ⇒ ToolGroup 的 memo 才能命中
+  const toolMeta = useMemo(() => {
+    const out = new Map()
+    const byStart = new Map()
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role !== 'tool') continue
+      const start = runStart(msgs, i)
+      let stats = byStart.get(start)
+      if (!stats) { stats = runStats(msgs, start); byStart.set(start, stats) }
+      out.set(i, { start, first: start === i, last: neighborRole(msgs, i + 1, 1) !== 'tool', stats, think: thinkBefore(msgs, i) })
+    }
+    return out
+  }, [msgs])
+
+  // 稳定回调（memo 的依赖，不能每次渲染都新建）
+  const toggleRun = useCallback((start) => {
+    setOpenRuns(prev => { const n = new Set(prev); n.has(start) ? n.delete(start) : n.add(start); return n })
+  }, [])
+  // 收起思考后回到这条消息的开头（比"思考过程"那一行再高一点）
+  const collapseMsg = useCallback((box) => {
+    requestAnimationFrame(() => {
+      box.scrollIntoView({ block: 'start' })
+      const th = threadRef.current
+      if (th) th.scrollTop -= 12
+    })
+  }, [])
 
   return (
     <div className="app">
@@ -1067,118 +1079,18 @@ export default function App() {
               </div>
             ) : (
               <div className="col">
-                {msgs.map((m, i) => isGhostMsg(m) ? (
-                  // 工具轮的 assistant 只有思考和 tool_calls，正文是空的：不占 Agent 卡，只留一行可展开的思考
-                  null
-                ) : m.role === 'tool' ? (() => {
-                    const gstart = runStartAt(i)
-                    const first = gstart === i
-                    const open = openRuns.has(gstart)
-                    const st = runStatsAt(gstart)
-                    if (!first && !open) return null
-                    const last = neighbor(i + 1, 1) !== 'tool'
-                    let args = ''
-                    if (m.toolArgs) { try { args = JSON.stringify(JSON.parse(String(m.toolArgs))) } catch { args = String(m.toolArgs) } }
-                    const meta = [m.ms ? (m.ms < 1000 ? m.ms + 'ms' : (m.ms / 1000).toFixed(1) + 's') : '', m.content ? String(m.content).length + ' 字' : ''].filter(Boolean).join(' · ')
-                    const toggle = () => setOpenRuns(prev => { const n = new Set(prev); n.has(gstart) ? n.delete(gstart) : n.add(gstart); return n })
-                    return (
-                      <div className={'toolnote' + (first ? ' run-start' : '') + ((last || !open) ? ' run-end' : '')} key={i}>
-                        {first ? <span className="tn-c tl" /> : null}
-                        {(last || !open) ? <span className="tn-c br" /> : null}
-                        {first ? (
-                          <div className="tn-hd" onClick={toggle} role="button" title={open ? '收起' : '展开'}>
-                            <span className="tn-tag">Tool</span>
-                            <span className="tn-fold">{open ? '▾' : '▸'}</span>
-                            <span className="tn-sp" />
-                            <span className="tn-stats">{st.from ? (st.to && st.to !== st.from ? 'No.' + String(st.from).padStart(3, '0') + '–' + String(st.to).padStart(3, '0') : 'No.' + String(st.from).padStart(3, '0')) : ''}{st.thinks ? ' · 思考 ' + st.thinks : ''} · {st.n}{st.chars ? ' · ' + (st.chars >= 1000 ? (st.chars / 1000).toFixed(1) + 'k' : st.chars) + ' 字' : ''}</span>
-                          </div>
-                        ) : null}
-                        {open ? (
-                          <>
-                            {thinkBeforeAt(i) ? (
-                              <details className="tn-think">
-                                <summary>思考 · {thinkBeforeAt(i).length} 字</summary>
-                                <pre className="think">{thinkBeforeAt(i)}</pre>
-                              </details>
-                            ) : null}
-                            <div className="tn-row">
-                              <span className="tn-no">{(m.seq || liveNo.get(m)) ? 'No.' + String(m.seq || liveNo.get(m)).padStart(3, '0') : '··'}</span>
-                              <span className="tn-name">{m.toolName || '工具'}</span>
-                              <span className="tn-meta">{meta}</span>
-                            </div>
-                            {args ? <div className="tn-arg" title={args}>{args}</div> : null}
-                            {(m.images || []).map((u, k2) => <img key={k2} className="msg-img" src={u} alt="tool" />)}
-                            {(m.content || '').trim() ? (
-                              <details className="tn-out">
-                                <summary>输出</summary>
-                                <pre className="out">{m.content}</pre>
-                              </details>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </div>
-                    )
-                  })() : isSysNote(m) ? (
-                  <div key={i} className="sysnote">
-                    {(m.seq || liveNo.get(m)) ? <span className="sysnote-no">[No.{String(m.seq || liveNo.get(m)).padStart(3, '0')}]</span> : null}
-                    <span className="sysnote-t">{m.content}</span>
-                    <span className="sysnote-line" />
-                  </div>
-                ) : (
-                  <div key={i} data-vidx={m.role === 'tool' ? undefined : (visible.findIndex(v => v === m) + 1)}
-                      className={'msg ef-panel cut-tl ' + m.role}>
-                    <div>
-                      <div className="mhead">
-                        <span className={'av' + (m.role === 'user' ? ' u' : m.role === 'tool' ? ' t' : '')}>{m.role === 'user' ? '用' : m.role === 'tool' ? 'T' : '◈'}</span>
-                        <b>{m.role === 'user' ? '用户' : m.role === 'tool' ? (m.toolName || '工具') : 'Agent'}</b>
-                        {m.interject ? <span className="ef-tag">插话</span> : null}
-                        {(m.seq || liveNo.get(m)) ? <span className="ef-tag">No.{String(m.seq || liveNo.get(m)).padStart(3, '0')}</span> : null}
-                        <span className="ef-field">{m.at || ''}{m.role === 'tool' && m.ms ? ' · ' + (m.ms < 1000 ? m.ms + 'ms' : (m.ms / 1000).toFixed(1) + 's') : ''}</span>
-                        {m.role === 'assistant' && m.content ? (
-                          <span className="mact" onClick={() => navigator.clipboard?.writeText(m.content)}>复制</span>
-                        ) : null}
-                      </div>
-                      {m.reasoning ? (
-                        <details className="fold">
-                          <summary className="think-sum">思考过程 · <span className="num">{String(m.reasoning).length}</span> 字{
-                            (m.reasoning_ms || (m.rsecs ? m.rsecs * 1000 : 0))
-                              ? <>{' · '}<span className="num">{((m.reasoning_ms || m.rsecs * 1000) / 1000).toFixed(1)}</span>{'s'}</> : null}</summary>
-                          <pre className="think">{m.reasoning}</pre>
-                          <button className="fold-close" onClick={e => {
-                            const d = e.currentTarget.closest('details')
-                            const box = d && d.closest('.msg')
-                            if (d) d.open = false
-                            // 收起后回到这条消息的开头（比"思考过程"那一行再高一点）
-                            if (box) requestAnimationFrame(() => {
-                              box.scrollIntoView({ block: 'start' })
-                              const th = threadRef.current
-                              if (th) th.scrollTop -= 12
-                            })
-                          }}>
-                            <span className="arw"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square"/></svg></span>
-                            收起思考
-                          </button>
-                        </details>
-                      ) : null}
-                      {m.content && m.role !== 'tool' ? <Sections text={m.content} /> : null}
-                      {m.role === 'tool' ? (
-                        <div>
-                          <div className="tool-args">
-                            {(m.toolName || '工具') + (m.toolArgs ? ' · ' + String(m.toolArgs).slice(0, 120) : '')}
-                          </div>
-                          {(m.images || []).map((u, k) => <img key={k} className="msg-img" src={u} alt="tool" />)}
-                          {(m.content || '').trim() ? (
-                            <details className="fold">
-                              <summary>输出 · {String(m.content).length} 字</summary>
-                              <pre className="out">{m.content}</pre>
-                            </details>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {(m.images || []).map((u, k) => <img key={k} className="msg-img" src={u} alt="image" />)}
-                    </div>
-                  </div>
-                ))}
+                {msgs.map((m, i) => {
+                  if (isGhostMsg(m)) return null   // 工具轮的 assistant 只有思考和 tool_calls：不占 Agent 卡
+                  const seq = seqOf(m)
+                  if (m.role === 'tool') {
+                    const gmeta = toolMeta.get(i)
+                    if (!gmeta) return null
+                    return <ToolGroup key={i} m={m} seq={seq} meta={gmeta}
+                              open={openRuns.has(gmeta.start)} onToggle={toggleRun} />
+                  }
+                  if (isSysNote(m)) return <SysNote key={i} m={m} seq={seq} />
+                  return <MessageCard key={i} m={m} seq={seq} vidx={vidxOf.get(m)} onCollapse={collapseMsg} />
+                })}
                 <LiveBubble busy={busy} />
                 {pendingTools.map(p => (
                   <div key={p.id} className="msg ef-panel cut-tl tool pending-tool">

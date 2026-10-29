@@ -1,7 +1,7 @@
 # 前端重构计划（架构 A：容器/展示分离 + 薄 store）
 
 > 用途：跨会话交接。任何 agent（或压缩后的我）读完这份就能接着做，不必回看对话历史。
-> 最近状态：Step 1 已完成（提交 `3e827b8`）；Step 2/3 未开始。
+> 最近状态：Step 1（`3e827b8`）、Step 2 已完成；Step 3 未开始。
 > 回滚点：tag `backup-web-20261030`，快照 `~/backups/agentd-web-20261030-0445.tgz`。
 
 ## 0. 目标与验收
@@ -78,14 +78,36 @@ App.jsx 里只留薄包装：neighbor / runStartAt / runStatsAt / thinkBeforeAt
 ⚠️ 这些函数依赖 `msgs` 数组，抽取组件时要把「计算好的结果」作为 props 传入，
 不要让组件自己去访问全局 msgs（否则 memo 永远失效）。
 
-### 2.5 迁移顺序（每步都构建 + 跑用例）
+### 2.5 迁移顺序（每步都构建 + 跑用例）✅ 全部完成
 
 ```
-a. 新建 MessageCard.jsx，先只处理分支 4（用户/Agent）
-b. App.jsx 的 map 改成 <MessageCard/>，删掉对应 JSX；构建 + run.py
-c. 搬分支 3（系统提示）→ SysNote.jsx；构建 + run.py
-d. 搬分支 2（工具组）→ ToolGroup.jsx（注意 runStart/runStats 由父层算好传入）；构建 + run3.py
-e. 上 React.memo + 比较函数；用 500 条会话检查滚动与展开
+a. ✅ MessageCard.jsx 先只处理分支 4（用户/Agent）
+b. ✅ App 的 map 改成 <MessageCard/>，删掉旧 JSX；构建 + run.py
+c. ✅ 分支 3（系统提示）→ SysNote.jsx；构建 + run.py
+d. ✅ 分支 2（工具组）→ ToolGroup.jsx（runStart/runStats 由父层算好传入）；构建 + run3.py
+e. ✅ React.memo + 比较函数；204 条会话验证滚动/展开（见 2.6）
+```
+
+### 2.6 完成情况与实测
+
+```
+web/src/components/
+  Markdown.jsx     Md / Sections（连同 marked+DOMPurify 从 App 搬出）
+  MessageCard.jsx  用户/Agent 气泡；memo 比 m / seq / vidx / onCollapse
+  SysNote.jsx      系统提示；memo 比 m / seq
+  ToolGroup.jsx    工具组；meta={start,first,last,stats,think} 由 App 的 useMemo 一次算好，
+                   memo 逐字段比（meta 随 msgs 重建，但字段没变就不渲染）
+App.jsx 只剩：vidxOf（data-vidx）+ useMemo(toolMeta) + 两个稳定回调（toggleRun / collapseMsg）
+             + map 里三分支（ToolGroup / SysNote / MessageCard）
+
+实测（1600×1000，conv 51 = 204 条消息 / 174 个工具组 / 295 条工具）：
+  首次挂载 msg=204 note=10 tool=295（与 DOM 一致）
+  点开一个工具组 → ToolGroup 渲染 2 次（该组两行）、MessageCard 0 次
+  完整一轮 180-low 对话（4.0s）→ MessageCard 渲染 3 次（新用户卡 + 新回复 + 重载）
+  工具组默认收拢、每组 1 个 Tool 头、组头 "No.003–004 · 2 · 1.1k 字"、四角括号、data-vidx 连续
+用例：run.py / run2.py / run3.py 全绿；新增 /tmp/uitest/check_tools.py（工具组结构+memo）
+     与 check_live.py（真跑一轮：实时气泡定稿后不残留、历史卡不重渲染）
+调试钩子：window.__renders = {msg, tool, note}（组件内自增，用来验证 memo 是否真的跳过）
 ```
 
 ## 3. Step 3：设置面板与 App 装配
@@ -113,6 +135,11 @@ App.jsx 最终只剩：布局（drawer/stage/rail）、URL 深链、快捷键、
 5. 滚动跟随：stickRef（用户上滚立即解除，回到底部 ≤8px 恢复），
    运行中每帧 rAF 只在 stickRef=true 时校正；不要改回"宽容区"阈值
 6. 工具/系统提示的样式细节都在 theme.css 的 .toolnote/.tn-*/.sysnote 里
+7. 节流 push 与 clear 有竞态：push 用 80ms setTimeout 落地，若收流/切会话时只调
+   stream.clear() 而不取消挂起的 timer，timer 会在 clear 之后又把旧内容塞回缓冲 →
+   正文已落库、底下却多一个"生成中…"的幽灵气泡。已在 sendText（收流点 + finally）
+   与 attachStream.finish 里「先 clearTimeout 再 clear」，并加 ended/done 闸门
+8. 组件内的计数器（window.__renders）要放在函数体内，别放到模块顶层（只会加 1）
 ```
 
 ## 5. 测试与命令
@@ -128,10 +155,10 @@ cd /tmp/uitest && python3 run.py && python3 run2.py && python3 run3.py
 ## 6. 下一步第一件事（checklist）
 
 ```
-[ ] 确认 geckodriver 可用、三组用例当前全绿
-[ ] 新建 components/MessageCard.jsx，迁移分支 4（用户/Agent 气泡）
-[ ] App.jsx map 改用它，删旧 JSX，构建 + run.py
-[ ] 逐个迁移 3 与 2，每步跑对应用例
-[ ] 上 memo 比较函数，用 500 条会话验证滚动/展开
-[ ] Step 3 按 §3 拆设置面板
+[x] 确认 geckodriver 可用、三组用例当前全绿
+[x] 新建 components/MessageCard.jsx，迁移分支 4（用户/Agent 气泡）
+[x] App.jsx map 改用它，删旧 JSX，构建 + run.py
+[x] 逐个迁移 3 与 2，每步跑对应用例
+[x] 上 memo 比较函数，用 204 / 500 条会话验证滚动/展开
+[ ] Step 3 按 §3 拆设置面板（下一步从这里开始）
 ```

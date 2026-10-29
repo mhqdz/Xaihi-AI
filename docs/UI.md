@@ -177,11 +177,12 @@ scripts/ui-test/   WebDriver（geckodriver，无 selenium）驱动 Firefox headl
 数据层（无 JSX）
   conversation/streamStore.js   流式缓冲，React 之外；useSyncExternalStore 订阅
   conversation/useConversation  会话 reducer + hooks（消息/上下文/任务）
-展示层（纯组件 + memo）
-  components/MessageCard.jsx    已完成消息（memo：seq/content/reasoning/ms）
-  components/ToolGroup.jsx      工具组（默认收拢）
+展示层（纯组件 + memo，props 全是父层算好的结果）
+  components/Markdown.jsx       Md / Sections（marked + DOMPurify）
+  components/MessageCard.jsx    已完成消息（memo：m / seq / vidx / onCollapse）
+  components/ToolGroup.jsx      工具组（默认收拢，memo：逐字段比 meta）
   components/SysNote.jsx        系统提示
-  components/Settings/*.jsx     设置卡片
+  components/Settings/*.jsx     设置卡片（Step 3）
 App.jsx                       只做布局、URL、快捷键、装配
 ```
 
@@ -189,7 +190,7 @@ App.jsx                       只做布局、URL、快捷键、装配
 
 ```
 Step 1  ✅ 流式缓冲移出 React state（streamStore + LiveBubble），历史消息不再随 delta 重算
-Step 2  消息卡抽组件 + React.memo（自定义比较）——待做
+Step 2  ✅ 消息卡抽组件 + React.memo（实测：204 条会话里切换工具组，MessageCard 渲染 0 次）
 Step 3  App 只留装配；设置面板按卡片拆
 验收：流式中每秒渲染 ≤10、只有尾部与状态栏重渲染；500 条会话滚动/新增不掉帧
 ```
