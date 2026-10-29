@@ -81,10 +81,10 @@ export function useSettings({ refresh }) {
       const tl = q.get('tool')                    // ?tool=kb_search 直接打开工具卡
       if (tl) {
         const t = (await api('/api/tools').catch(() => []))?.find(x => x.name === tl)
-        if (t) setToolCfg({ ...t, enabled: true, subtools: [] })
+        if (t) { setEditP(null); setToolCfg({ ...t, enabled: true, subtools: [] }) }   // 2 级详情只能有一张
         if (t && q.get('tooledit')) { setEditOriginal(t.description || ''); setToolEdit({ name: t.name, description: t.description }) }
       }
-      if (q.get('newplugin')) setToolForm({ ...NEW_PLUGIN })
+      if (q.get('newplugin')) { setEditP(null); setToolForm({ ...NEW_PLUGIN }) }
     })()
   }, [])
 
