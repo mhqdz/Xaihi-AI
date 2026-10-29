@@ -131,7 +131,7 @@ App.jsx：设置区只剩一行 <SettingsPanel v={settingsUI} …/>；refresh �
 ### 3.1 实测
 
 ```
-check_settings.py（新，22 项）全绿：
+check_settings.py（新，31 项）全绿：
   初始只有列表卡 / 脏了才出现 取消+保存 / 取消回滚（数字、API Key、工具说明）
   保存真的落库（auto_archive_days 30→31→30，GET /api/settings 同步变化）
   点模型→详情两级；点工具→工具卡且与模型互斥；说明→三级编辑卡（三张卡同屏）
@@ -140,13 +140,16 @@ check_settings.py（新，22 项）全绿：
 run.py / run2.py / run3.py / check_tools.py / check_live.py 全绿
 ```
 
-### 3.2 设置区已知怪癖（沿用旧行为，没改）
+### 3.2 两个旧怪癖 → 已修
 
 ```
-1. 工具说明编辑时是"编辑器 + 工具卡 + 列表卡"三张，但 set-cols 仍是 two
-   （老逻辑只按 editP 判断 three）：实测三张各 400px 并排，观感正常，故保留
-2. ?profile= 深链不设 editSnap ⇒ 打开即显示"保存/取消"（老行为）
-3. openConv 会 history.replaceState('?conv=..')，深链查询串被清掉（老行为）
+1. 三张卡却给 two 档：旧逻辑只按 editP 判断 three；工具说明编辑（编辑器+工具卡+列表卡）
+   因此没走 three 档、编辑器没加宽。
+   → Panel 改成按"实际渲染几张卡"算（1 + 编辑器 + 工具 + 模型），≥3 用 three。
+     实测：三张卡时 set-cols=three、编辑器 470px（其余 400px）。
+2. ?profile= 深链不建 editSnap ⇒ 一打开就是"脏"的（你的原始设计是要建快照）。
+   → 深链里 setEditSnap(snapOf(v))；实测打开后无保存/取消，改一个字才出现，取消可回干净。
+3. 插件点开进的是插件表单、内置工具才进"工具详情"（可点说明进三级）——行为，不是 bug，保留。
 ```
 
 ## 4. 已知坑（改之前必读）
@@ -172,6 +175,14 @@ run.py / run2.py / run3.py / check_tools.py / check_live.py 全绿
 10. 设置面板的保存/取消只作用于"最内层脏的东西"：编辑器 → profile → 常规配置。
     useSettings.save()/cancel() 的顺序不能改，否则宽屏列表头上的两个按钮会保存错层
 11. 插件点开进的是"插件表单"（toolForm），内置工具点开才是"工具详情"（可点说明进三级）
+12. ASI 陷阱（这次踩到，整页白屏）：`const q = new URLSearchParams(...)` 下一行如果以 `(` 开头
+    （async IIFE），会被解析成 `new URLSearchParams(...)(async ...)()` → TypeError。
+    所以挂载 effect 里那行 IIFE 前面留了 `;`。用 `new X()` 后接括号/数组/模板串都要当心。
+13. 深链查询串必须"同步"抓：App 的 ?conv= 深链在 effect 里 openConv → history.replaceState
+    会把 ?profile/?tool 清掉。useSettings 的 effect 第一行就取 URLSearchParams，再 await。
+14. localStorage['ui.quips'] 是用户可改的：存成 "null" 时 JSON.parse 返回 null，旧代码直接读
+    `local.length` → effect 抛错 → React 卸载整棵树（白屏）。已加 Array.isArray + 字符串过滤，
+    check_settings 里有"脏数据不白屏"的回归。读 localStorage 的地方都按这个标准写。
 ```
 
 ## 5. 测试与命令
@@ -192,5 +203,6 @@ cd /tmp/uitest && python3 run.py && python3 run2.py && python3 run3.py
 [x] App.jsx map 改用它，删旧 JSX，构建 + run.py
 [x] 逐个迁移 3 与 2，每步跑对应用例
 [x] 上 memo 比较函数，用 204 / 500 条会话验证滚动/展开
-[x] Step 3 按 §3 拆设置面板（useSettings + 5 张卡），check_settings.py 22 项全绿
+[x] Step 3 按 §3 拆设置面板（useSettings + 5 张卡），check_settings.py 31 项全绿
+[x] 修 §3.2 两个旧怪癖：三张卡走 three 档；?profile= 深链建快照（打开即干净）
 ```

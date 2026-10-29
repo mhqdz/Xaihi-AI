@@ -452,8 +452,12 @@ export default function App() {
     fetch('/ui.json').then(r => r.ok ? r.json() : null).then(c => c && setUiCfg(c)).catch(() => {})
   }, [])
   useEffect(() => {
+    // localStorage 是用户可改的：非数组/脏数据（例如误存了 "null"）不能让整页白屏
     let local = []
-    try { local = JSON.parse(localStorage.getItem('ui.quips') || '[]') } catch { local = [] }
+    try {
+      const raw = JSON.parse(localStorage.getItem('ui.quips') || '[]')
+      local = Array.isArray(raw) ? raw.filter(x => typeof x === 'string' && x.trim()) : []
+    } catch { local = [] }
     const lines = local.length ? local : (uiCfg && Array.isArray(uiCfg.quips) && uiCfg.quips.length) ? uiCfg.quips : [
       '「我是吃白饭的大肥鱼」',
       '「DeepSleep...」',

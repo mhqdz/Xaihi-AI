@@ -7,7 +7,10 @@ import ListCard from './ListCard'
 // 设置面板（装配层）：编辑器 / 工具 / 模型 / 列表 四张卡按状态互斥出现
 export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) {
   const editing = v.editField || v.toolEdit
-  const cols = editing ? (v.editP ? ' three' : ' two') : ((v.editP || v.toolCfg) ? ' two' : '')
+  // 列宽按"实际渲染几张卡"算：编辑器 / 工具 / 模型 / 列表（列表恒在）
+  // 旧逻辑只看 editP，工具说明编辑时三张卡却给了 two（编辑器不加宽）
+  const cards = 1 + (editing ? 1 : 0) + ((v.toolCfg || v.toolForm) ? 1 : 0) + (v.editP ? 1 : 0)
+  const cols = cards >= 3 ? ' three' : cards === 2 ? ' two' : ''
   return (
     <aside className={'settings' + cols}>
       <div className={'set-cols' + cols}

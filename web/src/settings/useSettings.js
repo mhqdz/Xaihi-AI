@@ -54,15 +54,17 @@ export function useSettings({ refresh }) {
 
   // 挂载：载入 + 处理深链
   useEffect(() => {
-    (async () => {
+    // 先同步抓查询串：App 的 ?conv= 深链会 history.replaceState 把参数清掉（它也在挂载时跑）
+    const q = new URLSearchParams(location.search)
+    ;(async () => {          // 前面必须留分号：否则会被解析成 new URLSearchParams(...)(async ...)
       await reload(); await loadTasks(); loadShotStats()
-      const q = new URLSearchParams(location.search)
       const pn = q.get('profile')                 // ?profile=9-exec 直接打开编辑
       if (pn) {
         const list = await api('/api/profiles').catch(() => [])
         const pr = (list || []).find(x => x.name === pn)
         if (pr) {
-          setEditP({ ...pr, tools: (pr.tools || []).join(',') })
+          const v = { ...pr, tools: (pr.tools || []).join(',') }
+          setEditP(v); setEditSnap(snapOf(v))     // 深链打开即"干净"，不该一进来就是脏的
           const fld = q.get('field')              // ?field=system 直接打开提示编辑
           if (fld) { setEditOriginal(pr[fld] || ''); setEditField(fld) }
         }
