@@ -3,3 +3,4 @@ agentd
 node_modules/
 /tmp/
 web/dist/
+__pycache__/

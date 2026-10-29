@@ -212,14 +212,14 @@ body{background:var(--paper);color:var(--ink);
 /* 抽屉行：标题拿到更多空间（之前被 No./日期 挤到 1 个字 ✗） */
 .drawer .ef-field{text-align:right}
 
-/* 三级卡片：textarea 随内容长高，卡片上限内滚动 */
-.col-editor .card-bd{display:flex;flex-direction:column;padding:0;overflow-y:auto}
-.col-editor textarea{height:var(--h,200px);min-height:200px;max-height:none;overflow:hidden;flex:0 0 auto}
+/* 三级卡片：文本区填满卡片（卡片本身撑满可用高度），内容超出就在框内滚动 */
+.col-editor{display:flex;flex-direction:column}
+.card.col-editor .set-area{flex:1 1 auto;min-height:0;height:auto;max-height:none;overflow-y:auto}
 
 /* 2 级卡里的"系统提示"摘要：限制行数（全文在 3 级卡里看） */
 .prompt-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-/* 3 级卡：不是文本框，只是铺开的文本；高度随内容，卡片上限内滚动 */
-.col-editor .card-bd{padding:0;display:block;overflow-y:auto}.col-editor textarea{max-height:none;flex:0 0 auto;height:auto;min-height:0;width:100%;border:0;background:transparent;padding:.7rem .85rem;font:inherit;font-size:.8rem;line-height:1.8;resize:none;outline:none;overflow:hidden;}
+/* 3 级卡文本区：白底、无边框，行高与正文一致 */
+.col-editor textarea{width:100%;border:0;background:#fff;padding:.7rem .85rem;font:inherit;font-size:.8rem;line-height:1.8;resize:none;outline:none}
 
 /* ── 统一"配置行"：1 级（模型/工具）与 2 级摘要共用同一套 ── */
 .list-row,.tool-desc{display:grid;grid-template-columns:1fr;gap:.15rem;
@@ -751,7 +751,7 @@ body{background:var(--paper);color:var(--ink);
 /* 工具配置卡里的子工具行 */
 .col-tool .sub-name{width:8rem;border:1px solid var(--c3);font:inherit;font-size:.8rem;padding:.25rem .4rem}
 .col-tool .sub-desc{flex:1;min-width:0;border:1px solid var(--c3);font:inherit;font-size:.8rem;padding:.25rem .4rem}
-.col-tool .item{grid-template-columns:auto auto 1fr auto;gap:.4rem}
+.col-tool .item{gap:.15rem .6rem}
 
 /* 缩略图热区：把右栏数字的可触发范围扩大（视觉不变，只扩 hit area）*/
 
@@ -854,22 +854,13 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
     background:var(--paper)}
   .set-cols{flex-direction:column;align-items:stretch;gap:0;padding:.55rem .55rem 1.2rem;
     overflow:auto;justify-content:flex-start}
-  .set-cols .card{width:100%;max-width:100%;flex:0 0 auto;max-height:none;
+  .set-cols .card{width:100%;max-width:100%;flex:1 1 auto;min-height:0;max-height:none;
     box-shadow:0 -4px 16px rgba(58,65,66,.10)}
 
-  /* 视觉顺序：3 级(编辑器) → 2 级(模型详情) → 1 级(列表) */
+  /* 视觉顺序：3 级(编辑器) → 2 级(详情) → 1 级(列表) */
   .set-cols .col-editor{order:1;z-index:3}
-  .set-cols .col-form{order:2;z-index:2}
-  .set-cols .col-list,.set-cols .col-tool{order:3;z-index:1}
-
-  /* 每一级向下压住下一级：露出下一级的标题栏，形成层叠 */
-  .set-cols .col-editor{margin-bottom:-3.2rem}
-  .set-cols .col-form{margin-bottom:-3.2rem}
-  .set-cols .col-list,.set-cols .col-tool{margin-bottom:0}
-
-  /* 被压住的卡片顶部留出露出高度，并加一道分隔阴影，层次更清楚 */
-  .set-cols .col-form,.set-cols .col-list,.set-cols .col-tool{
-    padding-top:.35rem;border-top:2px solid var(--c3)}
+  .set-cols .col-detail{order:2;z-index:2}
+  .set-cols .col-list{order:3;z-index:1}
 }
 
 /* 窄屏：设置只显示最上面那张卡片（其余隐藏）；提供显式退出按钮 */
@@ -885,10 +876,10 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 /* 窄屏：删除移到底部；× 落到卡片标题右侧（原删除位置） */
 .del-bottom-wrap{display:none}
 @media (max-width:1399px){
-  .set-cols .col-form .del-top{display:none}
-  .set-cols .col-form .del-bottom-wrap{display:flex;justify-content:flex-end;
+  .set-cols .col-detail .del-top{display:none}
+  .set-cols .col-detail .del-bottom-wrap{display:flex;justify-content:flex-end;
     padding:.5rem .6rem 1.1rem;border-top:1px solid var(--line)}
-  .set-cols .col-form .del-bottom{width:100%;min-height:32px;justify-content:center}
+  .set-cols .col-detail .del-bottom{width:100%;min-height:32px;justify-content:center}
 }
 
 /* 关闭/收起：极简图标按钮（无边框，悬停加深 + 轻微旋转） */
@@ -945,14 +936,13 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
   .set-cols .choices{gap:.35rem}
   .set-cols .card .set-col-foot{padding:.35rem .7rem}
 
-  /* 卡片统一高度上限：不超过可视区域，内容短就短、长则框内滚动 */
-  .set-cols .card{max-height:100%}
-  .set-cols .col-editor .set-area{max-height:none}
+  /* 卡片统一高度上限：不超过可视区域，内容超出在框内滚动 */
+  .set-cols .card{height:auto;max-height:none}
 }
 
-/* 宽屏同样：卡片不超过可视高度 */
+/* 宽屏同样：卡片统一撑满可视高度 */
 @media (min-width:1400px){
-  .set-cols .card{max-height:100%}
+  .set-cols .card{height:100%;max-height:100%}
 }
 
 /* 显隐：.icon-x 自身 display:grid 会盖掉 .narrow-only，这里显式声明 */

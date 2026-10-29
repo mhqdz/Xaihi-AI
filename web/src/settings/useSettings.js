@@ -161,6 +161,7 @@ export function useSettings({ refresh }) {
   }
   const newProfile = () => {
     setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
+    setToolCfg(null); setToolForm(null)   // 2 级详情同一时刻只能有一张
   }
   const pickTool = (t) => {
     setEditP(null); setToolEdit(null); setEditField(null)

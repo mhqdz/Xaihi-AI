@@ -137,7 +137,29 @@ check_settings.py（新，31 项）全绿：
   点模型→详情两级；点工具→工具卡且与模型互斥；说明→三级编辑卡（三张卡同屏）
   运行中提示 textarea 写入 localStorage['ui.quips']
   ?profile=180-low&field=system 深链：编辑器 + 模型详情 + 列表三张卡，system 正文 1484 字
-run.py / run2.py / run3.py / check_tools.py / check_live.py 全绿
+run.py / run2.py / run3.py / check_tools.py / check_live.py / check_layout.py 全绿
+（全部收进 scripts/ui-test/，check_live 跑完会把自己造的会话归档）
+```
+
+### 3.3 层级容器统一（2 级卡 = 3 级卡同一套容器）
+
+```
+components/Settings/Card.jsx   所有设置卡共用的外壳：同一个标题栏（返回 × / ef-label / 动作位）
+  二级卡统一类名 col-detail —— 原来模型叫 col-form、工具叫 col-tool，两套选择器各写一份样式
+  三级卡 col-editor / 一级卡 col-list 同样只经由 Card 渲染
+Panel 负责层级：3 级(编辑器) > 2 级(详情) > 1 级(列表)
+  · is-top 只由 Panel 算，任何时刻只有一张"最上层"卡
+  · 2 级详情互斥：新建 profile 会关掉工具详情（反过来 pickTool 会关掉模型）
+  · 列宽按实际卡数：三张 three（编辑器 470，其余 400），两张 two，一张无后缀
+CSS
+  · 删除 .col-tool .item 的 4 列栅格覆盖（工具卡与模型卡的配置行现在是同一套）
+  · 卡片高度：宽屏、窄屏都撑满可用区域；3 级编辑区 flex 填满（不再随内容长短变形）
+  · 窄屏删掉永远看不到的"层叠负边距"hack，只保留 order 与 .is-top 显隐
+
+实测（check_layout.py，23 项）：
+  宽屏 2 级：模型 / 工具都是 card col-detail，几何完全相同 [771,13,400,888]
+  宽屏 3 级：模型 / 工具都是 card col-editor，[287,13,470,888]；三张卡同高同顶线
+  窄屏任意层级：可见卡恒为 1 张，886×862 @44；3 级编辑区占卡片 >80%
 ```
 
 ### 3.2 两个旧怪癖 → 已修
@@ -180,7 +202,12 @@ run.py / run2.py / run3.py / check_tools.py / check_live.py 全绿
     所以挂载 effect 里那行 IIFE 前面留了 `;`。用 `new X()` 后接括号/数组/模板串都要当心。
 13. 深链查询串必须"同步"抓：App 的 ?conv= 深链在 effect 里 openConv → history.replaceState
     会把 ?profile/?tool 清掉。useSettings 的 effect 第一行就取 URLSearchParams，再 await。
-14. localStorage['ui.quips'] 是用户可改的：存成 "null" 时 JSON.parse 返回 null，旧代码直接读
+14. 设置卡一律走 components/Settings/Card.jsx + 三个类名（col-editor / col-detail / col-list）。
+    不要再给某一类卡单独写容器或栅格样式：工具卡曾经单独覆盖 .item 栅格、单独叫 col-tool，
+    结果和模型卡的布局对不上。模型详情和工具详情是"同一张卡，不同内容"。
+15. is-top 必须由 Panel 按层级算（3 级 > 2 级 > 1 级），不能让每张卡自己判断：
+    曾出现工具卡和列表卡同时 is-top，窄屏（`:not(.is-top){display:none}`）就会两张卡一起显示。
+16. localStorage['ui.quips'] 是用户可改的：存成 "null" 时 JSON.parse 返回 null，旧代码直接读
     `local.length` → effect 抛错 → React 卸载整棵树（白屏）。已加 Array.isArray + 字符串过滤，
     check_settings 里有"脏数据不白屏"的回归。读 localStorage 的地方都按这个标准写。
 ```
@@ -205,4 +232,5 @@ cd /tmp/uitest && python3 run.py && python3 run2.py && python3 run3.py
 [x] 上 memo 比较函数，用 204 / 500 条会话验证滚动/展开
 [x] Step 3 按 §3 拆设置面板（useSettings + 5 张卡），check_settings.py 31 项全绿
 [x] 修 §3.2 两个旧怪癖：三张卡走 three 档；?profile= 深链建快照（打开即干净）
+[x] §3.3 层级容器统一：Card 壳 + col-detail，2/3 级同心同尺寸，窄屏恒一张卡
 ```

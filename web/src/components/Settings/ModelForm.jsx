@@ -1,24 +1,20 @@
 import React from 'react'
 import DirtyActions from './DirtyActions'
-import XIcon from './XIcon'
+import Card from './Card'
 
 // 模型详情 / 新建模型（第二级）
-export default function ModelForm({ v, narrow }) {
+export default function ModelForm({ v, narrow, top }) {
   const editP = v.editP
   if (!editP) return null
   const isNew = !!editP._new
-  const top = !v.editField && !v.toolEdit
   return (
-    <div className={'card col-form' + (top ? ' is-top' : '')}>
-      <div className="card-hd" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-        <button className="icon-x back card-back narrow-only" onClick={() => v.closeOne()} aria-label="关闭" title="关闭"><XIcon /></button>
-        <span className="ef-label"><span className="ef-label-t">{isNew ? '新建模型' : ('模型详情 · ' + editP.name)}</span></span>
-        <span style={{ flex: 1 }} />
+    <Card kind="col-detail" top={top}
+      title={isNew ? '新建模型' : ('模型详情 · ' + editP.name)}
+      onClose={() => v.closeOne()}
+      actions={<>
         <DirtyActions v={v} show={narrow} />
-        {!isNew ? (
-          <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button>
-        ) : null}
-      </div>
+        {!isNew ? <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button> : null}
+      </>}>
       <div className="card-bd">
         {[['name', '名称'], ['base_url', '接口地址 (url+/v1)'], ['api_key', 'API Key']].map(([k, label]) => (
           <label className="field" key={k}><span>{label}</span>
@@ -85,6 +81,6 @@ export default function ModelForm({ v, narrow }) {
           </div>
         ) : null}
       </div>
-    </div>
+    </Card>
   )
 }

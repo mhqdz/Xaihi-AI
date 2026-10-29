@@ -182,7 +182,8 @@ scripts/ui-test/   WebDriver（geckodriver，无 selenium）驱动 Firefox headl
   components/MessageCard.jsx    已完成消息（memo：m / seq / vidx / onCollapse）
   components/ToolGroup.jsx      工具组（默认收拢，memo：逐字段比 meta）
   components/SysNote.jsx        系统提示
-  components/Settings/*.jsx     设置卡片（Panel/ListCard/ModelForm/ToolCard/EditorCard）
+  components/Settings/*.jsx     设置卡片（Card 外壳 + Panel/ListCard/ModelForm/ToolCard/EditorCard）
+                                2 级卡统一 col-detail、3 级 col-editor，层级由 Panel 决定（is-top 只有一张）
   settings/useSettings.js       设置状态机（保存/取消/脏检查/深链/插件增删改）
 App.jsx                       只做布局、URL、快捷键、装配
 ```

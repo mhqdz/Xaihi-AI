@@ -10,9 +10,14 @@
 /tmp/geckodriver --port 4444 &
 
 # 2) 跑
-python3 scripts/ui-test/run.py     # 主用例：宽屏/窄屏/输入框/任务
-python3 scripts/ui-test/run2.py    # 错误收集/任务点击/滚动/输入框间距
-python3 scripts/ui-test/run3.py    # 任务深链滚动/窄屏布局
+python3 scripts/ui-test/run.py             # 主用例：宽屏/窄屏/设置三级卡/输入框/任务
+python3 scripts/ui-test/run2.py            # 错误收集/任务点击/滚动/输入框间距
+python3 scripts/ui-test/run3.py            # 任务深链滚动/竖屏布局
+python3 scripts/ui-test/check_layout.py    # 设置面板层级布局一致性（2 级/3 级 模型=工具，宽窄屏几何）
+python3 scripts/ui-test/check_settings.py  # 设置面板行为（脏检查/保存/取消/深链/localStorage）
+python3 scripts/ui-test/check_tools.py     # 工具组结构与 memo（对话页，不涉及设置）
+python3 scripts/ui-test/check_live.py      # 真跑一轮对话（实时气泡收尾、历史卡不重渲染）
+                                           #   会新建一条会话，跑完自动归档
 
 # 截图落在 /tmp/uitest/*.png
 ```

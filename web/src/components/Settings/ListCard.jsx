@@ -1,6 +1,6 @@
 import React from 'react'
 import DirtyActions from './DirtyActions'
-import XIcon from './XIcon'
+import Card from './Card'
 
 const fmtTime = (s) => {
   if (!s) return ''
@@ -11,16 +11,10 @@ const fmtTime = (s) => {
 }
 
 // 一级卡：常规配置 + 模型列表 + 工具列表 + 任务
-export default function ListCard({ v, narrow, profiles, uiCfg, openConv }) {
-  const top = !(v.editField || v.toolEdit) && !v.editP
+export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) {
   return (
-    <div className={'card col-list' + (top ? ' is-top' : '')}>
-      <div className="card-hd list-hd">
-        <button className="icon-x back card-back narrow-only" onClick={() => v.closeOne()} aria-label="退出设置" title="退出"><XIcon /></button>
-        <span className="ef-label"><span className="ef-label-t">SETTINGS / PROFILES</span></span>
-        <span style={{ flex: 1 }} />
-        <DirtyActions v={v} show={!narrow} />
-      </div>
+    <Card kind="col-list" top={top} hdClass="list-hd" title="SETTINGS / PROFILES" closeTitle="退出设置"
+      onClose={() => v.closeOne()} actions={<DirtyActions v={v} show={!narrow} />}>
       <div className="card-bd">
         <div className="set-section">常规配置</div>
         <div className="set-card">
@@ -149,6 +143,6 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv }) {
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }

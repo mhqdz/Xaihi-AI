@@ -1,26 +1,22 @@
 import React from 'react'
 import DirtyActions from './DirtyActions'
-import XIcon from './XIcon'
+import Card from './Card'
 
 // 工具详情 / 插件表单卡（第二级）
-export default function ToolCard({ v, narrow, profiles }) {
+export default function ToolCard({ v, narrow, profiles, top }) {
   const cfg = v.toolCfg
   const form = v.toolForm
   if (!cfg && !form) return null
-  const isTop = !v.toolEdit && !v.editField
   return (
-    <div className={'card col-tool' + (isTop ? ' is-top' : '')}>
-      <div className="card-hd">
-        <button className="icon-x back card-back narrow-only" onClick={() => v.closeOne()} aria-label="关闭" title="关闭"><XIcon /></button>
-        <span className="ef-label"><span className="ef-label-t">{form ? (form.isNew ? 'new plugin' : 'tool · ' + form.name) : ('tool · ' + cfg.name)}</span></span>
-        <span style={{ flex: 1 }} />
-        {form ? (
-          <span className="card-actions title-actions">
-            <button className="btn" onClick={v.closeToolForm}>取消</button>
-            <button className="btn" onClick={v.savePlugin}>保存</button>
-          </span>
-        ) : <DirtyActions v={v} show={narrow} />}
-      </div>
+    <Card kind="col-detail" top={top}
+      title={form ? (form.isNew ? 'new plugin' : 'tool · ' + form.name) : ('tool · ' + cfg.name)}
+      onClose={() => v.closeOne()}
+      actions={form ? (
+        <span className="card-actions title-actions">
+          <button className="btn" onClick={v.closeToolForm}>取消</button>
+          <button className="btn" onClick={v.savePlugin}>保存</button>
+        </span>
+      ) : <DirtyActions v={v} show={narrow} />}>
 
       {form ? (
         <div className="card-bd">
@@ -91,6 +87,6 @@ export default function ToolCard({ v, narrow, profiles }) {
           <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
         </div>
       ) : null}
-    </div>
+    </Card>
   )
 }
