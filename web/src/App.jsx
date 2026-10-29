@@ -6,6 +6,8 @@ import { Sections } from './components/Markdown'
 import MessageCard from './components/MessageCard'
 import SysNote from './components/SysNote'
 import ToolGroup from './components/ToolGroup'
+import SettingsPanel from './components/Settings/Panel'
+import { useSettings } from './settings/useSettings'
 
 // 实时气泡：订阅 streamStore，只它随 delta 重渲染（历史消息不参与）
 function LiveBubble({ busy }) {
@@ -194,48 +196,17 @@ export default function App() {
   const hDrag = useRef(null)
   const abortRef = useRef(null)
   const [aborted, setAborted] = useState(false)
-  const [showSet, setShowSet] = useState(new URLSearchParams(location.search).has('settings'))
-  const [editP, setEditP] = useState(null)
-  const [toolList, setToolList] = useState([])
-  const [settings, setSettings] = useState({ tool_rounds_enabled: true, tool_rounds: 8 })
-  const [toolEdit, setToolEdit] = useState(null)
-  const [toolCfg, setToolCfg] = useState(null)   // 工具配置卡（只读信息）
-  const [toolForm, setToolForm] = useState(null) // 插件表单（新建/编辑）
-  const [tasks, setTasks] = useState([])         // 交接任务
   const [pendingTools, setPendingTools] = useState([])
   const [openRuns, setOpenRuns] = useState(() => new Set())   // 已展开的工具组（默认全收拢）  // 正在执行的工具（tool_start 到 tool 之间）
-  const [recipes, setRecipes] = useState([])
-  const [taskActive, setTaskActive] = useState(0)
-  const [taskDetail, setTaskDetail] = useState(null)
-  const [expandedTool, setExpandedTool] = useState(null)
-  const [models, setModels] = useState({ loading: false, list: [], err: '' })
   const [readingIdx, setReadingIdx] = useState(0)
   const [peek, setPeek] = useState({ open: false, idx: -1, top: 0 })
-  const [shotInfo, setShotInfo] = useState('')
   const convIdRef = useRef(null)   // 当前会话 id，用于丢弃过期的续流请求
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 1400)
   const [ctx, setCtx] = useState(null)   // 上下文占用 {chars,max,pct,raw}
   const [tps, setTps] = useState(0)   // 上游实时速度（tok/s，来自 usage 事件）
-  const loadTasks = async () => {
-    const r = await api('/api/tasks').catch(() => null)
-    if (r && !Array.isArray(r)) { setTasks(r.tasks || []); setRecipes(r.recipes || []); setTaskActive(r.active || 0) }
-  }
   const atBottomRef = useRef(true)   // 是否贴在底部（决定新内容是否跟随）
   const suppressPeekClose = useRef(false)
   const suppressTimer = useRef(null)
-  const [editField, setEditField] = useState(null)
-  const [editOriginal, setEditOriginal] = useState('')
-  const [editSnap, setEditSnap] = useState('')
-  const [setSnap, setSetSnap] = useState(() => JSON.stringify({ tool_rounds_enabled: true, tool_rounds: 8 }))
-
-  // 快照去掉内部标记 _new，避免"一打开就算脏"✗
-  const snapOf = (p) => { if (!p) return ''; const { _new, ...rest } = p; return JSON.stringify(rest) }
-  const formDirty = !!editP && snapOf(editP) !== editSnap
-  const editorDirty = (editField || toolEdit)
-    ? ((editField ? (editP?.[editField] || '') : (toolEdit?.description || '')) !== (editOriginal || ''))
-    : false
-  const settingsDirty = JSON.stringify(settings) !== setSnap
-  const anyDirty = formDirty || editorDirty || settingsDirty
   const drag = useRef(null)
   const [convId, setConvId] = useState(null)
   const [title, setTitle] = useState('新会话')
@@ -383,32 +354,6 @@ export default function App() {
     window.addEventListener('mouseup', up)
   }
 
-  // 逐级退出：编辑器 → 详情 → 设置；有改动先问是否保存
-  // 文本域随内容长高（写 CSS 变量，避免被 !important 压掉）
-  const autoGrow = (el) => {
-    if (!el) return
-    el.style.height = 'auto'
-    let h = el.scrollHeight + 2
-    if (el.classList.contains('set-area')) {
-      // 上限来自卡片自身的 max-height（由 CSS 决定，宽窄屏一致），减去标题与字数栏
-      // 可用高度 = 容器内容区高度 − 卡片上下留白（padding）− 卡片标题/字数栏 − 边框
-      const card = el.closest('.card')
-      let cap = Infinity
-      if (card && card.parentElement) {
-        const box = card.parentElement
-        const cs = getComputedStyle(box)
-        const inner = box.clientHeight - parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0)
-        const hd = card.querySelector('.card-hd')
-        const ft = card.querySelector('.set-col-foot')
-        cap = inner - (hd ? hd.offsetHeight : 0) - (ft ? ft.offsetHeight : 0) - 4
-      }
-      el.style.overflowY = h > cap ? 'auto' : 'hidden'
-      h = Math.min(h, Math.max(160, cap))
-    }
-    el.style.setProperty('--h', h + 'px')
-    el.style.height = h + 'px'
-  }
-
   // 阅读位置：滚到哪条消息，就显示第几条
   const onThreadScroll = () => {
     const box = threadRef.current
@@ -443,14 +388,6 @@ export default function App() {
   // 系统级提示（工具轮次上限 / 已停止 / 中断 / 空转中止）：模型要看到，但不该像对话那样占编号
   const isSysNote = (m) => !(m.reasoning || '').trim() && (m.origin === 'timer' || m.origin === 'handoff' || (m.role === 'assistant' &&
     /^\s*(——)?\s*（(已达到工具轮次上限|已停止|中断|检测到连续|任务回报|任务已派发)/.test(m.content || '')))
-
-  const fmtTime = (s) => {
-    if (!s) return ''
-    const d = new Date(s)
-    if (isNaN(d)) return s
-    const p2 = (n) => String(n).padStart(2, '0')
-    return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
-  }
 
   const maxSeq = msgs.reduce((a, m) => Math.max(a, m.seq || 0), 0)   // 含工具消息，避免编号撞号
   const liveNo = new Map()
@@ -488,75 +425,18 @@ export default function App() {
   const roundMax = visible.length
   const roundNow = readingIdx || visible.length
 
-  const closeOne = async () => {
-    const open = editField || toolEdit
-    if (open) {
-      const cur = editField ? (editP?.[editField] || '') : (toolEdit?.description || '')
-      if (cur !== (editOriginal || '')) {
-        if (!confirm('文本已修改，是否保存？\n确定 = 保存并关闭　取消 = 放弃修改')) {
-          if (editField) setEditP({ ...editP, [editField]: editOriginal })
-          else setToolEdit({ ...toolEdit, description: editOriginal })
-        } else if (toolEdit) {
-          await fetch('/api/tools/' + toolEdit.name, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description: toolEdit.description }) })
-          refresh()
-        }
-      }
-      if (editField) setEditField(null); else setToolEdit(null)
-      return
-    }
-    if (editP) { setEditP(null); return }
-    setShowSet(false)
-  }
-
   const refresh = async () => {
     setConvs(await api('/api/convs'))
     setArchived(await api('/api/convs?archived=1').catch(() => []))
     setProfiles(await api('/api/profiles'))
-    setToolList(await api('/api/tools').catch(() => []))
-    const st = await api('/api/settings').catch(() => ({ tool_rounds_enabled: true, tool_rounds: 8 }))
-    setSettings(st); setSetSnap(JSON.stringify(st))
   }
+  // 设置面板的状态机（含 ?profile/?field/?tool/?tooledit/?newplugin/?task 深链）
+  const settingsUI = useSettings({ refresh })
   useEffect(() => {
-    refresh().then(async () => {
-      const q = new URLSearchParams(location.search)
-      const c = q.get('conv')                                     // ?conv=<id> 深链
-      if (c) openConv(c)
-      const pn = q.get('profile')                                 // ?settings=1&profile=9-exec 直接打开编辑
-      if (pn) {
-        const list = await api('/api/profiles')
-        const pr = (list || []).find(x => x.name === pn)
-        if (pr) {
-          setEditP({ ...pr, tools: (pr.tools || []).join(',') })
-          const fld = q.get('field')                 // ?field=system 直接打开提示编辑
-          if (fld) { setEditOriginal(pr[fld] || ''); setEditField(fld) }
-        }
-      }
-      const tq = q.get('task')                     // ?task=3 直接看任务详情
-      if (tq) {
-          const d = await api('/api/tasks/' + tq).catch(() => null)
-          if (d && d.task) {
-            setTaskDetail(d)
-            // 详情在列表卡深处：等渲染后滚过去（否则深链打开等于没开）
-            setTimeout(() => { const el = document.querySelector('.task-step'); if (el) el.scrollIntoView({ block: 'center' }) }, 350)
-          }
-        }
-      const tl = q.get('tool')                    // ?tool=kb_search 直接打开工具卡
-      if (tl) {
-        const t = (await api('/api/tools').catch(() => []))?.find(x => x.name === tl)
-        if (t) setToolCfg({ ...t, enabled: true, subtools: [] })
-        if (t && q.get('tooledit')) { setEditOriginal(t.description || ''); setToolEdit({ name: t.name, description: t.description }) }
-      }
-        if (q.get('newplugin')) setToolForm({ isNew: true, name: '', description: '', command: '', timeoutMs: 20000, persistent: false, paramsText: '{\n  "query": { "type": "string" }\n}', requiredText: 'query' })
-    })
+    const c = new URLSearchParams(location.search).get('conv')     // ?conv=<id> 深链
+    refresh().then(() => { if (c) openConv(c) })
   }, [])
-  useEffect(() => { setOpenRef.current = showSet }, [showSet])
-  useEffect(() => {
-    const el = document.querySelector('.col-editor .set-area')
-    if (el) setTimeout(() => autoGrow(el), 0)
-  }, [editField, toolEdit])
-  useEffect(() => { loadShotStats() }, [])
-  useEffect(() => { loadTasks(); const t = setInterval(loadTasks, 5000); return () => clearInterval(t) }, [])
+  useEffect(() => { setOpenRef.current = settingsUI.showSet }, [settingsUI.showSet])
   useEffect(() => {
     const on = () => setNarrow(window.innerWidth < 1400)
     window.addEventListener('resize', on)
@@ -635,11 +515,6 @@ export default function App() {
     if (!id) { setCtx(null); return }
     const r = await api('/api/context?conv=' + id + '&profile=' + encodeURIComponent(profile)).catch(() => null)
     setCtx(r && !r.error ? r : null)
-  }
-
-  const loadShotStats = async () => {
-    const r = await api('/api/shots/stats').catch(() => null)
-    if (r) setShotInfo(`当前 ${r.count} 张，占用 ${r.size_mb.toFixed(1)} MB`)
   }
 
   const openConv = async (id) => {
@@ -872,42 +747,6 @@ export default function App() {
   }
   const cur = profiles.find(p => p.name === profile)
   // 轮次进度：本轮工具轮次 / 本会话落库的最大 seq（也即已记录的轮次）
-  const dirtyActions = anyDirty ? (
-    <span className="card-actions title-actions">
-
-        <button className="btn" onClick={() => {
-          if (editorDirty) {
-            if (editField) setEditP({ ...editP, [editField]: editOriginal })
-            else setToolEdit({ ...toolEdit, description: editOriginal })
-          } else if (formDirty) {
-            setEditP(JSON.parse(editSnap || '{}'))
-          } else {
-            setSettings(JSON.parse(setSnap || '{}'))
-          }
-        }}>取消</button>
-        <button className="btn" onClick={async () => {
-          if (editorDirty) {
-            if (toolEdit) {
-              await fetch('/api/tools/' + toolEdit.name, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ description: toolEdit.description }) })
-              setEditOriginal(toolEdit.description || ''); refresh()
-            } else { setEditOriginal(editP?.[editField] || '') }
-            return
-          }
-          if (formDirty) {
-            if (!editP.name || !editP.base_url || !editP.model) { alert('名称 / 接口地址 / 模型 必填'); return }
-            const { _new, ...body } = editP
-            await fetch('/api/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean), keep_messages: body.keep_messages || 16 }) })
-            setEditSnap(snapOf(editP)); refresh(); return
-          }
-          await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
-          setSetSnap(JSON.stringify(settings))
-        }}>保存</button>
-      
-    </span>
-  ) : null
-
   // 分组/统计是纯函数（conversation/messageGroups.js）；这里一次算好，作为 props 传给展示组件
   const isGhostMsg = isGhostM
   const seqOf = (m) => m.seq || liveNo.get(m) || 0
@@ -959,13 +798,13 @@ export default function App() {
               <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square"/>
             </svg>
           </button>
-          <button className="mob-btn" onClick={() => setShowSet(true)} aria-label="设置" title="设置"><i /><i /><i /></button>
+          <button className="mob-btn" onClick={() => settingsUI.setShowSet(true)} aria-label="设置" title="设置"><i /><i /><i /></button>
         </div>
         <div className="topline">
           <i style={{ width: roundMax ? Math.min(100, roundNow / roundMax * 100) + '%' : '0%' }} />
         </div>
       </div>
-      {showSet ? <div className="set-scrim" onClick={() => closeOne()} /> : null}
+      {settingsUI.showSet ? <div className="set-scrim" onClick={() => settingsUI.closeOne()} /> : null}
 
       {sideOpen ? <div className="drawer-scrim" onClick={() => setSideOpen(false)} /> : null}
       <div className="work" style={{ '--sidew': (sideOpen ? sideW : 0) + 'px' }}>
@@ -1020,7 +859,7 @@ export default function App() {
             </button>
           </div>
           <div className="drawer-foot">
-            <button className="foot-btn wide-hide" onClick={() => setShowSet(true)} title="设置">设置</button>
+            <button className="foot-btn wide-hide" onClick={() => settingsUI.setShowSet(true)} title="设置">设置</button>
             <span className="foot-mark">WORKSPACE / AGENT</span>
           </div>
         </aside>
@@ -1149,383 +988,8 @@ export default function App() {
                     aria-label="发送" title={text.trim() ? '发送' : '先输入内容'} />}
             </div>
           </div>
-          {showSet ? (
-            <aside className={'settings' + ((editField || toolEdit) ? (editP ? ' three' : ' two') : (editP ? ' two' : ''))}>
-              <div className={'set-cols' + ((editField || toolEdit) ? (editP ? ' three' : ' two') : ((editP || toolCfg) ? ' two' : ''))}
-                onClick={e => { if (e.target === e.currentTarget) closeOne() }}>
-                {(editField || toolEdit) ? (
-                  <div className={"card col-editor" + ((editField || toolEdit) ? " is-top" : "")}>
-                    <div className="card-hd"><button className="icon-x back card-back narrow-only" onClick={() => closeOne()} aria-label="关闭" title="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square"/></svg></button><span className="ef-label"><span className="ef-label-t">{toolEdit ? ('tool · ' + toolEdit.name) : 'system'}</span></span>
-                        <span style={{ flex: 1 }} />
-                        {narrow ? dirtyActions : null}</div>
-                    <textarea ref={el => { if (el) autoGrow(el) }} className="set-area" value={toolEdit ? (toolEdit.description || '') : (editP[editField] || '')}
-                      onInput={e => autoGrow(e.target)}
-                      placeholder={toolEdit ? '工具说明（模型会看到这段文字）…' : '这里写完整的 system 提示…'}
-                      onChange={e => {
-                        if (toolEdit) setToolEdit({ ...toolEdit, description: e.target.value })
-                        else setEditP({ ...editP, [editField]: e.target.value })
-                      }} />
-                    <div className="set-col-foot"><span className="set-meta">
-                      {(toolEdit ? (toolEdit.description || '') : (editP[editField] || '')).length} 字
-                    </span></div>
-                  </div>
-                ) : null}
-
-                {(toolCfg || toolForm) ? (
-                <div className={"card col-tool" + ((toolCfg || toolForm) && !toolEdit && !editField ? " is-top" : "")}>
-                  <div className="card-hd">
-                    <button className="icon-x back card-back narrow-only" onClick={() => closeOne()} aria-label="关闭" title="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square"/></svg></button>
-                    <span className="ef-label"><span className="ef-label-t">{toolForm ? (toolForm.isNew ? 'new plugin' : 'tool · ' + toolForm.name) : ('tool · ' + toolCfg.name)}</span></span>
-                    <span style={{ flex: 1 }} />
-                    {toolForm ? (
-                      <span className="card-actions title-actions">
-                        <button className="btn" onClick={() => { setToolForm(null); setToolCfg(null) }}>取消</button>
-                        <button className="btn" onClick={async () => {
-                          if (!toolForm.name || !toolForm.command.trim()) { alert('名字与命令必填'); return }
-                          let params = null
-                          try { params = toolForm.paramsText.trim() ? JSON.parse(toolForm.paramsText) : null } catch { alert('参数不是合法 JSON'); return }
-                          const body = {
-                            name: toolForm.name.trim(), description: toolForm.description || '',
-                            command: toolForm.command.split('\n').map(x => x.trim()).filter(Boolean),
-                            timeoutMs: Number(toolForm.timeoutMs) || 20000, persistent: !!toolForm.persistent,
-                            params, required: (toolForm.requiredText || '').split(',').map(x => x.trim()).filter(Boolean)
-                          }
-                          const r = await fetch('/api/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-                          const j = await r.json().catch(() => ({}))
-                          if (!r.ok) { alert(j.error || '保存失败'); return }
-                          setToolForm(null); setToolCfg(null); refresh(); setToolList((await api('/api/tools')) || [])
-                        }}>保存</button>
-                      </span>
-                    ) : (narrow ? dirtyActions : null)}
-                  </div>
-                  
-                  {toolForm ? (
-                    <div className="card-bd">
-                      <label className="field"><span>名称（小写字母开头，a-z 0-9 _）</span>
-                        <input value={toolForm.name} disabled={!toolForm.isNew}
-                          onChange={e => setToolForm({ ...toolForm, name: e.target.value })} /></label>
-                      <label className="field"><span>说明（模型看到的描述，也可在三级卡里改）</span>
-                        <input value={toolForm.description}
-                          onChange={e => setToolForm({ ...toolForm, description: e.target.value })} /></label>
-                      <label className="field"><span>命令（每行一个参数，直接 exec 不走 shell）</span>
-                        <textarea className="plugin-cmd" value={toolForm.command}
-                          placeholder={'~/Workspace/agentd/scripts/tools/kb_get\n{{id}}'}
-                          onChange={e => setToolForm({ ...toolForm, command: e.target.value })} /></label>
-                      <label className="field"><span>超时（毫秒）</span>
-                        <input type="number" min="1000" value={toolForm.timeoutMs}
-                          onChange={e => setToolForm({ ...toolForm, timeoutMs: e.target.value })} /></label>
-                      <div className="item static">
-                        <span className="item-title">常驻进程（JSON-RPC over stdio）</span>
-                        <button type="button" role="switch" aria-checked={!!toolForm.persistent}
-                          className={'tg' + (toolForm.persistent ? ' on' : '')}
-                          onClick={() => setToolForm({ ...toolForm, persistent: !toolForm.persistent })}><b /></button>
-                      </div>
-                      <label className="field"><span>参数（JSON Schema properties）</span>
-                        <textarea className="plugin-json" value={toolForm.paramsText}
-                          onChange={e => setToolForm({ ...toolForm, paramsText: e.target.value })} /></label>
-                      <label className="field"><span>必填参数（逗号分隔）</span>
-                        <input value={toolForm.requiredText}
-                          onChange={e => setToolForm({ ...toolForm, requiredText: e.target.value })} /></label>
-                      {!toolForm.isNew ? (
-                        <div className="card-foot del-bottom-wrap" style={{ display: 'flex' }}>
-                          <button className="btn danger del-bottom" onClick={async () => {
-                            if (!confirm('删除插件 ' + toolForm.name + '？（只删清单，脚本文件保留）')) return
-                            const r = await fetch('/api/plugins/' + toolForm.name, { method: 'DELETE' })
-                            const j = await r.json().catch(() => ({}))
-                            if (!r.ok) { alert(j.error || '删除失败'); return }
-                            setToolForm(null); setToolCfg(null); refresh(); setToolList((await api('/api/tools')) || [])
-                          }}>删除插件</button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {!toolForm ? (
-                    <div className="card-bd">
-                    <div className="item" onClick={() => { setEditOriginal(toolCfg.description || ''); setToolEdit({ name: toolCfg.name, description: toolCfg.description }); setEditField(null) }}>
-                      <span className="item-title">说明</span>
-                      <span className="item-desc">{toolCfg.description || '（空）'}</span>
-                    </div>
-                    <div className="set-section">来源</div>
-                    <div className="item static">
-                      <span className="item-title">{toolCfg.source === 'plugin' ? '外置插件' : '内置工具'}</span>
-                      <span className="item-desc">{toolCfg.source === 'plugin' ? '清单 + 脚本，改完即生效' : 'Go 内置，改需重编译'}</span>
-                    </div>
-                    {toolCfg.source === 'plugin' ? (
-                      <>
-                        <div className="field"><span>清单</span>
-                          <div className="tool-meta">{toolCfg.path}</div></div>
-                        <div className="field"><span>超时</span>
-                          <div className="tool-meta">{toolCfg.timeout_ms ? toolCfg.timeout_ms + ' ms' : '默认（20s）'}
-                            {toolCfg.persistent ? ' · 常驻进程（JSON-RPC over stdio）' : ' · 一次性进程'}</div></div>
-                      </>
-                    ) : null}
-
-                    <div className="set-section">启用情况</div>
-                    <div className="item static">
-                      <span className="item-title">由 profile 决定</span>
-                    </div>
-                    <div className="set-meta">
-                      {(() => {
-                        const on = (profiles || []).filter(pr => (pr.tools || []).includes(toolCfg.name)).map(pr => pr.name)
-                        return on.length ? '在 ' + on.join('、') + ' 中启用' : '当前没有任何 profile 启用它'
-                      })()}
-                    </div>
-                    <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
-                  </div>
-                  ) : null}
-                </div>
-                ) : null}
-                {editP ? (
-                  <div className={"card col-form" + (!(editField || toolEdit) && editP ? " is-top" : "")}>
-                    <div className="card-hd" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-                      <button className="icon-x back card-back narrow-only" onClick={() => closeOne()} aria-label="关闭" title="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square"/></svg></button>
-                      <span className="ef-label"><span className="ef-label-t">{editP._new ? '新建模型' : ('模型详情 · ' + editP.name)}</span></span>
-                      <span style={{ flex: 1 }} />
-                      {narrow ? dirtyActions : null}
-                      {!editP._new ? (
-                        <button className="btn danger del-top" onClick={async () => {
-                          if (!confirm('删除 ' + editP.name + '？')) return
-                          await fetch('/api/profiles/' + editP.name, { method: 'DELETE' })
-                          setEditP(null); setEditField(null); refresh()
-                        }}>删除</button>
-                      ) : null}
-                    </div>
-                    <div className="card-bd">
-                      {[['name', '名称'], ['base_url', '接口地址 (url+/v1)'],
-                        ['api_key', 'API Key']].map(([k, label]) => (                        <label className="field" key={k}><span>{label}</span>
-                          <input value={editP[k] || ''} type={k === 'api_key' ? 'password' : 'text'}
-                            onChange={e => setEditP({ ...editP, [k]: e.target.value })} /></label>
-                      ))}
-                      <label className="field"><span className="field-label">模型</span>
-                        {models.loading ? <span className="item-desc">正在匹配模型…</span>
-                         : models.err ? <span className="item-desc">检查接口地址或 API Key：{models.err}</span>
-                         : models.list.length ? (
-                          <select value={editP.model || ''} onChange={e => setEditP({ ...editP, model: e.target.value })}>
-                            {models.list.map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
-                         ) : <input value={editP.model || ''} onChange={e => setEditP({ ...editP, model: e.target.value })} placeholder="没取到模型列表，可手填" />}
-                      </label>
-                      <label className="field"><span>思考强度</span>
-                        <select value={editP.reasoning_effort || 'none'} onChange={e => setEditP({ ...editP, reasoning_effort: e.target.value })}>
-                          {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
-                        </select></label>
-                      <label className="field"><span>服务商（云端 OpenAI 兼容填 openai：不发本地扩展字段）</span>
-                        <select value={editP.provider || ''} onChange={e => setEditP({ ...editP, provider: e.target.value })}>
-                          <option value="">自动 / 本地（Strata、llama.cpp）</option>
-                          <option value="openai">openai（云端兼容接口）</option>
-                        </select></label>
-                      <label className="field"><span>上下文窗口（tokens，留空=自动读上游）</span>
-                        <input type="number" min="0" max="2000000" placeholder="自动（如 131072）"
-                          value={editP.context_window || ''}
-                          onChange={e => setEditP({ ...editP, context_window: Number(e.target.value) || 0 })} />
-                      </label>
-                      <label className="field"><span>输入上限（tokens，留空=105000）</span>
-                        <input type="number" min="0" max="1000000" placeholder="105000"
-                          value={editP.max_prompt_tokens || ''}
-                          onChange={e => setEditP({ ...editP, max_prompt_tokens: Number(e.target.value) || 0 })} />
-                      </label>
-                      <label className="field"><span>压缩阈值（%，留空=80）</span>
-                        <input type="number" min="1" max="99" placeholder="80"
-                          value={editP.compact_pct || ''}
-                          onChange={e => setEditP({ ...editP, compact_pct: Number(e.target.value) || 0 })} />
-                      </label>
-                      <div className="field"><span>工具</span>
-                        <div className="choices">
-                          {toolList.map(t => {
-                            const on = (editP.tools || '').split(',').map(x => x.trim()).filter(Boolean).includes(t.name)
-                            return (
-                              <label key={t.name} title={t.description || ''} className={'choice' + (on ? ' on' : '')}>
-                                <input type="checkbox" checked={on} onChange={e => {
-                                  const cur = (editP.tools || '').split(',').map(x => x.trim()).filter(Boolean)
-                                  const next = e.target.checked ? [...cur, t.name] : cur.filter(x => x !== t.name)
-                                  setEditP({ ...editP, tools: next.join(',') })
-                                }} />
-                                <span>{t.name}</span>
-                              </label>
-                            )
-                          })}
-                        </div>
-                      </div>
-                      <div className="item" onClick={() => { setEditOriginal(editP.system || ''); setEditField('system'); setToolEdit(null) }}>
-                        <span className="item-title">system</span>
-                        <span className="item-desc">{editP.system || '（空）'}</span>
-                      </div>
-                      {!editP._new ? (
-                        <div className="card-foot del-bottom-wrap">
-                          <button className="btn danger del-bottom" onClick={async () => {
-                            if (!confirm('删除 ' + editP.name + '？')) return
-                            await fetch('/api/profiles/' + editP.name, { method: 'DELETE' })
-                            setEditP(null); setEditField(null); refresh()
-                          }}>删除配置</button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className={"card col-list" + (!(editField || toolEdit) && !editP ? " is-top" : "")}>
-                  <div className="card-hd list-hd">
-                    <button className="icon-x back card-back narrow-only" onClick={() => closeOne()} aria-label="退出设置" title="退出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square"/></svg></button>
-                    <span className="ef-label"><span className="ef-label-t">SETTINGS / PROFILES</span></span>
-                      <span style={{ flex: 1 }} />
-                      {!narrow ? dirtyActions : null}
-                  </div>
-                  <div className="card-bd">
-                    <div className="set-section">常规配置</div>
-                    <div className="set-card">
-                      <div className="item static">
-                        <span className="item-title">工具调用轮次上限</span>
-                        <button type="button" role="switch" aria-checked={!!settings.tool_rounds_enabled}
-                          className={'tg' + (settings.tool_rounds_enabled ? ' on' : '')}
-                          onClick={() => setSettings({ ...settings, tool_rounds_enabled: !settings.tool_rounds_enabled })}><b /></button>
-                      </div>
-                      <div className="set-meta">开启该项以避免工具循环调用</div>
-                      {settings.tool_rounds_enabled ? (
-                        <label className="field" style={{ marginTop: '.5rem' }}><span>轮次上限</span>
-                          <input type="number" min="1" max="1000" value={settings.tool_rounds || 8}
-                            onChange={e => setSettings({ ...settings, tool_rounds: Number(e.target.value) || 8 })} /></label>
-                      ) : null}
-                    </div>
-
-                    <div className="set-card">
-                      <div className="item static">
-                        <span className="item-title">自动归档</span>
-                        <button type="button" role="switch" aria-checked={!!settings.auto_archive_enabled}
-                          className={'tg' + (settings.auto_archive_enabled ? ' on' : '')}
-                          onClick={() => setSettings({ ...settings, auto_archive_enabled: !settings.auto_archive_enabled })}><b /></button>
-                      </div>
-                      <div className="set-meta">超过设定天数未活跃的会话自动归入归档</div>
-                      {settings.auto_archive_enabled ? (
-                        <label className="field" style={{ marginTop: '.5rem' }}><span>未活跃天数</span>
-                          <input type="number" min="1" max="3650" value={settings.auto_archive_days || 7}
-                            onChange={e => setSettings({ ...settings, auto_archive_days: Number(e.target.value) || 7 })} /></label>
-                      ) : null}
-                    </div>
-
-                    <div className="set-card">
-                      <div className="item static">
-                        <span className="item-title">界面 · 运行中提示</span>
-                      </div>
-                      <div className="set-meta">运行中状态栏轮播的句子，一行一条；存在本机 localStorage（不进后端）</div>
-                      <textarea className="ui-quips" key={uiCfg ? 'cfg' : 'none'} defaultValue={(() => { try { const a = JSON.parse(localStorage.getItem('ui.quips') || '[]'); const list = (Array.isArray(a) && a.length) ? a : (uiCfg?.quips || []); return list.join('\n') } catch { return (uiCfg?.quips || []).join('\n') } })()}
-                        onChange={e => { const arr = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); try { localStorage.setItem('ui.quips', JSON.stringify(arr)) } catch {} }} />
-                      <div className="set-meta">改完刷新页面生效；留空则回到 ui.json 的默认值</div>
-                    </div>
-                    <div className="set-card">
-                      <div className="item static">
-                        <span className="item-title">截图清理</span>
-                        <button type="button" role="switch" aria-checked={!!settings.shots_auto_clean}
-                          className={'tg' + (settings.shots_auto_clean ? ' on' : '')}
-                          onClick={() => setSettings({ ...settings, shots_auto_clean: !settings.shots_auto_clean })}><b /></button>
-                      </div>
-                      <div className="set-meta">超过保留天数的截图文件自动删除（数据库里的消息不受影响）</div>
-                      {settings.shots_auto_clean ? (
-                        <label className="field" style={{ marginTop: '.5rem' }}><span>保留天数</span>
-                          <input type="number" min="1" max="3650" value={settings.shots_keep_days || 7}
-                            onChange={e => setSettings({ ...settings, shots_keep_days: Number(e.target.value) || 7 })} /></label>
-                      ) : null}
-                      <div className="item static" style={{ marginTop: '.4rem' }}>
-                        <span className="item-desc" style={{ margin: 0 }}>{shotInfo || '—'}</span>
-                        <button className="btn" onClick={async () => {
-                          const r = await fetch('/api/shots/cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ days: settings.shots_keep_days || 7 }) }).then(x => x.json())
-                          setShotInfo(`已清理 ${r.removed} 张，释放 ${r.freed_kb} KB`)
-                          loadShotStats()
-                        }}>立即清理</button>
-                      </div>
-                    </div>
-
-                    <div className="set-section">模型配置</div>
-                    <div className="set-card">
-                      {profiles.map(pr => (
-                        <div className={'item col' + (editP && editP.name === pr.name ? ' on' : '')} key={pr.name}
-                          onClick={() => { const v = { ...pr, tools: (pr.tools || []).join(',') }; setEditP(v); setEditSnap(snapOf(v)); setEditField(null); setToolEdit(null); setToolCfg(null) }}>
-                          <b className="item-title">{pr.name}</b>
-                          <span className="item-desc">{pr.model || '（未设置模型）'}</span>
-                        </div>
-                      ))}
-                      <div className="item item-new" onClick={() => {
-                        const v = { _new: true, name: '', base_url: 'http://127.0.0.1:18320/180/v1', api_key: '',
-                          model: 'qwen3.8-flash-next-iq3_xxs', reasoning_effort: 'high', tools: '', system: '' }
-                        setEditP(v); setEditSnap(''); setEditField(null); setToolEdit(null)
-                      }}>＋ 新建 profile</div>
-                    </div>
-
-                    <div className="set-section">工具配置</div>
-                    <div className="set-card">
-                      {[...toolList].sort((a, b) => {
-                        const g = (x) => (x.source === 'plugin' ? 1 : 0)   // 内置 0，外置 1
-                        const d = g(a) - g(b)
-                        return d !== 0 ? d : a.name.localeCompare(b.name)
-                      }).map(t => (
-                        <div className="item" key={t.name} title={t.path || '内置工具（在程序内指定）'}
-                          onClick={() => {
-                            setEditP(null); setToolEdit(null); setEditField(null)
-                            setToolCfg({ ...t, enabled: t.enabled !== false, subtools: t.subtools || [] })
-                            setToolForm(t.source === 'plugin' ? {
-                              isNew: false, name: t.name, description: t.description || '',
-                              command: (t.command || []).join('\n'), timeoutMs: t.timeout_ms || 20000,
-                              persistent: !!t.persistent, paramsText: JSON.stringify(t.params || {}, null, 2),
-                              requiredText: (t.required || []).join(',')
-                            } : null)
-                          }}>
-                          <b className="item-title">{t.name}
-                            {t.source !== 'plugin' ? <span className="src-tag builtin">内置</span> : null}
-                          </b>
-                          <span className="item-desc">{t.description}</span>
-                        </div>
-                      ))}
-                    <div className="item item-new" onClick={() => {
-                      setEditP(null); setToolEdit(null); setEditField(null); setToolCfg(null)
-                      setToolForm({ isNew: true, name: '', description: '', command: '', timeoutMs: 20000,
-                        persistent: false, paramsText: '{\n  "query": { "type": "string" }\n}', requiredText: 'query' })
-                    }}>＋ 新建插件</div>
-
-                      <div className="set-section">任务{taskActive ? '（' + taskActive + ' 个在跑）' : ''}</div>
-                      <div className="set-card">
-                        {tasks.length === 0 ? (
-                          <div className="set-meta">还没有任务{recipes.length ? '（可用配方：' + recipes.join('、') + '）' : '（未注册配方）'}</div>
-                        ) : tasks.map(t => (
-                          <div className="item col" key={t.id} onClick={async () => {
-                            const d = await api('/api/tasks/' + t.id).catch(() => null)
-                            setTaskDetail(prev => (prev && prev.task && prev.task.id === t.id) ? null : d)
-                          }}>
-                            <b className="item-title">#{t.id} {t.kind}
-                              <span className={'src-tag ' + (t.status === 'done' ? 'builtin' : 'plugin')}>{t.status}</span>
-                            </b>
-                            <span className="item-desc">{t.child_conv ? '子会话 ↳#' + t.child_conv + ' · ' : ''}{t.error || fmtTime(t.created_at)}</span>
-                          </div>
-                        ))}
-                        {taskDetail ? (
-                          <div className="item static" style={{ display: 'block' }}>
-                            {(taskDetail.steps || []).map(s => (
-                              <div key={s.seq} className="task-step">
-                                <span className={'ts-dot ' + s.status} />
-                                <span className="ts-cmd">{s.cmd || s.name}</span>
-                                <span className="ts-meta">{s.exit_code ? 'exit ' + s.exit_code : ''} {s.ms}ms</span>
-                                {s.output ? <pre className="ts-out">{s.output.slice(0, 300)}</pre> : null}
-                              </div>
-                            ))}
-                            {taskDetail.task && taskDetail.task.child_conv ? (
-                              <button className="btn" style={{ marginRight: '.4rem' }}
-                                onClick={() => { openConv(String(taskDetail.task.child_conv)); setShowSet(false) }}>
-                                打开子会话 No.{String(taskDetail.task.child_conv).padStart(4, '0')}</button>
-                            ) : null}
-                            {taskDetail.task && taskDetail.task.status === 'interrupted' ? (
-                              <button className="btn" onClick={async () => {
-                                await api('/api/tasks/' + taskDetail.task.id + '/restore', { method: 'POST' })
-                                setTaskDetail(null); loadTasks()
-                              }}>执行收尾</button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </aside>
+          {settingsUI.showSet ? (
+            <SettingsPanel v={settingsUI} narrow={narrow} profiles={profiles} uiCfg={uiCfg} openConv={openConv} />
           ) : null}
         </main>
         {peek.open && peekRows.length ? (
@@ -1576,7 +1040,7 @@ export default function App() {
                   <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square"/>
                 </svg>
               </button>
-              <button className="dots" onClick={() => setShowSet(true)} aria-label="设置" title="设置">
+              <button className="dots" onClick={() => settingsUI.setShowSet(true)} aria-label="设置" title="设置">
                 <i /><i /><i />
               </button>
             </div>

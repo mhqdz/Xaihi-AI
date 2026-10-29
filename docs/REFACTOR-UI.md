@@ -1,13 +1,14 @@
 # 前端重构计划（架构 A：容器/展示分离 + 薄 store）
 
 > 用途：跨会话交接。任何 agent（或压缩后的我）读完这份就能接着做，不必回看对话历史。
-> 最近状态：Step 1（`3e827b8`）、Step 2 已完成；Step 3 未开始。
+> 最近状态：Step 1 / Step 2 / Step 3 全部完成（App.jsx 1689 → 1067 行）。
 > 回滚点：tag `backup-web-20261030`，快照 `~/backups/agentd-web-20261030-0445.tgz`。
 
 ## 0. 目标与验收
 
 ```
-目标：把 web/src/App.jsx（≈1700 行巨型组件）拆成 数据层 / 展示层 / 装配层
+目标：把 web/src/App.jsx（1689 行巨型组件）拆成 数据层 / 展示层 / 装配层
+现状：1067 行（消息渲染 → components/，设置面板 → components/Settings/ + settings/useSettings.js）
 验收（可量化）：
   · 流式中每秒渲染 ≤10 次（当前已靠 80ms 节流 + LiveBubble 达标）
   · 历史消息在流式期间不参与 diff（Step 2 后成立）
@@ -110,16 +111,42 @@ App.jsx 只剩：vidxOf（data-vidx）+ useMemo(toolMeta) + 两个稳定回调�
 调试钩子：window.__renders = {msg, tool, note}（组件内自增，用来验证 memo 是否真的跳过）
 ```
 
-## 3. Step 3：设置面板与 App 装配
+## 3. Step 3：设置面板与 App 装配（✅ 已完成）
 
 ```
-设置区（当前也在 App.jsx 里，靠 editP/toolCfg/toolForm/taskDetail 等多份状态编排）：
-  components/Settings/ListCard.jsx     常规配置 + 模型列表 + 工具列表 + 任务列表
-  components/Settings/ModelForm.jsx
-  components/Settings/ToolForm.jsx
-  components/Settings/EditorCard.jsx   三级编辑（system / 工具说明）
-  container：settings/useSettings.js（状态机 + 保存/取消/脏检查）
-App.jsx 最终只剩：布局（drawer/stage/rail）、URL 深链、快捷键、装配
+settings/useSettings.js             234 行  容器：全部设置状态 + 脏检查 + 保存/取消/关闭
+                                            + 插件与 profile 的增删改 + 模型/工具/任务加载
+                                            + 深链（?profile&field&tool&tooledit&newplugin&task）
+components/Settings/
+  Panel.jsx                          22 行  装配四张卡 + 二级/三级切换的列宽 class
+  ListCard.jsx                      154 行  常规配置 + 模型列表 + 工具列表 + 任务
+  ModelForm.jsx                      90 行  模型详情 / 新建
+  ToolCard.jsx                       96 行  工具详情 / 插件表单
+  EditorCard.jsx                     56 行  三级编辑（system / 工具说明，含 autoGrow）
+  DirtyActions.jsx                   13 行  取消/保存（宽屏挂列表头，窄屏挂当前卡头）
+  XIcon.jsx                          10 行  卡片头共用 ×
+App.jsx：设置区只剩一行 <SettingsPanel v={settingsUI} …/>；refresh 只刷会话/归档/profile
+```
+
+### 3.1 实测
+
+```
+check_settings.py（新，22 项）全绿：
+  初始只有列表卡 / 脏了才出现 取消+保存 / 取消回滚（数字、API Key、工具说明）
+  保存真的落库（auto_archive_days 30→31→30，GET /api/settings 同步变化）
+  点模型→详情两级；点工具→工具卡且与模型互斥；说明→三级编辑卡（三张卡同屏）
+  运行中提示 textarea 写入 localStorage['ui.quips']
+  ?profile=180-low&field=system 深链：编辑器 + 模型详情 + 列表三张卡，system 正文 1484 字
+run.py / run2.py / run3.py / check_tools.py / check_live.py 全绿
+```
+
+### 3.2 设置区已知怪癖（沿用旧行为，没改）
+
+```
+1. 工具说明编辑时是"编辑器 + 工具卡 + 列表卡"三张，但 set-cols 仍是 two
+   （老逻辑只按 editP 判断 three）：实测三张各 400px 并排，观感正常，故保留
+2. ?profile= 深链不设 editSnap ⇒ 打开即显示"保存/取消"（老行为）
+3. openConv 会 history.replaceState('?conv=..')，深链查询串被清掉（老行为）
 ```
 
 ## 4. 已知坑（改之前必读）
@@ -142,6 +169,9 @@ App.jsx 最终只剩：布局（drawer/stage/rail）、URL 深链、快捷键、
 8. 组件内的计数器（window.__renders）要放在函数体内，别放到模块顶层（只会加 1）
 9. openRuns 用"组下标"当 key：换会话必须清空，否则 A 会话展开的组会让 B 会话同下标的组也展开
    （已在 openConv 里按 id 变化清空；同一会话内收尾不清，保住用户的展开态）
+10. 设置面板的保存/取消只作用于"最内层脏的东西"：编辑器 → profile → 常规配置。
+    useSettings.save()/cancel() 的顺序不能改，否则宽屏列表头上的两个按钮会保存错层
+11. 插件点开进的是"插件表单"（toolForm），内置工具点开才是"工具详情"（可点说明进三级）
 ```
 
 ## 5. 测试与命令
@@ -162,5 +192,5 @@ cd /tmp/uitest && python3 run.py && python3 run2.py && python3 run3.py
 [x] App.jsx map 改用它，删旧 JSX，构建 + run.py
 [x] 逐个迁移 3 与 2，每步跑对应用例
 [x] 上 memo 比较函数，用 204 / 500 条会话验证滚动/展开
-[ ] Step 3 按 §3 拆设置面板（下一步从这里开始）
+[x] Step 3 按 §3 拆设置面板（useSettings + 5 张卡），check_settings.py 22 项全绿
 ```
