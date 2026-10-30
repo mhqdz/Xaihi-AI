@@ -9,6 +9,7 @@
 | 计划与待办（插件进度、部署脚本、下一步） | `docs/PLAN.md` |
 | 前端重构计划（架构 A、Step 2/3、坑与验收） | `docs/REFACTOR-UI.md` |
 | 交接与唤醒（配方/子会话/outbox/失败矩阵） | `docs/HANDOFF.md` |
+| **前端全面优化 · 交接包**（备份/现状/功能与接口清单/人物卡/优化候选/验证/开工清单） | `docs/UI-OPTIMIZATION.md` |
 
 知识库里只保留一条运行事实：`kb get 010600`（agentd 使用方法：端口/目录/配置/常用命令）。
 改文档直接改本目录的 markdown；改运行事实走 `kb update 010600 <草稿.md>`。
