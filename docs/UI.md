@@ -171,6 +171,14 @@ scripts/ui-test/   WebDriver（geckodriver，无 selenium）驱动 Firefox headl
 截图：/tmp/uitest/*.png（宽屏三卡、工具表单、任务详情、窄屏单卡、编辑卡）
 ```
 
+## 12.1 空状态（新建会话页）
+
+```
+新建会话页没有正文列可拖：不渲染 .guideline、不显示 col-resize 光标、禁止 startColDrag。
+（.empty 的内容宽度是固定的 44rem，列宽 colW 对它无效 —— 留着只会是一条"看着像边框、拖了没反应"的线）
+有消息时才出现可拖动的列宽线。
+```
+
 ## 13. 前端架构（2026-10-30 定：方案 A）
 
 ```

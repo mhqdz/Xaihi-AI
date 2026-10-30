@@ -292,6 +292,7 @@ export default function App() {
     const stage = stageRef.current
     const col = stage?.querySelector('.thread .col')
     if (!stage || !col) return
+    if (!msgs.length) { stage.style.setProperty('--lineA', '0'); stage.style.cursor = ''; return }
     const cr = col.getBoundingClientRect(), sr = stage.getBoundingClientRect()
     const dx = Math.abs(e.clientX - (cr.left - 22))
     const a = Math.max(0, Math.min(1, 1 - (dx - 6) / 54))     // 横向：近线才显示
@@ -310,6 +311,7 @@ export default function App() {
 
   // 只在贴近线时才允许拖动
   const onStageDown = (e) => {
+    if (!msgs.length) return            // 新建会话页没有正文列，别让人拖
     if (Math.abs(e.clientX - lineX()) <= 10) startColDrag(e)
   }
 
@@ -890,7 +892,7 @@ export default function App() {
             </div>
           )
         })()}
-          <i className="guideline" aria-hidden="true" />
+          {msgs.length ? <i className="guideline" aria-hidden="true" /> : null}
           <div className="thread" ref={threadRef} onScroll={onThreadScroll}
             onWheel={e => { if (e.deltaY < 0) stickRef.current = false }}>
             {msgs.length === 0 ? (
