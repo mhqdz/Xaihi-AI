@@ -15,6 +15,7 @@ python3 scripts/ui-test/run2.py            # 错误收集/任务点击/滚动/�
 python3 scripts/ui-test/run3.py            # 任务深链滚动/竖屏布局
 python3 scripts/ui-test/check_layout.py    # 设置面板层级布局一致性（2 级/3 级 模型=工具，宽窄屏几何）
 python3 scripts/ui-test/check_settings.py  # 设置面板行为（脏检查/保存/取消/深链/localStorage）
+python3 scripts/ui-test/check_sendstop.py  # 发送/中止的按钮过场（loading→stop→普通，防重复提交）
 python3 scripts/ui-test/check_tools.py     # 工具组结构与 memo（对话页，不涉及设置）
 python3 scripts/ui-test/check_live.py      # 真跑一轮对话（实时气泡收尾、历史卡不重渲染）
                                            #   会新建一条会话，跑完自动归档

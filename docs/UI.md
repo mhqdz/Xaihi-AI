@@ -171,6 +171,22 @@ scripts/ui-test/   WebDriver（geckodriver，无 selenium）驱动 Firefox headl
 截图：/tmp/uitest/*.png（宽屏三卡、工具表单、任务详情、窄屏单卡、编辑卡）
 ```
 
+## 12.2 发送 / 中止的过场（按钮转圈）
+
+```
+发送键四态：send（可发）→ send loading（转圈，disabled）→ send stop/interject（生成中）→ 回到 send
+  · 点发送/插话：立刻 sending=true，按钮变 .send.loading（disabled），后端开始响应（fetch 拿到响应头）才解除
+  · 点中止：立刻 stopping=true，按钮变 .send.loading（disabled），busy 落定才解除；15s 兜底防后端卡死
+  · Enter 键同样受 sending/stopping 门控（过场期间不接受新动作）
+  · spinner 是方框旋转（Endfield 方角），白圈 + 亮边，:disabled 不降透明度（否则看不清）
+
+顺带修的真 bug：中止后状态一直显示"已同步"而不是"已停止"
+  原因：sendText 的 catch 里 `if (!aborted && cur)` 读的是 state（闭包里永远是旧值 false），
+  于是"用户中止"被当成"断流"→ 又 attachStream 重连 → 收尾状态被覆盖成已同步。
+  改成 abortedRef（useRef）后：中止直接走 AbortError 分支，状态 = 已停止，且不再重连。
+  回归用例 scripts/ui-test/check_sendstop.py（用 MutationObserver 记录按钮 class/disabled 的完整序列）
+```
+
 ## 12.1 空状态（新建会话页）
 
 ```

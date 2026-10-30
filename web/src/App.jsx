@@ -195,7 +195,7 @@ export default function App() {
   const [inputH, setInputH] = useState(() => Number(localStorage.getItem('inputH')) || (typeof window !== 'undefined' && window.innerWidth < 1400 ? 52 : 92))
   const hDrag = useRef(null)
   const abortRef = useRef(null)
-  const [aborted, setAborted] = useState(false)
+  const abortedRef = useRef(false)   // 用户主动中止；闭包里必须读 ref（state 会是旧值）
   const [pendingTools, setPendingTools] = useState([])
   const [openRuns, setOpenRuns] = useState(() => new Set())   // 已展开的工具组（默认全收拢）  // 正在执行的工具（tool_start 到 tool 之间）
   const [readingIdx, setReadingIdx] = useState(0)
@@ -214,6 +214,8 @@ export default function App() {
   const visible = msgs.filter(m => m.role !== 'tool')   // 工具结果不计入轮次 ✓
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sending, setSending] = useState(false)     // 点了发送/插话，等后端确认接上（按钮换成转圈）
+  const [stopping, setStopping] = useState(false)   // 点了中止，等这一轮收尾（按钮换成转圈，不可点）
   const [syncing, setSyncing] = useState(false)
   const [status, setStatus] = useState('')
   const [stage, setStage] = useState('')   // compacting | generating | ''
@@ -249,27 +251,33 @@ export default function App() {
 
   // 插话：把内容压进后端队列，模型在下一个工具轮次就能看到（不中断当前生成）
   const interject = async () => {
+    if (sending || stopping) return
     // 先确认后端真的在跑；不在跑就按普通发送走（否则只会存成插话、不会唤起新一轮）
     const run = await api('/api/running').catch(() => [])
     if (!(run || []).includes(String(convId))) { return send() }
     const t = text.trim()
     if (!t) return
     if (!convId) { setStatus('这一轮还没拿到会话 id，稍等一下再插话'); return }
-    const r = await fetch('/api/conv/' + convId + '/interject', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }),
-    })
-    if (!r.ok) { setStatus('✗ 插话失败'); return }
-    setText('')
-    setMsgs(m => [...m, { role: 'user', content: t, at: now(), interject: true }])
-    setStatus('已插话')
+    setSending(true)
+    try {
+      const r = await fetch('/api/conv/' + convId + '/interject', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }),
+      })
+      if (!r.ok) { setStatus('✗ 插话失败'); return }
+      setText('')
+      setMsgs(m => [...m, { role: 'user', content: t, at: now(), interject: true }])
+      setStatus('已插话')
+    } finally { setSending(false) }
   }
 
   // 停止生成：中断 fetch → 后端 r.Context() 被取消 → 上游请求结束
   const stop = () => {
+    if (stopping || sending) return
+    setStopping(true)                       // 收尾完成（busy 落定）才会解除，见下方 effect
     if (convId) fetch('/api/conv/' + convId + '/stop', { method: 'POST' }).catch(() => {})
     abortRef.current?.abort()
     abortRef.current = null
-    setAborted(true)
+    abortedRef.current = true
     setStatus('已停止（已保留已生成的内容）')
   }
 
@@ -445,6 +453,13 @@ export default function App() {
     return () => window.removeEventListener('resize', on)
   }, [])
   useEffect(() => { localStorage.setItem('profile', profile) }, [profile])
+  // 中止的转圈：busy 落定就收起（正常 1s 内），15s 兜底防止后端卡住时一直转
+  useEffect(() => { if (!busy) setStopping(false) }, [busy])
+  useEffect(() => {
+    if (!stopping) return
+    const t = setTimeout(() => setStopping(false), 15000)
+    return () => clearTimeout(t)
+  }, [stopping])
   useEffect(() => { if (window.innerWidth >= 1400) localStorage.setItem('sideOpen', sideOpen ? '1' : '0') }, [sideOpen])
   // 运行中的趣味提示（大肥鱼语录）：不打扰，只做背景信息
   const [quip, setQuip] = useState('')
@@ -630,13 +645,14 @@ export default function App() {
   }
 
   const send = async () => {
-    const t = text.trim(); if (!t || busy) return
+    const t = text.trim(); if (!t || busy || sending || stopping) return
+    setSending(true)                        // 后端接上（fetch 拿到响应头）才解除
     setText('')
     sendText(t)
   }
 
   const sendText = async (t) => {
-    if (!t || busy) return; setBusy(true); setStatus(''); setSecs(null); setAborted(false)
+    if (!t || busy) return; setBusy(true); setStatus(''); setSecs(null); abortedRef.current = false
     const ac = new AbortController()
     abortRef.current = ac
     setMsgs(m => [...m, { role: 'user', content: t, at: now() }])
@@ -650,6 +666,7 @@ export default function App() {
         body: JSON.stringify({ conv_id: cur || '', text: t, profile }),
         signal: ac.signal,
       })
+      setSending(false)                     // 后端已开始响应：按钮回到"中止/插话"
       const reader = resp.body.getReader(); const dec = new TextDecoder()
       let buf = '', asst = { role: 'assistant', content: '', reasoning: '', at: now() }
       const push = () => {
@@ -706,7 +723,7 @@ export default function App() {
       await refresh(); if (cur) await openConv(cur)
     } catch (e) {
         // 不是用户主动停：若后端仍在跑，说明只是流断了 → 重新接上（而不是假装结束）
-        if (!aborted && cur) {
+        if (!abortedRef.current && cur) {
           const rr = await api('/api/running').catch(() => [])
           if ((rr || []).includes(String(cur))) {
             setStatus('连接断开，正在重连…')
@@ -722,6 +739,8 @@ export default function App() {
     } finally {
       abortRef.current = null
       ended = true
+      setSending(false)
+      setStopping(false)
       if (pushTimer) { clearTimeout(pushTimer); pushTimer = null }
       stream.clear()
       setBusy(false); refresh(); loadCtx(cur)   // 中断/报错也刷新列表，避免会话"看不见"
@@ -979,6 +998,7 @@ export default function App() {
               onKeyDown={e => {
                 if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return   // Shift+Enter 换行 ✓
                 e.preventDefault()
+                if (sending || stopping) return
                 if (!busy) send()
                 else if (text.trim()) interject()
                 else stop()
@@ -986,7 +1006,10 @@ export default function App() {
               placeholder="输入你的问题…" />
             <div className="row3">
               <span className="hint">Enter 发送 · Shift+Enter 换行　{convId ? '#' + convId.slice(0, 8) : '新会话'}</span>
-              {busy ? (
+              {(sending || stopping) ? (
+                <button className="send loading" disabled aria-label="处理中"
+                  title={stopping ? '正在中止…' : '发送中…'} />
+              ) : busy ? (
                 text.trim()
                   ? <button className="send interject" onClick={interject} aria-label="插话" title="插话" />
                   : <button className="send stop" onClick={stop} aria-label="中断" title="中断" />
