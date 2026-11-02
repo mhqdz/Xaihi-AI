@@ -15,7 +15,9 @@ export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) 
   const top = editing ? 'editor' : detail ? 'detail' : 'list'
   return (
     <aside className={'settings' + cols}>
-      <div className={'set-cols' + cols}
+      {/* 背景在打开时是 inert 的（见 App.jsx），这里补上 dialog 语义，
+          读屏才知道这是个能关掉的对话框，而不是页面里又一段内容 */}
+      <div className={'set-cols' + cols} role="dialog" aria-modal="true" aria-label="设置"
         onClick={e => { if (e.target === e.currentTarget) v.closeOne() }}>
         {editing ? <EditorCard v={v} narrow={narrow} top={top === 'editor'} /> : null}
         {(v.toolCfg || v.toolForm) ? <ToolCard v={v} narrow={narrow} profiles={profiles} top={top === 'detail'} /> : null}

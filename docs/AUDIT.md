@@ -276,6 +276,15 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 
 **验证**：打开后焦点在 `BUTTON.tg`（面板里的开关），Esc 后在 `BUTTON.dots`（触发按钮）。`pixel_diff` 6/6 一致 —— Firefox 的 `:focus-visible` 只在键盘交互时画环，程序化 `focus()` 不画，所以截图不受影响。
 
+### P2-7 设置面板缺 dialog 语义 ✅ 已修
+
+**现象**：P1-7 补了 `inert` 背景、P1-8 补了焦点进出，但 `.set-cols` 在无障碍树里只是一段普通内容 —— 读屏软件不知道这是个「能关掉的对话框」，也不会播报它的名字。
+
+**修复**：`role="dialog"` + `aria-modal="true"` + `aria-label="设置"`。这三项和已有的 `inert` 是一套：`inert` 告诉辅助技术「后面不可交互」，`dialog` 告诉它「这是个对话框、叫什么名字」。缺一半等于只说了一半。
+
+**验证**：`role` / `aria-modal` / `aria-label` 实测为 `dialog` / `true` / `设置`；`pixel_diff` 6/6 一致。
+
+
 
 
 
@@ -413,5 +422,6 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | 11 | P2-6 下拉框光标统一 + `check_cursor.py` | `59564f6` | 6/6 一致 |
 | 12 | P1-7 设置面板打开时背景 `inert` + `check_focus.py` | `bc23147` | 6/6 一致 |
 | 13 | P1-8 设置面板焦点进出闭环 | `3e5b25a` | 6/6 一致 |
+| 14 | P2-7 设置面板 dialog 语义 | `54de787` | 6/6 一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
