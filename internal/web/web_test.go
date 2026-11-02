@@ -65,6 +65,16 @@ func newTestServer(t *testing.T) (*Server, *store.JSONStore, *config.Config) {
 	return New(cfg, a, st), st, &cfg
 }
 
+// jsonReq：写请求统一走这里。requireJSONBody 中间件要求带 body 的 PUT/POST
+// 声明 application/json（挡 CSRF 的简单请求），真实客户端都带，测试也得带。
+func jsonReq(method, path, body string) *http.Request {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req
+}
+
 func TestHealth(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
@@ -76,7 +86,7 @@ func TestHealth(t *testing.T) {
 
 func TestChatSSEWithToolLoop(t *testing.T) {
 	s, st, _ := newTestServer(t)
-	req := httptest.NewRequest("POST", "/api/chat", strings.NewReader(`{"text":"跑一下 echo hi","profile":"test"}`))
+	req := jsonReq("POST", "/api/chat", `{"text":"跑一下 echo hi","profile":"test"}`)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -139,7 +149,7 @@ func TestProfilesCRUD(t *testing.T) {
 
 	body := `{"name":"p1","base_url":"http://x","model":"m"}`
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/api/profiles", strings.NewReader(body)))
+	s.Handler().ServeHTTP(rec, jsonReq("POST", "/api/profiles", body))
 	if rec.Code != 200 {
 		t.Fatalf("创建: %d %s", rec.Code, rec.Body.String())
 	}
@@ -155,8 +165,8 @@ func TestProfilesCRUD(t *testing.T) {
 	}
 	// 非法 effort 应 400
 	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/api/profiles",
-		strings.NewReader(`{"name":"bad","base_url":"u","model":"m","reasoning_effort":"ultra"}`)))
+	s.Handler().ServeHTTP(rec, jsonReq("POST", "/api/profiles",
+		`{"name":"bad","base_url":"u","model":"m","reasoning_effort":"ultra"}`))
 	if rec.Code != 400 {
 		t.Fatalf("非法 effort 应 400，得到 %d", rec.Code)
 	}

@@ -120,6 +120,45 @@ http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 
 **教训**：这个洞一直在，只是没人试过编码后的 `..`。前面的审计都在看"功能对不对"，没看"能不能被滥用" —— 而 `http.FileServer` + 手拼 `http.Dir` 是最容易踩的一类。
 
+### P0-4 跨站请求伪造：任意网页都能让 agentd 跑一轮 ✅ 已修
+
+**现象**：
+
+```
+POST /api/chat   Content-Type: text/plain
+{"conv_id":"207","text":"只回复两个字：好的"}
+→ 200  event: meta   会话里落了 2 条消息
+```
+
+后端只读 body、不看 `Content-Type`。而 `text/plain` 属于 CORS 的**简单请求**，浏览器**不触发预检**，请求照常送达。
+
+**攻击成本**：随便一个网页里一行 `fetch` 就够。响应因为没给 CORS 头读不到，但**副作用已经发生** —— 这一轮真的会跑，而模型手上是 `bash` 工具。
+
+**根因**：服务端没有任何 CSRF 防护，`handleChat` 直接 `json.NewDecoder(r.Body).Decode(...)`。之前"看起来还好"是因为表单的 `enctype=text/plain` 会拼成 `key=value` 而不是纯 JSON，解析失败；但 `fetch` 能直接发纯 JSON。
+
+**修复**：加 `requireJSONBody` 中间件 —— 所有带 body 的 POST/PUT/PATCH 必须声明 `application/json`，否则 415。浏览器发这个类型**必然先发 OPTIONS 预检**，而不给 CORS 头的服务端不会放行预检。用 `ContentLength != 0`（而非 `> 0`）把 chunked 的 -1 也一起要求；无 body 的 POST（停止生成）照旧放行。
+
+**验证**：
+- `text/plain` + JSON body → **415**
+- `application/json` → 正常
+- 无 body 的 `POST /api/conv/51/stop` → 404（"这一轮已经结束"，不是被中间件拦）
+- `check_api` 34 条 + `check_live` / `check_sendstop` / `stream_test` / `robustness` / `run*` 全绿
+- 5 处 Go 测试的请求补了 Content-Type（真客户端都带，是测试漏了）
+
+### P2-10 没有任何安全响应头 ✅ 已修
+
+**现象**：`X-Frame-Options` / `X-Content-Type-Options` / `Referrer-Policy` 一个都没有。
+
+**风险**：
+- 没有 `X-Frame-Options`：任意页面能把界面 iframe 进去做点击劫持（透明浮层盖在「删除插件」上）
+- 没有 `nosniff`：浏览器可能把 JSON 响应猜成 HTML 去执行
+- 没有 `Referrer-Policy`：URL 里带 conv id，会随外链带出去
+
+**修复**：加 `secureHeaders` 中间件，三个头一起给。**刻意不加 CORS 头** —— 跨站读不到任何响应，这正是想要的。
+
+**验证**：`curl -I` 三个头都在；用 JS 建 iframe 加载同源页面，`contentDocument` 为 `null`（被 DENY 拒绝）。
+
+
 
 ### P1-10 插话失败却回 200 ✅ 已修
 
@@ -431,6 +470,30 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 
 ---
 
+## 未修的风险（需要你决定）
+
+### R-1 监听 `0.0.0.0` 且无认证
+
+`AGENTD_ADDR=0.0.0.0:18400`，同网段任何设备都能：
+
+- 读全部对话（`GET /api/convs`、`GET /api/conv/<id>`）
+- **让模型执行任意命令**（`POST /api/chat`，模型手上有 `bash`）
+- 改配置（profiles 里存着 API Key）
+
+这大概率是你为了手机或其它机器访问特意设的，所以**没动**。三种收窄方式，按侵入性排：
+
+1. `AGENTD_ADDR=127.0.0.1:18400` —— 只有本机能连，会失去局域网访问
+2. 前面挂一层反向代理做 Basic Auth
+3. 再加一个 `Origin` / `Sec-Fetch-Site` 校验（`requireJSONBody` 已经挡了跨站写请求，但读请求还是开放的）
+
+### R-2 Host 头不校验（DNS rebinding）
+
+`curl -H "Host: evil.com"` 照样 200。攻击者可以让 `evil.com` 先解析到自己、再 rebind 到 `127.0.0.1`，浏览器就认为同源了，能绕过 CORS 直接调 API。
+
+**为什么没直接修**：Host 白名单容易误伤（你可能用 `agentd.local` 之类 mDNS 名访问）。要修的话我建议「只允许 localhost + 纯 IP 字面量，拒绝其它域名」，但需要先确认你平时怎么访问。
+
+---
+
 ## 原待核实项（已全部排除）
 
 审计过程中记下的 4 条疑点，都拿到 DOM 证据后排除 —— 没有悬空项。推理过程见下一节。
@@ -605,5 +668,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 19 | P1-11 归档/恢复/删除检查影响行数 + `check_api.py` | `6f2bffe` | 无视觉改动 |
 | 20 | P2-9 五个端点补方法校验 + 修正 8 条错预期 | `868a5ba` | 无视觉改动 |
 | 21 | P0-3 `/shots/` 目录遍历（可下载整库）修复 | `81b1c27` | 无视觉改动 |
+| 22 | P0-4 CSRF（`requireJSONBody`）+ P2-10 安全响应头 | `95aa742` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

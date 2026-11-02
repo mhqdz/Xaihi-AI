@@ -39,7 +39,7 @@ func TestWakeAuth(t *testing.T) {
 	h := s.Handler()
 	body, _ := json.Marshal(map[string]string{"conv_id": c.ID, "text": "后台任务完成"})
 
-	req := httptest.NewRequest("POST", "/api/wake", bytes.NewReader(body))
+	req := jsonReq("POST", "/api/wake", string(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != 401 {
@@ -47,7 +47,7 @@ func TestWakeAuth(t *testing.T) {
 	}
 
 	tok := s.wakeToken()
-	req = httptest.NewRequest("POST", "/api/wake", bytes.NewReader(body))
+	req = jsonReq("POST", "/api/wake", string(body))
 	req.Header.Set("X-Agentd-Token", tok)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)

@@ -315,7 +315,57 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/profiles", s.handleProfiles)
 	mux.HandleFunc("/api/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/", s.handleStatic)
-	return logReq(mux)
+	return secureHeaders(requireJSONBody(logReq(mux)))
+}
+
+// requireJSONBody：所有带 body 的写请求必须声明 application/json。
+//
+// 起因是一个能直接利用的 CSRF：浏览器里任何页面都可以
+//
+//	fetch('http://127.0.0.1:18400/api/chat', {
+//	  method: 'POST', headers: {'Content-Type': 'text/plain'},
+//	  body: '{"conv_id":"51","text":"随便干点什么"}'})
+//
+// text/plain 属于 CORS 的「简单请求」，**不触发预检**，请求会照常送达 ——
+// 后端只认 body、不看 Content-Type，于是照样解析、照样执行。
+// 响应因为没给 CORS 头而读不到，可副作用已经发生（这一轮真的会跑，模型能执行命令）。
+//
+// 要求 application/json 就能堵死：浏览器发这个 Content-Type 必然先发 OPTIONS 预检，
+// 而不给 CORS 头的服务端不会放行预检。
+//
+// ContentLength != 0 而不是 > 0：chunked 传输是 -1，一并要求。
+// 没有 body 的 POST（比如停止生成）照旧放行。
+func requireJSONBody(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+			if r.ContentLength != 0 {
+				ct := strings.ToLower(r.Header.Get("Content-Type"))
+				if !strings.HasPrefix(ct, "application/json") {
+					writeJSON(w, 415, map[string]string{
+						"error": "写请求必须使用 Content-Type: application/json"})
+					return
+				}
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// secureHeaders：几个零误伤的安全响应头。
+//   - X-Frame-Options: 这个界面没有嵌入需求，却能被打包成 iframe 做点击劫持
+//     （透明浮层盖在「删除插件」上）。DENY 不影响自己打开。
+//   - nosniff: 防止浏览器把 JSON 响应猜成 HTML/CSS 去执行。
+//   - Referrer-Policy: URL 里带 conv id，不要带给第三方。
+//
+// 刻意不加 CORS 头：跨站读不到任何响应，这正是想要的。
+func secureHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		h.ServeHTTP(w, r)
+	})
 }
 
 func logReq(h http.Handler) http.Handler {
