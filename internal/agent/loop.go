@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -349,7 +348,10 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				lastSig, sameCallStreak = sig, 1
 			}
 			if sameCallStreak >= 3 {
-				if pendingSeq != 0 { _ = a.st.DeleteMessage(convID64, pendingSeq); pendingSeq = 0 }
+				if pendingSeq != 0 {
+					_ = a.st.DeleteMessage(convID64, pendingSeq)
+					pendingSeq = 0
+				}
 				note := "（检测到连续 3 轮调用同一个工具、同样参数，已中止以免空转。可以换个说法让我继续。）"
 				c.Messages = append(c.Messages, store.Message{Role: "assistant", Content: note})
 				_ = a.st.Save(c)
@@ -362,7 +364,10 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 
 		// 记录带 tool_calls 的助手消息
 		// 工具轮放弃流式占位行（UpdateMessage 不写 tool_calls），改走下面的整体插入
-		if pendingSeq != 0 { _ = a.st.DeleteMessage(convID64, pendingSeq); pendingSeq = 0 }
+		if pendingSeq != 0 {
+			_ = a.st.DeleteMessage(convID64, pendingSeq)
+			pendingSeq = 0
+		}
 		c.Messages = append(c.Messages, store.Message{
 			Role: "assistant", Content: strings.TrimSpace(content.String()),
 			Reasoning: reasoning.String(), ReasoningMs: reasonMs, ToolCalls: calls})
@@ -662,8 +667,7 @@ func inlineImage(img string) string {
 		return img
 	}
 	if strings.HasPrefix(img, "/shots/") {
-		home, _ := os.UserHomeDir()
-		b, err := os.ReadFile(filepath.Join(home, ".data", "agentd", img))
+		b, err := os.ReadFile(config.DataPath(img))
 		if err != nil {
 			return ""
 		}

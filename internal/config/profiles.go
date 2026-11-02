@@ -40,8 +40,7 @@ func profilesPath() string {
 	if v := os.Getenv("AGENTD_PROFILES"); v != "" {
 		return v
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".data/agentd/profiles.json")
+	return DataPath("profiles.json")
 }
 
 func defaults() []Profile {

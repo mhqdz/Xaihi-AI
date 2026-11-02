@@ -57,8 +57,8 @@ func TestLegacySysNote(t *testing.T) {
 		"正常回答",
 		"（这是普通括号）",
 		"已停止",
-		"前半（已停止）",   // 前面有正文，不是独立提示
-		"我（已停止）了",   // 出现在句中
+		"前半（已停止）", // 前面有正文，不是独立提示
+		"我（已停止）了", // 出现在句中
 	}
 	for _, s := range no {
 		if legacySysNote.MatchString(s) {
@@ -75,7 +75,7 @@ func TestIsShotPlaceholder(t *testing.T) {
 		t.Error("带图 + 固定前缀的占位消息应被识别")
 	}
 	no := []*store.Message{
-		{Role: "user", Content: "（上一个工具的截图，请以图为准）"},                    // 没图就不算
+		{Role: "user", Content: "（上一个工具的截图，请以图为准）"},                                   // 没图就不算
 		{Role: "user", Content: "正常提问", Images: []string{"data:image/png;base64,xx"}}, // 有图但没前缀
 		{Role: "assistant", Content: "（上一个工具的截图，请以图为准）", Images: []string{"x"}},
 	}

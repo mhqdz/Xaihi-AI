@@ -40,6 +40,24 @@ func path() string {
 }
 
 // Load 读配置；文件不存在就返回默认值（不创建文件，避免无意义副作用）。
+// DataDir：所有本地数据的根目录。默认 ~/.data/agentd，AGENTD_DATA_DIR 可覆盖。
+//
+// 以前只有数据库跟 AGENTD_DATA_DIR 走，profiles.json / settings.json / wake.token /
+// shots / tools.d / tasks.d 全都硬编码在 ~/.data/agentd 下 —— 于是「设了 DATA_DIR 的
+// 实例」其实只隔离了一半：库是新的，配置和插件还是的原来那份。
+func DataDir() string {
+	if v := os.Getenv("AGENTD_DATA_DIR"); v != "" {
+		return v
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".data", "agentd")
+}
+
+// DataPath：拼在 DataDir 下的路径，elem 是若干段。
+func DataPath(elem ...string) string {
+	return filepath.Join(append([]string{DataDir()}, elem...)...)
+}
+
 func Load() Config {
 	c := Default()
 	if b, err := os.ReadFile(path()); err == nil {

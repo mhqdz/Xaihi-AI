@@ -2,6 +2,7 @@
 package handoff
 
 import (
+	"agentd/internal/config"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -62,8 +63,7 @@ func New(st *store.SQLiteStore, dataDir string, h Hooks) (*Manager, error) {
 
 // Load：读默认配方目录
 func (m *Manager) Load() error {
-	home, _ := os.UserHomeDir()
-	return m.LoadDir(filepath.Join(home, ".data", "agentd", "tasks.d"))
+	return m.LoadDir(config.DataPath("tasks.d"))
 }
 
 // LoadDir：读指定目录的配方（测试用）

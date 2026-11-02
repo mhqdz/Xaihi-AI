@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"agentd/internal/config"
 	"agentd/internal/logx"
 	"context"
 	"encoding/base64"
@@ -84,8 +85,8 @@ func Registry() map[string]*Spec {
 		m[s.Name] = s
 	}
 	// 外置插件：~/.data/agentd/tools.d/*.json（同名以内置为准）
-	if home, err := os.UserHomeDir(); err == nil {
-		if plugs, warns := LoadPlugins(filepath.Join(home, ".data", "agentd", "tools.d")); len(plugs) > 0 || len(warns) > 0 {
+	{
+		if plugs, warns := LoadPlugins(config.DataPath("tools.d")); len(plugs) > 0 || len(warns) > 0 {
 			for name, sp := range plugs {
 				if _, exists := m[name]; exists {
 					continue
@@ -189,8 +190,7 @@ func runBash(ctx context.Context, args map[string]any, _ *Env) (any, error) {
 
 func runScreenshot(ctx context.Context, args map[string]any, _ *Env) (any, error) {
 	_ = strings.TrimSpace(str(args, "question")) // 参数保留但不再回显（问题已在用户消息里）
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".data", "agentd", "shots")
+	dir := config.DataPath("shots")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "✗ 建截图目录失败：" + err.Error(), nil
 	}
@@ -215,8 +215,7 @@ func clipOutput(s string, limit int) string {
 	if len(r) <= limit || limit <= 0 {
 		return s
 	}
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".data", "agentd", "out")
+	dir := config.DataPath("out")
 	_ = os.MkdirAll(dir, 0o755)
 	name := fmt.Sprintf("%d.txt", time.Now().UnixNano())
 	full := filepath.Join(dir, name)

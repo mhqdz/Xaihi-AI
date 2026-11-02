@@ -274,6 +274,43 @@ _ = a.maybeSummarize(ctx, c, keep)   // 它自己内部才判阈值
 
 没有卡住的地方。隔离实例验证完已停掉、临时目录已删，主实例数据不受影响（21 个会话）。
 
+### P1-15 `AGENTD_DATA_DIR` 只隔离了数据库 ✅ 已修
+
+**现象**：为了走查「新装 → 第一次对话」，我起了一个隔离实例：
+
+```
+AGENTD_DATA_DIR=/tmp/agentd-fresh  AGENTD_ADDR=127.0.0.1:18500
+```
+
+数据库确实建在 `/tmp/agentd-fresh`，但**它连上了真实模型** —— 我把 `AGENTD_BASE_URL` 指到一个不存在的端口（19999），回复照样正常。
+
+**根因**：`AGENTD_DATA_DIR` 只被数据库用到。其余本地数据全硬编码在 `~/.data/agentd` 下：
+
+| 文件 | 实际位置 |
+|---|---|
+| `profiles.json` | `~/.data/agentd/`（只能由 `AGENTD_PROFILES` 单独覆盖） |
+| `settings.json` | 同上 |
+| `wake.token` | 同上 |
+| `tools.json` / `tools.d/` | 同上 |
+| `tasks.d/` | 同上 |
+| `shots/` / `out/` | 同上 |
+
+隔离实例读的是**主实例的 profiles**，其中 `180-low` 的 `base_url` 是 `127.0.0.1:18320`，而 profile 的 `base_url` 优先级高于 `AGENTD_BASE_URL` —— 于是「隔离实例」连的是真模型。
+
+**影响**：
+- 想跑多实例（不同数据）的人会踩：库是新的，配置和插件还是那份
+- 测试没法真正隔离（我这轮就踩了，第一次「错误路径」测试其实在打真模型）
+
+**修复**：`internal/config` 加 `DataDir()` / `DataPath()`，认 `AGENTD_DATA_DIR`，默认 `~/.data/agentd`。把 **13 处硬编码**全换掉，横跨 config / tools / handoff / web / agent 五个包。`AGENTD_PROFILES` 保留（显式覆盖优先）。
+
+**验证**：
+- 主实例重启后：会话 21、conv51 575 条，`profiles.json` / `settings.json` / `tools.json` 仍在原位，一切照旧
+- 隔离实例第一次失败：没给 `AGENTD_PROFILES` 时 `LoadProfiles()` 回落到**内置默认**（仍指向 18320），还是连了真模型 —— 顺便说明内置默认 profile 本身就是个隐藏的隔离漏洞
+- 显式给了 `AGENTD_PROFILES` 之后才真正断开：`POST /api/chat` 的事件序列是 `meta → stage → stage → error → usage`，会话落库为 `user(done)` + `assistant(failed)`，内容是 `（中断：Post "http://127.0.0.1:19999/nope/v1/chat/completions": connection refused）`
+
+**顺带确认了错误路径是完整的**：模型不可达时前端能收到 `error` 事件、消息以 `failed` 状态落库、刷新后仍在。这条路径以前没验证过。
+
+
 
 
 
@@ -792,5 +829,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 24 | P1-13 `/api/tasks` 派发前校验父会话 | `9d9d86d` | 无视觉改动 |
 | 25 | run2/run.py 自建数据并清理（修 pixel 误报） | `606e43c` | 无视觉改动 |
 | 26 | P1-14 只在真压缩时报 compacting + 新装路径走查 | `9c34426` | 无视觉改动 |
+| 27 | P1-15 `AGENTD_DATA_DIR` 统一 13 处硬编码路径 + 错误路径验证 | `e5c860f` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

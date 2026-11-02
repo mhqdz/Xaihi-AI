@@ -130,8 +130,7 @@ func (s *Server) runChild(ctx context.Context, parent int64, profileName, card s
 // ---------- HTTP ----------
 
 func (s *Server) wakeToken() string {
-	home, _ := os.UserHomeDir()
-	p := filepath.Join(home, ".data", "agentd", "wake.token")
+	p := config.DataPath("wake.token")
 	if b, err := os.ReadFile(p); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		return strings.TrimSpace(string(b))
 	}

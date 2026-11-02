@@ -19,8 +19,7 @@ type Settings struct {
 }
 
 func settingsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".data", "agentd", "settings.json")
+	return DataPath("settings.json")
 }
 
 func LoadSettings() Settings {

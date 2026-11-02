@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agentd/internal/config"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,8 +9,7 @@ import (
 
 // OverridePath 返回工具说明覆盖文件（UI 里改过的说明写在这里）。
 func OverridePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".data", "agentd", "tools.json")
+	return config.DataPath("tools.json")
 }
 
 // LoadOverrides 读取 {"bash":"说明", "kb_search":"说明"} 或旧格式 {"bash":{"description":"…"}}。

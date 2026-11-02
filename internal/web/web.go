@@ -51,12 +51,11 @@ func New(cfg config.Config, a *agent.Agent, st store.Store) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/shots/", func(w http.ResponseWriter, r *http.Request) {
-		home, _ := os.UserHomeDir()
 		w.Header().Set("Cache-Control", "no-store")
 		// 只能服务 shots 子目录本身。原来这里 FileServer 的是整个 ~/.data/agentd，
 		// 而 http.Dir 的 path.Clean 发生在 URL 解码之前 —— /shots/..%2Fagentd.db
 		// 解码后变成 ../agentd.db，可以整个数据库（全部对话 + 配置）原样下载。
-		dir := http.Dir(filepath.Join(home, ".data", "agentd", "shots"))
+		dir := http.Dir(config.DataPath("shots"))
 		http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -99,8 +98,7 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})
 			return
 		}
-		home, _ := os.UserHomeDir()
-		dir := filepath.Join(home, ".data", "agentd", "shots")
+		dir := config.DataPath("shots")
 		ents, _ := os.ReadDir(dir)
 		var n int
 		var bytes int64
@@ -469,11 +467,12 @@ const maxPageMsgs = 400
 var legacySysNote = regexp.MustCompile(`^\s*(——)?\s*（(已达到工具轮次上限|已停止|中断|检测到连续|任务回报|任务已派发|进程中断)`)
 
 // classifyMessage 给每条消息算一个派生 kind（不落库），让前端不用再猜。
-//   sysnote     独立系统提示（timer / handoff / 空壳中断 / 旧数据前缀）
-//   interrupted 有正文的中断（前端加角标，正文照常渲染）
-//   failed      有正文的失败
-//   streaming   流式生成中
-//   ""          普通消息
+//
+//	sysnote     独立系统提示（timer / handoff / 空壳中断 / 旧数据前缀）
+//	interrupted 有正文的中断（前端加角标，正文照常渲染）
+//	failed      有正文的失败
+//	streaming   流式生成中
+//	""          普通消息
 func classifyMessage(m *store.Message) string {
 	if m.Origin == "timer" || m.Origin == "handoff" {
 		return "sysnote"
@@ -975,8 +974,7 @@ func (s *Server) handleProfileItem(w http.ResponseWriter, r *http.Request) {
 // sweepAutoArchive：按当前设置执行一次自动归档
 // cleanupShots：删除 shots 目录里超过 days 天的截图，返回删除数量与释放字节
 func (s *Server) cleanupShots(days int) (int, int64) {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".data", "agentd", "shots")
+	dir := config.DataPath("shots")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, 0

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agentd/internal/config"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,8 +12,7 @@ import (
 
 // PluginDir：外置插件清单目录
 func PluginDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".data", "agentd", "tools.d")
+	return config.DataPath("tools.d")
 }
 
 // PluginDraft：前端提交的插件定义（与清单文件字段对齐）
