@@ -64,6 +64,11 @@ select{cursor:pointer}
 /* 禁用态统一：之前只有 .send 有，插件编辑里那个 disabled 的「插件名」字段
    看起来和可编辑的完全一样，用户会以为能改 */
 input:disabled,select:disabled,textarea:disabled,button:disabled{opacity:.45;cursor:not-allowed}
+/* 多行输入框的键盘焦点：几处 textarea 都写了 outline:none（composer / 编辑器 /
+   .ui-quips），却没配替代样式 —— 鼠标点进去有插入符还好，Tab 过来完全看不出焦点在哪。
+   用 :focus 而不是 :focus-visible：headless 下后者对 textarea 的判定不稳定，
+   实测同一元素聚焦后 computed outline 仍为 none */
+textarea:focus{outline-style:solid;outline-width:2px;outline-color:var(--c4);outline-offset:-2px}
 html,body,#root{height:100%;margin:0}
 body{background:var(--paper);color:var(--ink);
   font:14px/1.7 "Maple Mono NF CN","Maple Mono NF","Noto Sans SC",ui-monospace,system-ui,sans-serif;
@@ -155,7 +160,7 @@ body{background:var(--paper);color:var(--ink);
   font:inherit;font-size:.78rem;font-weight:600;padding:.22rem 1.5rem .22rem .55rem}
 .composer .pick .caret{position:absolute;right:.45rem;pointer-events:none;color:var(--sage-d);font-size:.7rem}
 .composer .model{margin-left:auto;font-size:.72rem;color:var(--ink3);max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.composer textarea{width:100%;border:0;background:transparent;resize:none;min-height:3.6rem;padding:.6rem .8rem;font:inherit;outline:none}
+.composer textarea{width:100%;border:0;background:transparent;resize:none;min-height:3.6rem;padding:.6rem .8rem;font:inherit}
 .composer .row3{display:flex;justify-content:space-between;align-items:center;padding:.35rem .6rem}
 .composer .hint{font-size:.68rem;color:var(--ink3)}
 .resizer{position:absolute;right:2px;top:2px;width:16px;height:16px;cursor:ns-resize}
@@ -195,7 +200,7 @@ body{background:var(--paper);color:var(--ink);
   display:grid;grid-template-columns:minmax(0,1fr);gap:.7rem;align-content:start}
 .card-bd.plain{padding:0;display:flex;flex-direction:column}
 .card-bd textarea{flex:1 1 auto;min-height:200px;width:100%;border:0;background:#fff;padding:.7rem .85rem;
-  font:inherit;font-size:.8rem;line-height:1.8;resize:none;outline:none}
+  font:inherit;font-size:.8rem;line-height:1.8;resize:none}
 
 /* 字段与列表 */
 /* 标题体系（卡片标题与卡片内小节标题共用）：竖条 + 字距 + 右侧细线 */
@@ -259,7 +264,7 @@ body{background:var(--paper);color:var(--ink);
 /* 2 级卡里的"系统提示"摘要：限制行数（全文在 3 级卡里看） */
 .prompt-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 /* 3 级卡文本区：白底、无边框，行高与正文一致 */
-.col-editor textarea{width:100%;border:0;background:#fff;padding:.7rem .85rem;font:inherit;font-size:.8rem;line-height:1.8;resize:none;outline:none}
+.col-editor textarea{width:100%;border:0;background:#fff;padding:.7rem .85rem;font:inherit;font-size:.8rem;line-height:1.8;resize:none}
 
 /* ── 统一"配置行"：1 级（模型/工具）与 2 级摘要共用同一套 ── */
 .list-row,.tool-desc{display:grid;grid-template-columns:1fr;gap:.15rem;
@@ -910,7 +915,7 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 /* 三级卡片：提示/说明编辑区（宽窄屏通用） */
 .card .set-area{display:block;width:100%;box-sizing:border-box;flex:0 0 auto;
   height:auto;min-height:8rem;max-height:none;   /* 上限由卡片 max-height + autoGrow 控制 */
-  padding:.7rem .85rem;border:0;outline:none;resize:none;overflow-y:auto;
+  padding:.7rem .85rem;border:0;resize:none;overflow-y:auto;
   font:inherit;font-size:.78rem;line-height:1.85;color:var(--ink);background:#fff;
   white-space:pre-wrap;overflow-wrap:anywhere}
 .card .set-area:focus{box-shadow:inset 0 0 0 1px var(--c3)}
@@ -1004,7 +1009,7 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 /* 插件表单里的多行输入 */
 .plugin-cmd,.plugin-json{width:100%;box-sizing:border-box;min-height:4.6rem;padding:.4rem .5rem;
   border:1px solid var(--line);background:#fff;font:inherit;font-size:.74rem;line-height:1.6;
-  resize:vertical;outline:none;color:var(--ink);white-space:pre;overflow:auto}
+  resize:vertical;color:var(--ink);white-space:pre;overflow:auto}
 .plugin-json{min-height:6rem;white-space:pre}
 
 /* 任务步骤 */
@@ -1164,7 +1169,7 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 .msg.pending-tool .mhead b::after{content:"";animation:none}
 .ui-quips{width:100%;box-sizing:border-box;min-height:6rem;margin:.35rem 0 .25rem;padding:.4rem .5rem;
   border:1px solid var(--line);background:#fff;font:inherit;font-size:.72rem;line-height:1.7;
-  resize:vertical;outline:none;white-space:pre}
+  resize:vertical;white-space:pre}
 .think-sum .num{font-variant-numeric:tabular-nums}
 .live-wait{color:var(--c5);font-size:.72rem;padding:.2rem 0 .3rem;letter-spacing:.04em}
 
