@@ -1409,3 +1409,12 @@ pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
 .msg[data-kind="failed"]{box-shadow:inset 0 0 0 1px var(--c3), inset 3px 0 0 #B4553F}
 .msg[data-kind="interrupted"] .mhead b::after{content:" · 已中断";color:#8FA3A4;font-weight:400}
 .msg[data-kind="failed"] .mhead b::after{content:" · 失败";color:#B4553F;font-weight:400}
+
+/* 渲染出错时的兜底页（ErrorBoundary）：不白屏，至少能看见原因并刷新 */
+.crash{max-width:36rem;margin:12vh auto;padding:1.2rem 1.4rem;border:1px solid var(--line);
+  background:var(--panel);color:var(--ink)}
+.crash h2{margin:0 0 .6rem;font-size:1.05rem;letter-spacing:.02em}
+.crash-msg{margin:0 0 .5rem;color:var(--ink);font-size:.88rem;word-break:break-word}
+.crash-hint{margin:0 0 .7rem;color:var(--ink2);font-size:.78rem}
+.crash-stack{margin:0 0 .9rem;padding:.6rem;background:var(--paper);border:1px solid var(--line);
+  font-size:.7rem;line-height:1.6;overflow:auto;max-height:12rem;color:var(--ink2);white-space:pre-wrap}
