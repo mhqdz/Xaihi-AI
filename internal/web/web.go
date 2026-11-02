@@ -420,7 +420,17 @@ func (s *Server) handleConvs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, kids := range byParent {
-		sort.Slice(kids, func(i, j int) bool { return kids[i].ID < kids[j].ID })
+		// 按数值排，不能按字符串：id 是从 SQLite 的自增列来的，跨位数之后
+		// "1000" < "999" 成立，于是后建的子会话会拿到更小的序号 ——
+		// 左栏的 ↳#N 就指向了错的会话。非数字 id 退回字符串比较兜底。
+		sort.Slice(kids, func(i, j int) bool {
+			a, ea := strconv.ParseInt(kids[i].ID, 10, 64)
+			b, eb := strconv.ParseInt(kids[j].ID, 10, 64)
+			if ea == nil && eb == nil {
+				return a < b
+			}
+			return kids[i].ID < kids[j].ID
+		})
 		for i, k := range kids {
 			seqOf[k.ID] = i + 1
 		}
