@@ -79,6 +79,21 @@ return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
 
 **顺带**：CLI 的 `agentd ask -conv <id>` 现在会 `fatal` 而不是静默新开 —— 它本来就处理了 err 分支，只是从前永远拿不到错误。
 
+### P1-10 插话失败却回 200 ✅ 已修
+
+**现象**：`POST /api/conv/999999/interject` 返回 `{"mode":"turn","ok":true}` + **200**，可那个会话根本不存在。后台只留下一行 `[WARN] interject->turn conv=999999: file does not exist`，客户端以为「接着做」已经生效了。
+
+**根因**：`handleInterject` 在「当前没在跑 → 当普通消息起一轮」这条分支里，把 `runTurn` 丢进 goroutine 后**立刻回 200**。goroutine 里的失败只进日志，没有任何通道能回到 HTTP 响应。兜底那句也是 `200 + ok:false` —— 状态码照样算成功。
+
+**为什么今天才暴露**：P0-2 修好之前，`runTurn` 遇到不存在的 id 会**静默新建**，这条路径「看起来成功，居然也真的成功」；`Conversation()` 一改成报错，同一个 200 立刻变成谎言。**两个 bug 叠在一起时，前一个把后一个挡住了**。
+
+**修复**：
+- 该分支在起 goroutine 之前先 `s.st.Get(id)` 确认会话存在，读不到直接 404
+- 兜底的「会话不在运行且无法起新回合」从 200 改成 **400**
+
+**验证**：`POST /api/conv/999999/interject` → `404 {"error":"没有这个会话"}`，会话数保持 21。前端 `interject()` 本来就写了 `if (!r.ok) { setStatus('✗ 插话失败'); return }` —— 这条分支以前永远触发不到，现在有了。
+
+
 
 ---
 
@@ -484,5 +499,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 15 | P2-8 禁用态统一 + `check_text.py` | `b1f3872` | 6/6 一致 |
 | 16 | P1-9 多行输入框焦点可见（删 `outline:none`，不加特异性） | `10aa755` | 6/6 一致 |
 | 17 | P0-2 `Conversation()` 不再静默新建 + 单测 | `63e4158` | 无视觉改动 |
+| 18 | P1-10 插话失败不再回 200（先验会话 + 400） | `cd04cf8` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

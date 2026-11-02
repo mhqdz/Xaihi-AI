@@ -556,6 +556,12 @@ func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if n, err := strconv.ParseInt(id, 10, 64); err == nil && s.ho != nil {
+			// 先确认会话真的存在：runTurn 在 goroutine 里，会话读不到只会打一行
+			// WARN 日志，而这里已经把 200 回给客户端了 —— 用户会以为"接着做"成功了。
+			if _, err := s.st.Get(id); err != nil {
+				writeJSON(w, 404, map[string]string{"error": "没有这个会话"})
+				return
+			}
 			go func() {
 				if err := s.runTurn(context.Background(), n, body.Text, "user"); err != nil {
 					logx.Warn("interject->turn conv=%s: %v", id, err)
@@ -564,7 +570,7 @@ func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"ok": true, "mode": "turn"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "会话不在运行且无法起新回合"})
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "会话不在运行且无法起新回合"})
 		return
 	}
 	if strings.HasSuffix(raw, "/restore") && r.Method == http.MethodPost {
