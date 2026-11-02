@@ -218,6 +218,12 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 503, map[string]string{"error": "未启用"})
 			return
 		}
+		// 同 /api/wake：父会话不存在时 Dispatch 照样建任务，留下一条
+		// status=running 的孤儿 —— 没有父会话会来收它的回报，active 计数也永远挂着一个。
+		if _, err := s.st.Get(in.ConvID); err != nil {
+			writeJSON(w, 404, map[string]string{"error": "没有这个会话"})
+			return
+		}
 		id, err := s.ho.Dispatch(parent, in.Kind, in.Card)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
