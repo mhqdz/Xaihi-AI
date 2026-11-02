@@ -27,7 +27,10 @@ try:
             break
     time.sleep(2.0)
 except Exception as e:
-    print("  (造任务失败，后续用例会跳过)", e)
+    # 不能只是打印一句就继续跑 —— 后面两个用例会因为没有任务而"通过"，
+    # 结果是测试全绿但深链根本没测。造不出来就是失败。
+    print("  ✗ 造任务失败:", e)
+    FAIL.append("造任务")
 
 # 控制台错误收集
 s.get(B+"/?conv=51"); time.sleep(1.5)

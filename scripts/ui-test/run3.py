@@ -1,21 +1,39 @@
-import sys, time, json
-sys.path.insert(0, __import__('os').path.dirname(__file__))
+import sys, os, time, json, sqlite3, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
+from dbtool import new_conv, drop_conv
+
+DB = os.path.expanduser("~/.data/agentd/agentd.db")
 FAIL=[]
 def check(n,c,e=""):
     print(("  ✓ " if c else "  ✗ ")+n+(f"  {e}" if e else ""))
     if not c: FAIL.append(n)
 B="http://127.0.0.1:18400"
-_tasks = json.loads(__import__('urllib.request',fromlist=['x']).urlopen(B+"/api/tasks").read()).get('tasks') or []
-if not _tasks:
-    print("  (没有任务，跳过深链用例；先跑 run.py 会造一条)")
-tid = _tasks[0]['id'] if _tasks else None
+# 自己造一条任务。原来在 tasks 表为空时会把深链用例"跳过"——
+# 而断言写成 (not tid) or (...)，于是 tkid 为 None 时它直接算通过：
+# 测试绿了，但其实什么都没测。
+task_conv = new_conv("ui-run3-task")
+tid = None
+try:
+    r = urllib.request.Request(B + "/api/tasks",
+        data=json.dumps({"kind": "smoke", "conv_id": task_conv, "card": {"goal": "ui"}}).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    tid = json.loads(urllib.request.urlopen(r, timeout=30).read())["task_id"]
+    for _ in range(24):
+        time.sleep(0.5)
+        d = json.loads(urllib.request.urlopen(B + "/api/tasks/" + str(tid), timeout=10).read())
+        if (d.get("task") or {}).get("steps") or d.get("steps"):
+            break
+    time.sleep(1.5)
+except Exception as e:
+    print("  ✗ 造任务失败，深链用例无法验证:", e)
+    FAIL.append("造任务")
 
 s=Session(1600,1000); req("POST",f"/session/{s.id}/window/rect",{"width":1600,"height":1000})
 # 任务深链滚动（修复后）
-s.get(B+(f"/?settings=1&conv=51&task={tid}" if tid else "/?settings=1&conv=51")); time.sleep(2)
+s.get(B+f"/?settings=1&conv=51&task={tid}"); time.sleep(2)
 vis=s.js("const st=document.querySelector('.task-step'); if(!st) return 'no-step'; const r=st.getBoundingClientRect(); return [Math.round(r.top), innerHeight]")
-check("任务深链自动滚到详情", (not tid) or (isinstance(vis,list) and 0 <= vis[0] <= vis[1]), f"{vis}")
+check("任务深链自动滚到详情", isinstance(vis,list) and 0 <= vis[0] <= vis[1], f"{vis}")
 s.shot("/tmp/uitest/wide_task2.png")
 
 # 窄屏（同一会话改窗口尺寸）
@@ -62,4 +80,15 @@ check("窄屏卡片宽度≈视口-32", 820 <= w <= 900, f"w={w}")
 check("窄屏设置无横向溢出", s.js("return document.scrollingElement.scrollWidth - innerWidth") <= 0)
 s.shot("/tmp/uitest/narrow_settings2.png")
 s.close()
+
+# 清理自己造的任务与会话（smoke 跑完会写一条「任务回报」到 outbox）
+if tid:
+    c = sqlite3.connect(DB)
+    c.execute("delete from task_steps where task_id=?", (tid,))
+    c.execute("delete from tasks where parent_conv=?", (int(task_conv),))
+    c.execute("delete from outbox where conv_id=?", (int(task_conv),))
+    c.commit(); c.close()
+drop_conv(task_conv)
+print("已清理测试任务与会话", tid, task_conv)
+
 print("\n失败:", FAIL if FAIL else "无")
