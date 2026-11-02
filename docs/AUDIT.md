@@ -50,6 +50,36 @@
 - 重跑 `robustness.py`：0 个问题，且 `conv=118` 残留检查输出 `0`
 - 清理全部测试会话（`stream-test` / `uitest` / `ui-rb`）：会话总数 29 → 23
 
+### P0-2 传了不存在的会话 id 会静默新建 ✅ 已修
+
+**现象**：`POST /api/chat` 带 `{"conv_id":"999999","text":"hi"}`，返回的不是报错，而是一个**新会话**的 SSE 帧（`{"conv_id":"173","title":"新会话"}`），并且真的跑完了一轮，往新会话里写了 2 条消息。
+
+**根因**：`Agent.Conversation(id)` 的实现是「读不到就新建」：
+
+```go
+if id != "" {
+    if c, err := a.st.Get(id); err == nil {
+        return c, nil
+    }
+}
+// 读不到 → 掉到这里，静默新建
+return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
+```
+
+而且它**永远返回 nil 错误**，所以 `handleChat` 里那段 `if err != nil { send("error", ...) }` 是死代码 —— 从来没执行过。
+
+**后果**（数据不一致）：前端把 conv_id 拼错时，消息会悄悄写进一个新会话，用户以为还在原会话；每一次这样的请求还会真实调用一次模型（白烧）。
+
+**修复**：区分三种输入 —— 空 id 才是新建；传了 id 但读不到必须报错。
+
+**验证**：
+- 单元测试 `TestConversationResolution`：空 id 新建、存在 id 原样返回、带首尾空白的 id 能匹配、不存在的 id 报错**且不产生新会话**
+- 部署后实测：`{"conv_id":"999999"}` → `event: error` + `{"error":"会话 \"999999\" 不存在或读不出来：file does not exist"}`，会话数保持 21
+- `go test ./...` 全绿
+
+**顺带**：CLI 的 `agentd ask -conv <id>` 现在会 `fatal` 而不是静默新开 —— 它本来就处理了 err 分支，只是从前永远拿不到错误。
+
+
 ---
 
 ## P1 — 状态错乱 / 响应式破坏 / 同角色样式不统一
@@ -452,5 +482,7 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 13 | P1-8 设置面板焦点进出闭环 | `3e5b25a` | 6/6 一致 |
 | 14 | P2-7 设置面板 dialog 语义 | `54de787` | 6/6 一致 |
 | 15 | P2-8 禁用态统一 + `check_text.py` | `b1f3872` | 6/6 一致 |
+| 16 | P1-9 多行输入框焦点可见（删 `outline:none`，不加特异性） | `10aa755` | 6/6 一致 |
+| 17 | P0-2 `Conversation()` 不再静默新建 + 单测 | `63e4158` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

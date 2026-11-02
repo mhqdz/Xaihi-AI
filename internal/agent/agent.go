@@ -60,11 +60,18 @@ func NewID() string {
 
 // Load 或新建会话。
 func (a *Agent) Conversation(id string) (*store.Conversation, error) {
+	id = strings.TrimSpace(id)
 	if id != "" {
-		if c, err := a.st.Get(id); err == nil {
-			return c, nil
+		c, err := a.st.Get(id)
+		if err != nil {
+			// 传了 id 就是「续这个会话」，读不到必须报错。
+			// 原来的实现是读不到就静默新建 —— 前端把 id 拼错时，消息会悄悄写进
+			// 一个新会话，用户以为还在原会话；顺带白烧一次模型调用。
+			return nil, fmt.Errorf("会话 %q 不存在或读不出来：%w", id, err)
 		}
+		return c, nil
 	}
+	// 只有明确不给 id 才是「新建」
 	now := time.Now()
 	return &store.Conversation{ID: a.st.NextID(), Title: "新会话", CreatedAt: now, UpdatedAt: now}, nil
 }
