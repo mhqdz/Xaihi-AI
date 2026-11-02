@@ -280,7 +280,7 @@ export default function App() {
       if (!r.ok) { setStatus('✗ 插话失败'); return }
       setText('')
       setMsgs(m => [...m, { role: 'user', content: t, at: now(), interject: true }])
-      setStatus('已插话')
+      setStatus('已插话（模型下一轮才会看到）')
     } finally { setSending(false) }
   }
 
@@ -1188,7 +1188,8 @@ export default function App() {
                   title={stopping ? '正在中止…' : '发送中…'} />
               ) : busy ? (
                 text.trim()
-                  ? <button className="send interject" onClick={interject} aria-label="插话" title="插话" />
+                  ? <button className="send interject" onClick={interject} aria-label="插话"
+                      title="插话：不中断当前生成，模型要到下一个工具轮次或下一轮才看到" />
                   : <button className="send stop" onClick={stop} aria-label="中断" title="中断" />
               ) : <button className="send" onClick={send} disabled={!text.trim()}
                     aria-label="发送" title={text.trim() ? '发送' : '先输入内容'} />}
