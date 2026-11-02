@@ -53,7 +53,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/shots/", func(w http.ResponseWriter, r *http.Request) {
 		home, _ := os.UserHomeDir()
 		w.Header().Set("Cache-Control", "no-store")
-		http.FileServer(http.Dir(filepath.Join(home, ".data", "agentd"))).ServeHTTP(w, r)
+		// 只能服务 shots 子目录本身。原来这里 FileServer 的是整个 ~/.data/agentd，
+		// 而 http.Dir 的 path.Clean 发生在 URL 解码之前 —— /shots/..%2Fagentd.db
+		// 解码后变成 ../agentd.db，可以整个数据库（全部对话 + 配置）原样下载。
+		dir := http.Dir(filepath.Join(home, ".data", "agentd", "shots"))
+		http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

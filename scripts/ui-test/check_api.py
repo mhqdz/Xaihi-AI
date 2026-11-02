@@ -50,6 +50,10 @@ CASES = [
     ("/api/plugins", "DELETE", 405),
     ("/api/plugins/nope", "GET", 405),
     ("/api/nonexistent", "GET", 404),
+    # 目录遍历：%2F 在 path.Clean 之后才解码，曾是整个数据库可下载（P0-3）
+    ("/shots/..%2Fagentd.db", "GET", 404),
+    ("/shots/..%2Fui.json", "GET", 404),
+    ("/shots/..%2F..%2F.ssh%2Fid_rsa", "GET", 404),
 ]
 
 def probe(path, method):

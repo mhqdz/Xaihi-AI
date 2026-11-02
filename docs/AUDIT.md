@@ -79,6 +79,48 @@ return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
 
 **顺带**：CLI 的 `agentd ask -conv <id>` 现在会 `fatal` 而不是静默新开 —— 它本来就处理了 err 分支，只是从前永远拿不到错误。
 
+### P0-3 `/shots/` 目录遍历：整个数据库可下载 ✅ 已修
+
+**这是本轮最严重的发现。**
+
+**现象**：
+
+```
+GET /shots/..%2Fagentd.db  →  200  20586496 bytes
+```
+
+20MB，正是 `~/.data/agentd/agentd.db` —— 全部 1714 条对话消息、会话元数据、配置。同样的手法能拿到 `ui.json`，再编码几层理论上还能走到上一级目录。
+
+**根因**：两个问题叠在一起。
+
+```go
+mux.HandleFunc("/shots/", func(w http.ResponseWriter, r *http.Request) {
+    home, _ := os.UserHomeDir()
+    http.FileServer(http.Dir(filepath.Join(home, ".data", "agentd"))).ServeHTTP(w, r)
+})
+```
+
+1. **`FileServer` 的根是 `~/.data/agentd` 而不是 `shots/`。** 因为 URL 前缀也得参与映射，`/shots/x.png` 落到 `~/.data/agentd/shots/x.png` —— 看起来"刚好对"，实则把整个父目录（套着数据库和配置文件）都暴露了。
+2. **`http.Dir` 的越界防护挡不住 URL 编码。** 它用 `path.Clean("/"+name)` 做清理，但清理发生在**解码之前**：`..%2F` 在 Clean 眼里只是一个普通片段，Clean 之后才解码成 `../`。
+
+**修复**：先把前缀剥掉，再让 FileServer 的根直接落在 `shots/` 上：
+
+```go
+dir := http.Dir(filepath.Join(home, ".data", "agentd", "shots"))
+http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
+```
+
+这样 `..` 无论怎么编码，Clean 之后都还在 `shots` 之下。
+
+**验证**：
+- 越界 `/shots/..%2Fagentd.db`、`/shots/..%2Fui.json`、`/shots/..%2F..%2F.ssh%2Fid_rsa` → 全部 **404**
+- 正常截图 `/shots/1793375166786760459.png` → **200**，2.5MB 正常返回
+- `/shots/../agentd.db` 会 307 到 `/agentd.db`，那个路径由 `handleStatic` 处理 → 404
+- 三条越界用例已固化进 `check_api.py`，34 条全过
+
+**教训**：这个洞一直在，只是没人试过编码后的 `..`。前面的审计都在看"功能对不对"，没看"能不能被滥用" —— 而 `http.FileServer` + 手拼 `http.Dir` 是最容易踩的一类。
+
+
 ### P1-10 插话失败却回 200 ✅ 已修
 
 **现象**：`POST /api/conv/999999/interject` 返回 `{"mode":"turn","ok":true}` + **200**，可那个会话根本不存在。后台只留下一行 `[WARN] interject->turn conv=999999: file does not exist`，客户端以为「接着做」已经生效了。
@@ -561,5 +603,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 18 | P1-10 插话失败不再回 200（先验会话 + 400） | `cd04cf8` | 无视觉改动 |
 | 19 | P1-11 归档/恢复/删除检查影响行数 + `check_api.py` | `6f2bffe` | 无视觉改动 |
 | 20 | P2-9 五个端点补方法校验 + 修正 8 条错预期 | `868a5ba` | 无视觉改动 |
+| 21 | P0-3 `/shots/` 目录遍历（可下载整库）修复 | `81b1c27` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
