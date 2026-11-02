@@ -256,6 +256,19 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | `check_xss.py` | 绕过 API 直接往库里塞 8 种 XSS 载荷（含 user/assistant 两种角色），验证 DOMPurify 链路：无执行、无 script、无内联事件、无 `javascript:` 链接、无 iframe 注入 |
 | `dbtool.py` | 测试会话的新建与真删，四个脚本共用 |
 
+### 回归结果（2026-11-03，第 8 批之后）
+
+| 套件 | 结果 |
+|---|---|
+| `go test ./...` | 7 个包全 `ok` |
+| `check_layout` / `check_tools` / `check_settings` / `check_live` / `check_sendstop` | 全绿 |
+| `run` / `run2` / `run3` | 全绿 |
+| `stream_test` | 11/11 |
+| `robustness` | 0 个问题 |
+| `check_xss` | 8 种载荷 × 2 种角色，0 执行、0 注入 |
+| `pixel_diff` | 6/6 逐像素一致 |
+| 测试数据 | 跑前跑后会话数都是 21，库里无 `ui-test` / `ui-rb` / `stream-test` / `ui-xss` 遗留 |
+
 ---
 
 ## 当前界面
