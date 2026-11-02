@@ -299,8 +299,19 @@ body{background:var(--paper);color:var(--ink);
 
 .card .field{display:grid;grid-template-columns:minmax(0,1fr);gap:.25rem;min-width:0}
 .card .field>.field-label{font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3)}
-.card .field input,.card .field select{width:100%;min-width:0;border:1px solid var(--line);background:#fff;
+.card .field input,.card .field select{width:100%;min-width:0;border:1px solid var(--line);background-color:#fff;
   color:var(--ink);font:inherit;font-size:.8rem;padding:.35rem .45rem;border-radius:0}
+/* 下拉：拿掉 UA 箭头，换成与 .composer .pick 同语言的 V 形（颜色跟随 --ink2）
+   用两个 45°/135° 渐变拼，而不是 data-URI 图标 —— 这样颜色还能吃 CSS 变量 */
+.card .field select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.7rem;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
+                   linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  background-position:calc(100% - 14px) calc(50% - 1px),calc(100% - 9px) calc(50% - 1px)}
+/* 数字输入：去掉 UA 的上下小箭头（8px 点击区；模型那边的字段都是五位数，±1 没有意义） */
+.card .field input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.card .field input[type=number]::-webkit-outer-spin-button,
+.card .field input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .card .field input:hover,.card .field select:hover{border-color:var(--sage)}
 .card .field input:focus,.card .field select:focus{outline:none;border-color:var(--ink);
   box-shadow:0 0 0 2px rgba(153,170,173,.35)}

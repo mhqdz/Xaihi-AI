@@ -20,7 +20,33 @@
 
 ## P0 — 崩溃 / 报错 / 数据不一致
 
-暂无已复现条目。
+### P0-1 测试脚本往真实会话写数据 ✅ 已修
+
+**现象**：真实对话 `conv=118` 的末尾出现 6 条不该有的消息 —— `No.148 / 150 / 152` 是内容为 `rb-test` 的用户消息，`No.149 / 151 / 153` 是内容为 `（已停止）` 的 assistant 消息。用户从没发过这些。
+
+**根因**：`scripts/ui-test/robustness.py` 把真实会话当测试靶子：
+
+- `[3] 超长输入`（第 52 行）：`s.get(BASE + "/?conv=118")`，然后往 textarea 灌 10000 个 `x`
+- `[4] 快速连点发送`（第 67 行）：同样打开 `?conv=118`，填 `rb-test`，**真的点 5 次发送按钮**
+
+所以每跑一次 robustness 就多一轮真实消息，还要调用一次真实模型。跑过 3 次 → 6 条垃圾。
+
+同类问题还有一处：`[4]` 收尾停任务时不看 conv_id，`for cid in running: stop` —— 会顺手停掉用户正在跑的那一轮。
+
+**修复**：
+
+- 新增 `new_conv()`，用 SQLite 自建一个会话当靶子（会话表结构简单，且测试脚本本来就有写库权限）；`[3][4]` 全部改用自建会话，不再出现硬编码的真实 conv id
+- 停止逻辑加 `if str(cid) != rb_conv: continue`，只停自己这一轮
+- 新增 `dispose()`，跑完把自建会话连同消息真删（原先用 `DELETE /api/conv/<id>`，那只是 `archived=1`，仍占会话列表位）
+- `stream_test.py` 同样补上收尾清理，同样从「归档」改为「删」
+
+**验证**：
+
+- 清理前备份：`agentd.db.bak-audit-20261103-035417`
+- 删除 `conv=118` 的 `seq 148..153`：消息数 153 → 147，`max(seq)` 153 → 147
+- 全库 `rb-test` 分布复查：只剩 `conv=118` 的 3 条，删除后归零
+- 重跑 `robustness.py`：0 个问题，且 `conv=118` 残留检查输出 `0`
+- 清理全部测试会话（`stream-test` / `uitest` / `ui-rb`）：会话总数 29 → 23
 
 ---
 
@@ -63,27 +89,32 @@
 
 ## P2 — 与当前风格不合时宜 / 点击目标过小
 
-### P2-1 表单下拉框仍是浏览器默认箭头 ⬜ 待修
+### P2-1 表单下拉框仍是浏览器默认箭头 ✅ 已修
 
 **现象**：设置 → 模型详情的「思考强度」「服务商」两个下拉框，右侧是浏览器给出的细箭头；而输入框上方「PROFILE」下拉框用的是自定义 `▾`（深绿灰、更粗）。同一产品里并存两种下拉箭头。
 
 **根因（已核实，非目测）**：`.composer .pick select`（`theme.css:119`）设了 `appearance:none` 并额外渲染 `<span className="caret">▾</span>`；`.card .field select`（`theme.css:303`）只给了边框和底色，**没有重置 `appearance`**，箭头因此来自 UA 而不是样式表。
 
-证据：打开模型详情后取计算样式 —— `appearance: "auto"`、`backgroundImage: "none"`、`backgroundColor: rgb(255,255,255)`。截图见 `model_before.png`（1600×1000）。
+证据（改前）：打开模型详情后取计算样式 —— `appearance: "auto"`、`backgroundImage: "none"`、`backgroundColor: rgb(255,255,255)`。截图 `model_before.png`（1600×1000）。
 
-**修复**：未开始。
+**修复**：给 `.card .field select` 重置 `appearance`，箭头用两个 45°/135° 渐变拼出 V 形 —— 之所以不用 data-URI 图标，是因为 URI 里的颜色写死，而渐变可以直接吃 `--ink2` 变量，换主题时箭头跟着变。另外把同族规则的 `background:#fff` 改成 `background-color:#fff`：`background` 简写会把 `background-image` 一起重置，不改这里箭头就会被吃掉。
 
-**验证**：待补。
+**验证**：
+- 计算样式：`appearance:"none"`，`backgroundImage` 为两个 linear-gradient
+- **顺带修掉一处高度不齐**：改前 select 高 30px、input 高 35px（`getBoundingClientRect`）；改后 select 35px，与全部 7 个 input 齐平
+- 像素对比：`wide-conv51` 内容区（x>260）**完全一致**，证明不影响会话页；`wide-settings` 的差异只有 `x 1521–1539` 一条 18px 竖带，即控件右端箭头/spinner 所在
 
-### P2-2 数字输入框的原生 spinner ⬜ 待修
+### P2-2 数字输入框的原生 spinner ✅ 已修
 
 **现象**：模型详情的「上下文窗口 / 输入上限 / 压缩阈值」、设置一级卡的「轮次上限 / 未活跃天数 / 保留天数」，右端都有 UA 的上下小箭头（spinner）。
 
-**根因**：`<input type="number">` 未处理 `appearance` 与 `::-webkit-inner-spin-button`。已核实这些字段确实是 `type="number"`（`ModelForm.jsx:40/44`、`ListCard.jsx`），DOM 探测到 3 个 number input 均宽 359px 且带 spinner。
+**根因**：`<input type="number">` 未处理 `appearance` 与 `::-webkit-inner-spin-button`。已核实这些字段确实是 `type="number"`（`ModelForm.jsx:43/48/53`、`ListCard.jsx:30/45/70`、`ToolCard.jsx:34`）。
 
-**修复**：未开始。注意这些字段里只有「轮次上限 50 / 未活跃天数 30 / 保留天数 7」是 ±1 有意义的小整数，其余是五位数以上，spinner 的 8px 点击区本身也偏小。
+**修复**：`.card .field input[type=number]{appearance:textfield}`，并隐藏 `::-webkit-outer-spin-button` / `::-webkit-inner-spin-button`。
 
-**验证**：待补。
+**判断依据**：这些字段里只有「轮次上限 50 / 未活跃天数 30 / 保留天数 7」是 ±1 有意义的小整数；模型那边的都是五位数（131072、105000），spinner 每次 ±1 毫无意义，而它本身只有 8px 宽，属于点击目标过小。
+
+**验证**：6 个 number input 的 spinner 全部消失，截图 `model_after.png` 确认；输入框高度与其它 input 一致（35px）。
 
 ---
 
@@ -102,4 +133,9 @@
 
 | 批次 | 内容 | commit | 视觉验证 |
 |---|---|---|---|
-| 1 | P1-1 + P1-2 空状态按钮并入 `.btn` 体系并等宽 | 待填 | 4/6 逐像素一致，2/6 差异限于按钮列 |
+| 0 | 脚手架：geckodriver 卡死自愈 + 脚本路径统一到 `__file__` | `214c7f8` | 无视觉改动 |
+| 1 | P1-1 + P1-2 空状态按钮并入 `.btn` 体系并等宽 | `11dd27e` | 4/6 逐像素一致；差异仅两张空状态图，包围盒 `71×171` 恰为按钮列 |
+| 2 | P0-1 测试脚本不再往真实会话写数据 | `f6d1ab1` | 无视觉改动 |
+| 3 | P2-1 + P2-2 下拉箭头统一 + 去 spinner | 待填 | 会话页内容区逐像素一致；设置页差异仅 `x1521–1539` 竖带 |
+
+基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后「合并前后」无法对比）。
