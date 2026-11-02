@@ -129,3 +129,11 @@ print(f"{len(results)-len(bad)}/{len(results)} 通过")
 for n, ok, d in results:
     if not ok: print("  失败:", n, d)
 print("测试会话 id:", cid, cid2, cid3)
+
+# 清理：删掉本次造的会话（归档只是 archived=1，仍占列表位）
+_c = sqlite3.connect(DB)
+for _cid in (cid, cid2, cid3):
+    _c.execute("delete from messages where conv_id=?", (int(_cid),))
+    _c.execute("delete from conversations where id=?", (int(_cid),))
+_c.commit(); _c.close()
+print("已清理测试会话", cid, cid2, cid3)

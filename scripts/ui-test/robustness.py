@@ -2,11 +2,29 @@
 """黑盒健壮性测试：异常输入、边界状态、响应式切换。
 只观察，不假设实现。任何 JS 报错 / 布局溢出 / 卡死都算问题。
 """
-import sys, os, time, json
+import sys, os, time, json, sqlite3
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
 
 BASE = "http://127.0.0.1:18400"
+DB = os.path.expanduser("~/.data/agentd/agentd.db")
+
+def new_conv(title="ui-rb"):
+    """自建会话当靶子。[3][4] 曾经直接用 ?conv=118，把 rb-test 和（已停止）
+    写进了真实对话（No.148-153）—— 会发消息的用例不许碰真实数据。"""
+    c = sqlite3.connect(DB); now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    cur = c.execute("INSERT INTO conversations(title,created_at,updated_at) VALUES(?,?,?)",
+                    (title, now, now))
+    c.commit(); cid = cur.lastrowid; c.close()
+    return str(cid)
+
+def dispose(cid):
+    """删掉自建的测试会话。归档只是 archived=1，仍然占着会话列表的位置，
+    测试会话没有保留价值，直接连消息一起删。"""
+    c = sqlite3.connect(DB)
+    c.execute("delete from messages where conv_id=?", (int(cid),))
+    c.execute("delete from conversations where id=?", (int(cid),))
+    c.commit(); c.close()
 fails = []
 def check(name, ok, detail=""):
     print(("  ✓ " if ok else "  ✗ ") + name + (f"  {detail}" if detail else ""))
@@ -49,7 +67,8 @@ s.close()
 
 # ── 3. 超长输入（10000 字）
 print("\n[3] 输入 10000 字不发送")
-s = new_session(); s.get(BASE + "/?conv=118"); time.sleep(2.2)
+rb_conv = new_conv()
+s = new_session(); s.get(BASE + f"/?conv={rb_conv}"); time.sleep(2.2)
 install_err_hook(s)
 s.js("""const t=document.querySelector('.composer textarea');
 const set=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;
@@ -64,7 +83,7 @@ s.shot("/tmp/uitest/rb_longtext.png"); s.close()
 
 # ── 4. 快速连点发送（防重复提交）
 print("\n[4] 快速连点发送 5 次")
-s = new_session(); s.get(BASE + "/?conv=118"); time.sleep(2.2)
+s = new_session(); s.get(BASE + f"/?conv={rb_conv}"); time.sleep(2.2)
 install_err_hook(s)
 s.js("""const t=document.querySelector('.composer textarea');
 const set=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;
@@ -77,14 +96,17 @@ time.sleep(2.0)
 running = json.load(__import__('urllib.request', fromlist=['x']).urlopen(BASE + "/api/running"))
 check("只起一轮（running ≤ 1）", len(running) <= 1, running)
 check("无 JS 错误", js_errs(s) == [], js_errs(s))
-# 停掉
+# 停掉（只停自己这一轮，别顺手停掉用户正在跑的）
 for cid in running:
+    if str(cid) != rb_conv:
+        continue
     try:
         __import__('urllib.request', fromlist=['x']).urlopen(
             __import__('urllib.request', fromlist=['x']).Request(BASE + f"/api/conv/{cid}/stop", data=b"{}", method="POST"), timeout=10).read()
     except Exception:
         pass
 s.close()
+dispose(rb_conv)
 
 # ── 5. 响应式：窄 → 宽 → 窄 连续切换
 print("\n[5] 响应式来回切换 900 ↔ 1600")
