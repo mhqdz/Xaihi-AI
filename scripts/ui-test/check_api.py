@@ -50,17 +50,26 @@ CASES = [
     ("/api/plugins", "DELETE", 405),
     ("/api/plugins/nope", "GET", 405),
     ("/api/nonexistent", "GET", 404),
+    # CSRF：带 body 的写请求必须 application/json（P0-4）。
+    # text/plain 是 CORS 简单请求、不预检，浏览器能跨站发出来 —— 必须 415。
+    ("/api/chat", "POST", 415, "text/plain"),
+    ("/api/settings", "PUT", 415, "text/plain"),
+    ("/api/profiles", "POST", 415, "text/plain"),
+    ("/api/plugins", "POST", 415, "text/plain"),
+    ("/api/tools/bash", "PUT", 415, "text/plain"),
+    ("/api/wake", "POST", 415, "text/plain"),
+    ("/api/shots/cleanup", "POST", 415, "text/plain"),
     # 目录遍历：%2F 在 path.Clean 之后才解码，曾是整个数据库可下载（P0-3）
     ("/shots/..%2Fagentd.db", "GET", 404),
     ("/shots/..%2Fui.json", "GET", 404),
     ("/shots/..%2F..%2F.ssh%2Fid_rsa", "GET", 404),
 ]
 
-def probe(path, method):
+def probe(path, method, ctype="application/json"):
     req = urllib.request.Request(BASE + path, method=method,
                                  data=b"{}" if method in ("POST", "PUT") else None)
     if method in ("POST", "PUT"):
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", ctype)
     try:
         with urllib.request.urlopen(req, timeout=4) as r:
             return r.status, r.read(60).decode("utf-8", "replace")
@@ -70,8 +79,10 @@ def probe(path, method):
         return -1, str(e)[:60]
 
 bad = []
-for path, method, want in CASES:
-    code, body = probe(path, method)
+for case in CASES:
+    path, method, want = case[0], case[1], case[2]
+    ctype = case[3] if len(case) > 3 else "application/json"
+    code, body = probe(path, method, ctype)
     ok = (code == want)
     mark = "  " if ok else "✗ "
     print(f"{mark}{method:<7} {path:<28} {code:<4} (期望 {want})  {body[:46].replace(chr(10),' ')}")
