@@ -61,6 +61,9 @@
 /* 下拉框统一给手型：UA 默认是 default，而点它确实会展开 —— 缺了这条，
    composer 的 PROFILE 和设置里的下拉框手感不一致（后者是逐条规则里补的） */
 select{cursor:pointer}
+/* 禁用态统一：之前只有 .send 有，插件编辑里那个 disabled 的「插件名」字段
+   看起来和可编辑的完全一样，用户会以为能改 */
+input:disabled,select:disabled,textarea:disabled,button:disabled{opacity:.45;cursor:not-allowed}
 html,body,#root{height:100%;margin:0}
 body{background:var(--paper);color:var(--ink);
   font:14px/1.7 "Maple Mono NF CN","Maple Mono NF","Noto Sans SC",ui-monospace,system-ui,sans-serif;

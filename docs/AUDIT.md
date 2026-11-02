@@ -284,6 +284,17 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 
 **验证**：`role` / `aria-modal` / `aria-label` 实测为 `dialog` / `true` / `设置`；`pixel_diff` 6/6 一致。
 
+### P2-8 禁用控件没有视觉区分 ✅ 已修
+
+**现象**：插件编辑里的「插件名」字段是 `disabled` 的，但看起来和可编辑字段一模一样。
+
+**根因**：禁用态样式只写在 `.send:disabled` 一处，`input` / `select` / `textarea` / `button` 全都没有。在这套界面里，「禁用」约等于「看不出能不能改」。
+
+**修复**：加统一规则 `input:disabled,select:disabled,textarea:disabled,button:disabled{opacity:.45;cursor:not-allowed}`。`.send:disabled` 的特异性更高（0,2,0 vs 0,1,1），原有的 `.38` 保持不变。
+
+**验证**：临时建四种控件实测 `opacity` 都是 `0.45`、`cursor` 都是 `not-allowed`；`pixel_diff` 6/6 一致（现有页面里只有 `.send` 处于禁用态，而它没被覆盖）。
+
+
 
 
 
@@ -320,6 +331,23 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | `vendor/endfield/endfield.css`（2232 行）是 J 视觉层之后的死代码 | theme.css 里已有 `.ef-*` 覆盖，像是可以删 | 实测临时去掉它的 `<link>` 再构建：`wide-conv118` 有 **278213 个像素**不同、消息区大片变化。endfield 仍提供 `.ef-prose` / `.ef-field` / `.ef-panel` 等基础形制，theme.css 只是覆盖了一部分。**不是死代码，不能删** |
 
 教训：**截图只能提出问题，不能判定问题**。上面每一条如果直接动手「修」，都会把本来正确的设计改坏 —— 而且改完还会因为测试全绿而自以为成功了。
+
+### 文本边界（实测：没问题）
+
+新增 `check_text.py`：直接往库里塞 6 种极端内容 —— emoji、RTL 阿拉伯文、400 字符无空格串、控制字符（`\x00\x01\x07`）、超长 URL、中英混排。
+
+结果全过：6 条消息都渲染出来、`scrollWidth == innerWidth`（无横向溢出）、没有消息卡越界、无 JS 错误、正文区域有内容。
+
+### Esc 级联（实测：四层都对）
+
+```
+进编辑器     set ✓  detail ✓  editor ✓
+Esc 1       set ✓  detail ✓  editor ✗   ← 退回详情
+Esc 2       set ✓  detail ✗            ← 退回列表
+Esc 3       set ✗                      ← 关闭整个设置
+```
+
+在这之前（上上轮之前）**根本没有 Escape 处理**，只能点 × 或遮罩关闭。
 
 ### 流式结束后会不会冲掉分页窗口？（实测：不会）
 
@@ -423,5 +451,6 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | 12 | P1-7 设置面板打开时背景 `inert` + `check_focus.py` | `bc23147` | 6/6 一致 |
 | 13 | P1-8 设置面板焦点进出闭环 | `3e5b25a` | 6/6 一致 |
 | 14 | P2-7 设置面板 dialog 语义 | `54de787` | 6/6 一致 |
+| 15 | P2-8 禁用态统一 + `check_text.py` | `b1f3872` | 6/6 一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
