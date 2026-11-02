@@ -22,12 +22,12 @@
 |---|---|---|
 | GET | `/api/convs` | 未归档列表：`[{ID,Title,UpdatedAt,N}]`（N=消息条数） |
 | GET | `/api/convs?archived=1` | 归档列表，同结构 |
-| GET | `/api/conv/{id}` | 会话全文：`{id,title,created_at,updated_at,messages:[{seq,role,content,reasoning,reasoning_ms,tool_calls,tool_result,created_at}]}` |
-| POST | `/api/conv/{id}/archive`（DELETE 同效） | 归档 |
+| GET | `/api/conv/{id}` | 会话全文：`{id,title,kind,kv,summary,summary_upto,summary_model,summary_at,created_at,updated_at,page,messages:[{seq,role,content,reasoning,reasoning_ms,tool_calls,tool_result,created_at}]}`；`page` 是分页窗口 `{from,to,total_rounds,remaining_rounds,has_more,last_seq,rounds,total_messages}` |
+| DELETE | `/api/conv/{id}` | 归档（只有 DELETE；`POST .../archive` 会 405） |
 | POST | `/api/conv/{id}/restore` | 恢复 |
 | POST | `/api/conv/{id}/interject` `{"text":"…"}` | 向进行中的轮次插话（下一轮工具调用前注入） |
 | POST | `/api/conv/{id}/stop` | 中断当前生成（后台任务取消，已生成内容落库） |
-| GET | `/api/conv/{id}/stream?from=N` | 断线重连：重放缓冲区第 N 字节起并续流；不在运行且无缓冲时 404 |
+| GET | `/api/conv/{id}/stream?from=N` | 断线重连：轮次在跑时重放缓冲区第 N 帧起并续流；**不在运行则直接返回 `event: done`（200）**，不回放旧帧 |
 
 ## 对话（SSE）
 
@@ -61,7 +61,7 @@
 |---|---|---|
 | GET | `/api/models?base_url=&api_key=` | 代理上游 `/v1/models`：`{"models":["…"]}`；非 200 时返回 `{"error":"接口返回 N（检查地址或 API Key）"}` |
 | GET | `/api/profiles` | profile 数组 |
-| PUT | `/api/profiles/{name}` | 新建或更新（`api_key` 为空则回落全局配置） |
+| POST / PUT | `/api/profiles` | 新建或更新（`api_key` 为空则回落全局配置）。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
 | DELETE | `/api/profiles/{name}` | 删除（内置也可删） |
 
 profile 里与上下文/生成相关的字段：

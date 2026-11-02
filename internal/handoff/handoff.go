@@ -313,6 +313,18 @@ func (m *Manager) ConsumeOutbox(ctx context.Context) error {
 	return nil
 }
 
+// Cancel：取消正在跑的任务。run() 早就把 cancel 存进 active 了，只是没有出口。
+func (m *Manager) Cancel(tid int64) error {
+	m.mu.Lock()
+	cancel, ok := m.active[tid]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("任务 %d 没在运行", tid)
+	}
+	cancel()
+	return nil
+}
+
 // Restore：手动执行收尾（interrupted 任务用）
 func (m *Manager) Restore(tid int64) error {
 	r, ok := m.Recipes[""] // placeholder

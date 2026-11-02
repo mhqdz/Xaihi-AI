@@ -257,6 +257,16 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "cancel":
+		if s.ho == nil {
+			writeJSON(w, 503, map[string]string{"error": "未启用"})
+			return
+		}
+		if err := s.ho.Cancel(id); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "canceled": id})
 	case "restore":
 		if s.ho == nil {
 			writeJSON(w, 503, map[string]string{"error": "未启用"})

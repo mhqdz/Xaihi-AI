@@ -541,6 +541,41 @@ sort.Slice(kids, func(i, j int) bool { return kids[i].ID < kids[j].ID })
 
 **验证**：`pixel_diff` 6/6 一致（`title` 是悬浮提示，不进截图）；`check_live` / `check_sendstop` / `stream_test` / `robustness` / `check_api` / `run` / `run2` 全绿。
 
+### P1-20 文档写的 `/api/tasks/{id}/cancel` 根本没实现 ✅ 已补
+
+**怎么发现的**：这轮换了个方向，不看代码看文档 —— 拿 `docs/HANDOFF.md` 里的端点表逐条打，结果 `/api/tasks/1/cancel` 返回 404。一开始以为是「任务 1 不存在」，读代码才确认 `handleTasks` 的 `switch parts[1]` 只有 `restore` 一个分支，其余全落到 `default: 404 未知操作`。
+
+有意思的是 `run()` 早就把 `cancel` 存进 `m.active[tid]` 了，`Active()` 也在数它 —— **能力是齐的，只是没有出口**。
+
+**补法**：`Manager.Cancel(tid)` 调用已有的 cancel，路由加 `case "cancel"`。顺带验证：造一个 `sleep 30` 的任务，2 秒后取消，返回 `{"canceled":37,"ok":true}`，`sleep 30` 那步变成 `failed` / `exit_code=-1`。
+
+**已知不完美**：任务最终状态是 `failed` 而不是 `canceled` —— 用户主动取消和真的失败在界面上一模一样。要区分得让 `record` 知道这次是取消，改动比这一批大，先记着。
+
+**另外两个文档写了但没实现的**，直接标成未实现而不是硬补：
+- `POST /api/tasks/{id}/retry`
+- `POST /api/outbox/{id}/deliver|cancel`（连路由都没有）
+
+### P2-12 文档与实现漂移 7 处 ✅ 已修
+
+拿 `docs/API.md` 和 `docs/HANDOFF.md` 的端点表逐条打（能打的全打了），7 处对不上：
+
+| 文档写的 | 实际情况 |
+|---|---|
+| `POST /api/conv/{id}/archive`（DELETE 同效） | **只有 DELETE**；POST 返回 `405 GET/DELETE only` |
+| `stream` 不在运行且无缓冲时 **404** | 返回 **200 + `event: done`**（代码注释还特意写了"不报错"） |
+| `PUT /api/profiles/{name}` 新建或更新 | **405**；正确路径是 `POST /api/profiles`（集合） |
+| `GET /api/conv/{id}` 返回 7 个字段 | 实际 12 个（多了 `kind/kv/summary/summary_upto/summary_model/summary_at/page`） |
+| `POST /api/tasks/{id}/retry` | 未实现 |
+| `POST /api/outbox/{id}/deliver\|cancel` | 未实现（无路由） |
+| `POST /api/tasks/{id}/cancel` | 未实现 → **这一批补上了**（见 P1-20） |
+
+都按实际行为改正，未实现的明确标 ~~删除线~~ + "未实现"。
+
+**为什么值得修**：文档漂移比代码 bug 更隐蔽 —— 代码有测试兜底，文档没有。这次要不是专门去打，这几处会一直错着，误导下一个读文档的人（包括未来的我）。
+
+**一个自己的小事故**：验证 `PUT /api/profiles/{name}` 时我随手用了 `test-x` / `test-y` 两个名字，结果 `test-y` 真被 `POST /api/profiles` 创建进了主实例的配置。已删除并确认 profiles 列表回到原来的 7 个。
+
+
 
 
 
@@ -1191,5 +1226,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 36 | P1-19 子会话编号跨位数错乱（字符串排序）+ 父归档实测 | `e43eba9` | 无视觉改动 |
 | 37 | handoff 并发与失败恢复实测（均正常，未改代码） | 无提交 | 无视觉改动 |
 | 38 | P2-11 插话按钮说明它下一轮才生效 | `4e9fe1c` | 只改文案，pixel 6/6 一致 |
+| 39 | P1-20 补 `/api/tasks/{id}/cancel` + P2-12 文档漂移 7 处 | `edb195b` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

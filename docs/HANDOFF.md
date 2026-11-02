@@ -87,10 +87,10 @@ CREATE TABLE outbox(
 | POST | `/api/wake` | `{conv_id, text, origin}`；Header `X-Agentd-Token`（`~/.data/agentd/wake.token`）；写 outbox → 立即返回 id |
 | GET | `/api/tasks?conv=&status=` | 任务列表（含子会话编号） |
 | GET | `/api/tasks/{id}` | 详情：配方、步骤、产物、outbox |
-| POST | `/api/tasks/{id}/cancel` | 取消（尽力：kill 当前步骤） |
-| POST | `/api/tasks/{id}/retry` | 重新派发（新 task，指向同一父） |
+| POST | `/api/tasks/{id}/cancel` | 取消（尽力：kill 当前步骤；任务最终状态会落到 `failed` + `exit -1`） |
+| ~~POST `/api/tasks/{id}/retry`~~ | **未实现**（调用会得到 `404 未知操作`）；要重跑就重新派发一次 `POST /api/tasks` |
 | POST | `/api/tasks/{id}/restore` | 手动执行收尾（interrupted 用） |
-| POST | `/api/outbox/{id}/{deliver\|cancel}` | 手动投递/取消 |
+| ~~POST `/api/outbox/{id}/deliver\|cancel`~~ | **未实现**（没有这个路由）；outbox 由 `ConsumeOutbox` 自动消费 |
 
 工具：`spawn_task(kind, card)`（父会话）、`handoff_fail(reason, evidence)`（子会话，只报事实）。
 
