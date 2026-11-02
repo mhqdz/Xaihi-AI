@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -71,8 +73,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_conv_seq ON messages(conv_id, seq);
 func (s *SQLiteStore) NextID() string { return "" } // 由 AUTOINCREMENT 负责
 
 func (s *SQLiteStore) Get(id string) (*Conversation, error) {
-	var n int
-	if _, err := fmt.Sscanf(id, "%d", &n); err != nil {
+	// 必须严格解析：fmt.Sscanf("%d") 会忽略尾部垃圾，于是 /api/conv/51abc
+	// 被当成 51，把别人的会话原样返回（200）。strconv 对 "51abc" 直接报错。
+	n, perr := strconv.Atoi(strings.TrimSpace(id))
+	if perr != nil || n <= 0 {
 		return nil, os.ErrNotExist
 	}
 	var c Conversation

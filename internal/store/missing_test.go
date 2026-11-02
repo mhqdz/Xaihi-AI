@@ -42,3 +42,26 @@ func TestArchiveRestoreDeleteMissingID(t *testing.T) {
 		t.Error("硬删之后不该还能读到")
 	}
 }
+
+// Get 必须严格解析 id。以前用 fmt.Sscanf("%d")，它会忽略尾部垃圾 ——
+// "51abc" 被当成 51，于是 /api/conv/51abc 原样返回别人的会话（200）。
+func TestGetRejectsMalformedID(t *testing.T) {
+	s := newSQ(t)
+	c := &Conversation{Title: "real"}
+	if err := s.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	// 正数本身能读
+	if _, err := s.Get(c.ID); err != nil {
+		t.Fatalf("正常 id 应该能读：%v", err)
+	}
+	// 前后空白是被有意容忍的（URL 里偶尔会带），所以不在坏样本里
+	if _, err := s.Get("  " + c.ID + " "); err != nil {
+		t.Fatalf("前后空白应该被容忍：%v", err)
+	}
+	for _, bad := range []string{c.ID + "abc", "", "0", "-1", "abc", "1e3", "0x10"} {
+		if _, err := s.Get(bad); err == nil {
+			t.Errorf("id %q 不该被接受（会被解析成别的会话）", bad)
+		}
+	}
+}
