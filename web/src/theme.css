@@ -20,14 +20,43 @@
    顺序：变量 → 壳 → 顶栏 → 抽屉 → 舞台 → 消息 → 输入 → 设置 → 响应式
    约定：不使用 !important；设置卡片统一由 .card / .card-hd / .card-bd 描述。 */
 
+/* ═══ 变量：唯一来源 ═══════════════════════════════════════════════════
+   这里原来散着 7 个 :root —— --ink / --ink2 / --ink3 各定义 3 次，
+   --theme / --panel / --signal / --ef-on-signal 各 2 次。改一个变量得先在
+   1400 行里找哪一次生效。合并时一律取「最后出现者」的值，语义不变。
+   ═══════════════════════════════════════════════════════════════════ */
 :root{
-  --ink:var(--c7); --ink2:var(--c5); --ink3:var(--c4);
+  /* 色阶：唯一颜色来源 */
+  --c1:#F3F5F5; --c2:#DEE4E5; --c3:#C4CECF; --c4:#99AAAD;
+  --c5:#778587; --c6:#596364; --c7:#3A4142; --c8:#637172;
+
+  /* 语义映射 */
   --paper:var(--c1); --panel:#fff; --line:var(--c3);
-  --sage:var(--c4); --sage-d:var(--c6); --pink:#e7cdd2;
+  --ink:#2A3431; --ink2:#4E5A5B; --ink3:#637072;
+  --theme:var(--c4); --sage:var(--c4); --sage-d:var(--c6);
+  --signal:var(--c4); --on-signal:var(--c1); --pink:#e7cdd2;
+  --chip:var(--c2); --card-w:400px;
+
+  /* 左栏 */
   --side:var(--c7); --side2:var(--c6); --side-fg:var(--c1); --side-dim:var(--c5);
-  --signal:var(--c4); --on-signal:var(--c7);
-  --card-w:400px;
+
+  /* endfield：全部接到色阶上，不另造颜色 */
+  --ef-ink:var(--c7); --ef-ink-2:var(--c5); --ef-paper:var(--c1); --ef-panel:#fff;
+  --ef-rule:var(--c3); --ef-chip:var(--c2); --ef-tag-bg:var(--c2); --ef-tag-fg:var(--c7);
+  --ef-signal:var(--c4); --ef-on-signal:var(--c1); --ef-trace:var(--c4);
+  --ef-marker:var(--c4); --ef-danger:var(--c6);
+  --ef-hatch:rgba(153,170,173,.35); --ef-contour:rgba(153,170,173,.35);
+  --ef-font-ui:"Maple Mono NF CN","Maple Mono NF",ui-monospace,system-ui,sans-serif;
+  --ef-font-text:"Maple Mono NF CN","Maple Mono NF",ui-monospace,system-ui,sans-serif;
+  --ef-font-mono:"Maple Mono NF CN","Maple Mono NF",ui-monospace,monospace;
+
+  /* J 视觉层 */
+  --warm:#A9673F; --warm2:#DDB49B; --warmbg:#FAF1EA;
+  --j-acc:#6E9A92; --j-accbg:#EEF4F3;
+  --cut:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
+  --cut-sm:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
 }
+
 *{box-sizing:border-box}
 html,body,#root{height:100%;margin:0}
 body{background:var(--paper);color:var(--ink);
@@ -376,7 +405,6 @@ body{background:var(--paper);color:var(--ink);
 .drawer .foot-btn:hover{color:var(--sage-d);border-color:var(--sage)}.drawer .foot-mark{width:100%;font-size:.56rem;letter-spacing:.2em;color:var(--ink3);}
 
 /* ── 主题色 #99AAAD：只改“背景”，文字保持深色 ── */
-:root{--theme:#99AAAD}
 
 /* 数字块：底色改主题色（浅），数字/标签仍深色 */
 .drawer-figs{background:var(--c3);border:0}
@@ -394,28 +422,6 @@ body{background:var(--paper);color:var(--ink);
 
 /* ═══ 色阶（唯一颜色来源）════════════════════════════
    c1 最浅 → c7 最深，页面只允许使用这 7 个颜色 + 白/纯黑文字 */
-:root{
-  --c1:#F3F5F5; --c2:#DEE4E5; --c3:#C4CECF; --c4:#99AAAD;
-  --c5:#778587; --c6:#596364; --c7:#3A4142;
-
-  /* 语义映射（全部指向色阶，不另造颜色）*/
-  --paper:var(--c1);
-  --panel:#fff;
-  --line:var(--c3);
-  --ink:var(--c7);
-  --ink2:var(--c5);
-  --ink3:var(--c4);
-  --theme:var(--c4);
-  --sage:var(--c4);
-  --sage-d:var(--c6);
-  --signal:var(--c4);
-  --on-signal:var(--c1);
-  --side:var(--c7);
-  --side2:var(--c6);
-  --side-fg:var(--c1);
-  --side-dim:var(--c5);
-  --chip:var(--c2);
-}
 /* 把散落的硬编码色也归到色阶 */
 .drawer-figs a{background:var(--c4)}
 .drawer-figs a:hover{background:var(--c5)}
@@ -424,23 +430,6 @@ body{background:var(--paper);color:var(--ink);
 /* ═══ 把 endfield 的变量也接到我们的色阶上 ═══════════════
    之前只改了我们的变量，endfield 组件仍用默认值(黑/黄) ✗
    → .ef-panel 的粗边、.ef-btn 的扫线、.ef-* 的强调色全是黑/黄 ✗ */
-:root{
-  --ef-ink:var(--c7);
-  --ef-ink-2:var(--c5);
-  --ef-paper:var(--c1);
-  --ef-panel:#fff;
-  --ef-rule:var(--c3);
-  --ef-chip:var(--c2);
-  --ef-tag-bg:var(--c2);
-  --ef-tag-fg:var(--c7);
-  --ef-signal:var(--c4);
-  --ef-on-signal:var(--c1);
-  --ef-trace:var(--c4);
-  --ef-marker:var(--c4);
-  --ef-danger:var(--c6);
-  --ef-hatch:rgba(153,170,173,.35);
-  --ef-contour:rgba(153,170,173,.35);
-}
 
 /* 消息卡顶部那条"页签"：改成色阶主题色（原来用 --ef-ink，深色近黑 ✗） */
 .msg.ef-panel::after{background:transparent}
@@ -600,9 +589,6 @@ body{background:var(--paper);color:var(--ink);
 
 /* ═══ 对比色（终末地标志黄）：色阶第 8 色，只用于"看这里/可操作"的强调 ═══
    #FFFA00 来自 endfield skill 的 --ef-signal（THE yellow） */
-:root{
-  --ef-on-signal:var(--c1);
-}
 
 /* 折叠把手：悬停/聚焦用黄；指针滑出后回到中性色 */
 
@@ -758,11 +744,6 @@ body{background:var(--paper);color:var(--ink);
 .drawer .ef-record .ef-tag,.drawer .ef-record time.ef-field{align-self:center}
 
 /* endfield 组件的字体变量也指向 Maple（否则 .ef-read/.ef-prose 会回落到 Noto ✗）*/
-:root{
-  --ef-font-ui:"Maple Mono NF CN","Maple Mono NF",ui-monospace,system-ui,sans-serif;
-  --ef-font-text:"Maple Mono NF CN","Maple Mono NF",ui-monospace,system-ui,sans-serif;
-  --ef-font-mono:"Maple Mono NF CN","Maple Mono NF",ui-monospace,monospace;
-}
 
 /* 工具配置卡里的子工具行 */
 .col-tool .sub-name{width:8rem;border:1px solid var(--c3);font:inherit;font-size:.8rem;padding:.25rem .4rem}
@@ -1187,13 +1168,6 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
    只覆盖视觉；布局骨架（250 抽屉 / 960 读宽 / 64 右栏 / composer 位置）不变
    回滚：删掉本文件从这里到结尾即可，或 git checkout pre-j-visual -- web/src/theme.css
    ══════════════════════════════════════════════════════════════════════════ */
-:root{
-  --warm:#A9673F; --warm2:#DDB49B; --warmbg:#FAF1EA;
-  --j-acc:#6E9A92; --j-accbg:#EEF4F3; --c8:#637172;
-  --ink:#2A3431; --ink2:#4E5A5B; --ink3:#637072;
-  --cut:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
-  --cut-sm:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
-}
 
 /* ── 纸面：极淡网格 + 顶部光斑（只在正文区） ── */
 .stage{
