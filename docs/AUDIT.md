@@ -431,19 +431,35 @@ Esc 3       set ✗                      ← 关闭整个设置
 | `check_contrast.py` | 逐个文本节点的前景/背景对比度，按 WCAG 相对亮度公式算，AA 阈值 4.5（大字 3.0） |
 | `check_xss.py` | 绕过 API 直接往库里塞 8 种 XSS 载荷（含 user/assistant 两种角色），验证 DOMPurify 链路：无执行、无 script、无内联事件、无 `javascript:` 链接、无 iframe 注入 |
 | `dbtool.py` | 测试会话的新建与真删，四个脚本共用 |
+| `check_text.py` | 往库里塞 emoji / RTL / 无空格长串 / 控制字符 / 超长 URL，验证渲染不溢出、不报错 |
+| `check_cursor.py` | 可点元素的 `cursor`，专抓 `<button>` 默认不是 pointer 这类漏写 |
+| `check_focus.py` | 用 WebDriver **真按 Tab** 走一遍，看焦点落在哪、有没有可见的 outline / box-shadow |
 
-### 回归结果（2026-11-03，第 8 批之后）
+### 回归结果（2026-11-03，第 18 批之后）
+
+**断言型**（失败会 exit ≠ 0）：
 
 | 套件 | 结果 |
 |---|---|
-| `go test ./...` | 7 个包全 `ok` |
+| `go test ./...` | 7 个包全 `ok`（19 个测试文件） |
 | `check_layout` / `check_tools` / `check_settings` / `check_live` / `check_sendstop` | 全绿 |
 | `run` / `run2` / `run3` | 全绿 |
 | `stream_test` | 11/11 |
 | `robustness` | 0 个问题 |
 | `check_xss` | 8 种载荷 × 2 种角色，0 执行、0 注入 |
-| `pixel_diff` | 6/6 逐像素一致 |
-| 测试数据 | 跑前跑后会话数都是 21，库里无 `ui-test` / `ui-rb` / `stream-test` / `ui-xss` 遗留 |
+| `check_text` | 6 种极端文本，无横向溢出、无 JS 错误 |
+| `check_focus` | 焦点不可见 0 处（修前 1 处） |
+
+**报告型**（输出清单供人工判断，不设 exit 门槛）：
+
+| 脚本 | 当前状态 |
+|---|---|
+| `check_targets` | 只剩 3 处正文行内链接（`351×21` 等，WCAG 2.5.8 对行内链接有豁免） |
+| `check_contrast` | 不达标组 会话 2 / 空状态 1 / 设置 4 / 模型详情 4，全是 `--c5` 上的装饰角标 |
+| `check_cursor` | 只剩 `label.field` 与 label 内的 checkbox，均属合理行为 |
+
+**视觉**：`pixel_diff` 6/6 逐像素一致。
+**数据**：会话数 21，库里无 `ui-test` / `ui-rb` / `stream-test` / `ui-xss` / `ui-text` 遗留。
 
 ---
 
