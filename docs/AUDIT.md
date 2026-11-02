@@ -226,6 +226,21 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 
 **验证**：构建后 `dist/favicon.svg` 存在，`curl http://127.0.0.1:18400/favicon.svg` 返回 **200**。
 
+### P2-6 光标反馈不统一 ✅ 已修
+
+**现象**：同样是下拉框，输入框上方「PROFILE」是默认光标，设置里「思考强度 / 服务商」是手型；点 `PROFILE` 那一整块（label）也没有手型提示。
+
+**根因**：`cursor:pointer` 是**逐条规则**补的 —— 只在 `.card .field select` 上写过，`.composer .pick select` 和包着它的 `.composer .pick` 都没有。而 `<select>` 的 UA 默认 cursor 是 `default`，不会自动变手型。
+
+**修复**：提到全局 `select{cursor:pointer}`，删掉 `.card .field select` 里的重复声明；`.composer .pick`（label 包着 select，点它同样会展开）单独补 pointer。
+
+**怎么发现的**：新增 `check_cursor.py`，扫所有可点元素的 hover 反馈。这个脚本同时确认了两处**本来正确**的设计，省得以后被误改：
+- `.send:disabled{cursor:not-allowed}` —— 禁用态就该是禁止光标，实测填入文字后立刻变成 `pointer`
+- 9 个 checkbox 的 `default` —— 真实点击区在包着它们的 `<label>`（实测 177×33），checkbox 本身给 default 是对的
+
+**验证**：不达标组 会话 2→1 / 空状态 2→1 / 设置 3→2 / 模型详情 4→3。剩下的是 `label.field`（点它聚焦输入框）和 label 里的 checkbox，属于合理行为，不算问题。`pixel_diff` 6/6 一致（光标不参与渲染）。
+
+
 ---
 
 ## 原待核实项（已全部排除）
@@ -357,5 +372,6 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | 8 | P1-5 7 个 `:root` 合并为 1（51 个变量逐项比对） | `c2377cc` | 6/6 逐像素一致，1420 → 1394 行 |
 | 9 | P2-5 favicon + `endfield.css` 死代码核实 | `35dee65` | 无视觉改动 |
 | 10 | P1-6 停止跟踪 `web/node_modules`（2488 → 136 个文件） | `36121c2` | 无视觉改动 |
+| 11 | P2-6 下拉框光标统一 + `check_cursor.py` | `59564f6` | 6/6 一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

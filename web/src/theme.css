@@ -58,6 +58,9 @@
 }
 
 *{box-sizing:border-box}
+/* 下拉框统一给手型：UA 默认是 default，而点它确实会展开 —— 缺了这条，
+   composer 的 PROFILE 和设置里的下拉框手感不一致（后者是逐条规则里补的） */
+select{cursor:pointer}
 html,body,#root{height:100%;margin:0}
 body{background:var(--paper);color:var(--ink);
   font:14px/1.7 "Maple Mono NF CN","Maple Mono NF","Noto Sans SC",ui-monospace,system-ui,sans-serif;
@@ -144,7 +147,7 @@ body{background:var(--paper);color:var(--ink);
 .composer{width:min(var(--colw,60rem),calc(100% - 2*clamp(.5rem,1.2vw,1rem)));margin:0 auto 1.2rem;
   border:1px solid var(--line);background:var(--panel);position:relative}
 .composer .row1{display:flex;align-items:center;gap:.6rem;padding:.4rem .6rem;border-bottom:1px solid var(--line);font-size:.72rem;color:var(--ink3)}
-.composer .pick{position:relative;display:inline-flex;align-items:center}
+.composer .pick{position:relative;display:inline-flex;align-items:center;cursor:pointer}
 .composer .pick select{min-width:10.5rem;appearance:none;background:var(--c2);color:var(--sage-d);border:1px solid var(--c3);
   font:inherit;font-size:.78rem;font-weight:600;padding:.22rem 1.5rem .22rem .55rem}
 .composer .pick .caret{position:absolute;right:.45rem;pointer-events:none;color:var(--sage-d);font-size:.7rem}
@@ -332,7 +335,7 @@ body{background:var(--paper);color:var(--ink);
   color:var(--ink);font:inherit;font-size:.8rem;padding:.35rem .45rem;border-radius:0}
 /* 下拉：拿掉 UA 箭头，换成与 .composer .pick 同语言的 V 形（颜色跟随 --ink2）
    用两个 45°/135° 渐变拼，而不是 data-URI 图标 —— 这样颜色还能吃 CSS 变量 */
-.card .field select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.7rem;
+.card .field select{appearance:none;-webkit-appearance:none;padding-right:1.7rem;
   background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
                    linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
   background-size:5px 5px,5px 5px;background-repeat:no-repeat;
