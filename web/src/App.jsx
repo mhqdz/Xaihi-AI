@@ -691,6 +691,18 @@ export default function App() {
 
   // D：SSE 断点续传 —— 刷新后从后端缓冲继续接收（不在前端存状态）
   // D：SSE 断点续传 —— 后端还在跑就一直跟着；断流/404 时重连，绝不"假装结束"
+  // 标尺刻度间距：默认 12px，但轮次多到装不下时按比例压缩。
+  // 200 轮的会话会渲染 200 条刻度，12px 间距下总高 2789px —— 视口只有 914px，
+  // 大半刻度被裁在屏幕外，标尺就失去了"点到任意一轮"的作用。
+  // 60 轮以内算下来仍 >= 12px，所以常见会话的视觉完全不变。
+  const scaleGap = (() => {
+    const n = Math.max(1, page ? page.total_rounds : userRounds.length)
+    if (n <= 1) return '12px'
+    const usable = (typeof window !== 'undefined' ? window.innerHeight : 900) - 48
+    const g = Math.floor((usable - n * 2) / (n - 1))
+    return Math.max(1, Math.min(12, g)) + 'px'
+  })()
+
   const attachStream = async (id) => {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms))
     const running = async () => ((await api('/api/running').catch(() => [])) || []).includes(String(id))
@@ -1056,7 +1068,7 @@ export default function App() {
             <span className="no">{String(peekAbs).padStart(2,'0')}</span>
             <span className="tt">{peekText}</span>
           </div>
-          <div className="scale" onMouseLeave={() => setHoverRound(-1)}>
+          <div className="scale" style={{ '--gap': scaleGap }} onMouseLeave={() => setHoverRound(-1)}>
             {(() => {
               const total = page ? page.total_rounds : userRounds.length
               const base = page ? page.from : 1

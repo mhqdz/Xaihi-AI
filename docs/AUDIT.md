@@ -418,6 +418,48 @@ agentd/internal/web.(*Server).handleChat.func1(...)   web.go:755
 
 量 `.ef-record` 的 `scrollWidth - clientWidth`：三者都是 **0**，宽度稳定在 221px。emoji 标题的 `textContent.length` 是 83（代理对让 length 翻倍），但 `text-overflow: ellipsis` 照常截断，没有撑破、也没有压到正文。
 
+### P1-18 轮次多时右侧标尺溢出视口，大半刻度点不到 ✅ 已修
+
+**现象**：造了一个 200 轮的会话（400 条消息）打开，右侧标尺渲染了 200 条刻度：
+
+```
+marks: 200   h: 2789px   top: -937   bottom: 1851   winH: 914
+```
+
+**上下各溢出 937px**。刻度是 `position: absolute` 居中的，溢出部分直接被裁到视口外 —— 也就是说 200 轮里有 140 多轮**根本没有可点的刻度**，标尺从"点任意一轮跳过去"退化成"只能点中间那一小段"。
+
+**根因**：`.scale` 用的是固定 `gap: 12px`，而刻度数量等于 `page.total_rounds`（无上限）：
+
+```jsx
+Array.from({ length: total || 1 }).map(...)   // 200 轮 → 200 条
+```
+
+```css
+.scale { display:flex; flex-direction:column; gap:12px }
+```
+
+200 × (2px 高 + 12px 间距) = 2800px，必然超出 914px 的视口。
+
+**为什么常规测试没发现**：conv51 是 41 轮，41 × 14 = 574px，稳稳装得下。要 60 轮以上才会开始装不下 —— 而真实会话里目前最长的就是 41 轮。
+
+**修复**：让间距自适应，取「12px」和「刚好装下」的较小值：
+
+```js
+const usable = window.innerHeight - 48
+const g = Math.floor((usable - n * 2) / (n - 1))
+scaleGap = Math.max(1, Math.min(12, g)) + 'px'
+```
+
+CSS 改成 `gap: var(--gap, 12px)`。
+
+**为什么这样不破坏已确认的视觉**：算一下就知道阈值在 61 轮 —— `(866 - 2n)/(n-1) >= 12` 当且仅当 `n <= 61`。所以 **60 轮以内 gap 仍是 12px，一像素都不变**。
+
+**验证**：
+- 200 轮：`gap: 2px`，`h: 799`、`top: 58`、`bottom: 856`，**上下溢出都是 0**
+- 41 轮：`gap` 仍是 `12px`，`h: 311`，和改动前一样
+- `pixel_diff` 6/6 逐像素一致（`wide-empty` 中途报过一次 79 像素差异，查出来是我那个 200 轮测试会话没删、会话计数变了，删掉即恢复）
+
+
 
 ### P1-16 同一会话并发两个请求会打乱消息顺序 ✅ 已修
 
@@ -1059,5 +1101,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 31 | P1-17 断线重连不再拼接重复内容 | `71e7aa8` | 无视觉改动 |
 | 32 | P0-5 补刀：`job.go` 里 4 处裸 `Flush` | `e76efaf` | 无视觉改动 |
 | 33 | 新增 `check_paging.py`（16 条边界断言）+ 极端标题实测 | `c89f94e` | 无视觉改动 |
+| 34 | P1-18 标尺间距自适应（60 轮内视觉不变） | `1459ed3` | 刻意改视觉：>61 轮时 gap 压缩；6 张对比图仍一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
