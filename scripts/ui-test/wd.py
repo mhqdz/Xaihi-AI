@@ -16,6 +16,20 @@ def req(method, path, body=None):
             time.sleep(0.3)
     raise RuntimeError("webdriver 不可用")
 
+def clear_sessions():
+    """清掉 geckodriver 里残留的会话（DELETE /session 无 id 不是标准，必须按 id 删）"""
+    try:
+        r = req("GET", "/sessions")
+        for s in (r.get("value") or []):
+            sid = s.get("id")
+            if sid:
+                try:
+                    req("DELETE", "/session/" + sid)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 class Session:
     def __init__(self, w=1500, h=950):
         r = None
@@ -25,11 +39,8 @@ class Session:
                 "moz:firefoxOptions": {"args": ["-headless", f"--window-size={w},{h}"]}}}})
             if "sessionId" in r.get("value", {}):
                 break
-            # 上一个用例没收尾：清掉再试
-            try:
-                urllib.request.urlopen(urllib.request.Request(BASE + "/session", method="DELETE"), timeout=10)
-            except Exception:
-                pass
+            # 上一个用例没收尾：按 id 清掉再试
+            clear_sessions()
             time.sleep(1.0)
         if "sessionId" not in r.get("value", {}):
             raise RuntimeError(f"建会话失败: {r}")

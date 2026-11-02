@@ -562,6 +562,16 @@ export default function App() {
     refresh().then(() => { if (c) openConv(c) })
   }, [])
   useEffect(() => { setOpenRef.current = settingsUI.showSet }, [settingsUI.showSet])
+  // Esc 逐级退出：设置面板（编辑器→详情→设置）→ 抽屉。没有这一层时只能点 × 或遮罩。
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (settingsUI.showSet) { e.preventDefault(); settingsUI.closeOne(); return }
+      if (sideOpen) { setSideOpen(false) }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
   useEffect(() => {
     const on = () => setNarrow(window.innerWidth < 1400)
     window.addEventListener('resize', on)
