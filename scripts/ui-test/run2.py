@@ -84,6 +84,8 @@ if task_conv:
         c = sqlite3.connect(os.path.expanduser("~/.data/agentd/agentd.db"))
         c.execute("delete from task_steps where task_id=?", (task_id,))
         c.execute("delete from tasks where parent_conv=?", (int(task_conv),))
+        # smoke 任务跑完会往 outbox 写一条「任务回报」，父会话被删后它就是孤儿
+        c.execute("delete from outbox where conv_id=?", (int(task_conv),))
         c.commit(); c.close()
     except Exception as e:
         print("  清理任务失败", e)

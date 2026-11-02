@@ -182,6 +182,33 @@ id, err := s.hst.CreateOutbox(conv, in.Origin, in.Text) // 不查存在性
 **这里要记一笔自己的失误**：验证 200 那条时我直接用了 `conv_id=51`（真实会话），outbox 被消费后在里面多出一条 `（测试写一条）`（seq 576）。已删除并确认回到 575 条、最后一条仍是原来的 `seq 575`。**同一个错误（拿真实会话当靶子）我在这轮里犯了第二次** —— 上一个是 robustness.py 写脏 conv118。以后写这个端点的验证必须走 `dbtool.new_conv()`。
 
 
+### P1-13 `/api/tasks` 派发到不存在的父会话 ✅ 已修（与 P1-12 同一个模式）
+
+**现象**：`POST /api/tasks {"kind":"smoke","conv_id":"999999"}` → `{"ok":true,"task_id":16}`，库里多出一条 `status=running` 的任务，父会话是 999999。
+
+**根因**：和 `/api/wake` 一模一样 —— 只校验 `conv_id` 是正整数，不校验它指向的会话存在。差别是后果更显眼：`running` 状态永远挂着，`/api/tasks` 的 `active` 计数会一直显示有个任务在跑。
+
+**修复**：`Dispatch` 之前先 `s.st.Get(in.ConvID)`，读不到回 404。
+
+**验证**：999999 → 404；清理后 tasks 表归零。
+
+**同类排查完毕**：接受 id 的写入口一共四个 —— `Conversation()`（P0-2）、`/api/conv/<id>/interject`（P1-10）、`/api/wake`（P1-12）、`/api/tasks`（这条）。前两个修过，后两个这轮补上。读入口（`GET /api/conv/<id>`、`/api/tasks/<id>`、`/api/profiles/<name>`）本来就都有 404。
+
+### 测试脚手架：`run2.py` 依赖库里已有的任务
+
+**现象**：清空 tasks 表后跑 `run2.py`，第 22 行「点任务行展开步骤」`0->0` 失败，第 32 行直接 `TypeError: 'NoneType' object is not subscriptable` —— 它写死了 `json['tasks'][0]['id']`。
+
+**意义**：这不是产品 bug，但它会让「全新环境」或「刚清过数据」的状态下一跑就崩，而崩的原因看起来像是功能坏了。测试套件本该在任何干净状态下都能跑。
+
+**修复**：
+- 开头用 `dbtool.new_conv()` 建会话、派一条 `smoke` 任务、轮询等步骤出现
+- 深链用例改用自己拿到的 `task_id`，不再取 `tasks[0]`
+- 收尾删 `task_steps` / `tasks` / **`outbox`**（smoke 跑完会写一条「任务回报」，父会话删了它就是孤儿，第一版清理漏了这个，跑一次 outbox 就从 0 涨到 3）
+- 顺带修掉结尾重复的 `s.close()`
+
+**验证**：跑前 `会话21 / 任务0 / outbox0`，跑完打印「已清理测试任务与会话 19 238」，再看仍是 `21 / 0 / 0`。
+
+
 
 
 ### P1-10 插话失败却回 200 ✅ 已修
