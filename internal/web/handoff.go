@@ -183,6 +183,10 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]string{"error": "GET/POST only"})
+		return
+	}
 	if s.hst == nil {
 		writeJSON(w, 200, []any{})
 		return

@@ -56,6 +56,10 @@ func (s *Server) Handler() http.Handler {
 		http.FileServer(http.Dir(filepath.Join(home, ".data", "agentd"))).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, 405, map[string]string{"error": "GET only"})
+			return
+		}
 		writeJSON(w, 200, map[string]any{"ok": true, "model": s.cfg.Model, "base_url": s.cfg.BaseURL})
 	})
 	mux.HandleFunc("/api/convs", s.handleConvs)
@@ -87,6 +91,10 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{"removed": n, "freed_kb": bytes / 1024, "days": in.Days})
 	})
 	mux.HandleFunc("/api/shots/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, 405, map[string]string{"error": "GET only"})
+			return
+		}
 		home, _ := os.UserHomeDir()
 		dir := filepath.Join(home, ".data", "agentd", "shots")
 		ents, _ := os.ReadDir(dir)
@@ -245,6 +253,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.handleTasks)
 	mux.HandleFunc("/api/tasks/", s.handleTasks)
 	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, 405, map[string]string{"error": "GET only"})
+			return
+		}
 		reg := tools.Registry()
 		out := make([]map[string]any, 0, len(reg))
 		for _, sp := range reg {
@@ -598,6 +610,10 @@ func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "archived": id})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]string{"error": "GET/DELETE only"})
 		return
 	}
 	c, err := s.st.Get(id)
