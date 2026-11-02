@@ -9,7 +9,7 @@
 """
 import os
 import sqlite3
-import time
+from datetime import datetime
 
 DB = os.path.expanduser("~/.data/agentd/agentd.db")
 
@@ -17,7 +17,9 @@ DB = os.path.expanduser("~/.data/agentd/agentd.db")
 def new_conv(title="ui-test"):
     """建一个空会话，返回 cid 字符串（和 URL 参数同类型）"""
     c = sqlite3.connect(DB)
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # 用带时区的 ISO 8601：Go 侧按 RFC3339 解析，少了时区会解析失败拿到零值
+    # （会话不读 created_at 所以没暴露，但测试数据该长成真实的样子）
+    now = datetime.now().astimezone().isoformat()
     cur = c.execute(
         "INSERT INTO conversations(title,created_at,updated_at) VALUES(?,?,?)",
         (title, now, now),
