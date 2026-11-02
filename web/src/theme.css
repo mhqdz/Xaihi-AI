@@ -1189,8 +1189,8 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
    ══════════════════════════════════════════════════════════════════════════ */
 :root{
   --warm:#A9673F; --warm2:#DDB49B; --warmbg:#FAF1EA;
-  --j-acc:#6E9A92; --j-accbg:#EEF4F3; --c8:#A3B0AD;
-  --ink:#2A3431; --ink2:#4E5A5B; --ink3:#6E7C7D;
+  --j-acc:#6E9A92; --j-accbg:#EEF4F3; --c8:#637172;
+  --ink:#2A3431; --ink2:#4E5A5B; --ink3:#637072;
   --cut:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
   --cut-sm:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
 }
