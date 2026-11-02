@@ -163,8 +163,12 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		}
 		c.Title = t
 	}
-	// 用户消息立刻落盘：请求被中断也不会丢这句
-	_ = a.st.Save(c)
+	// 用户消息立刻落盘：请求被中断也不会丢这句。
+	// 这里不能吞错误 —— 起点都没写进去，后面跑完整轮也只是在烧模型，
+	// 而且前端拿到的 meta 里 conv_id 会是空的（新建会话的 ID 就是 Save 分配的）。
+	if err := a.st.Save(c); err != nil {
+		return fmt.Errorf("保存用户消息失败：%w", err)
+	}
 
 	limit := a.MaxRounds
 	if limit <= 0 {
@@ -324,7 +328,9 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				}
 				c.Messages = append(c.Messages, store.Message{Role: "assistant", Content: note, Status: st})
 			}
-			_ = a.st.Save(c) // 中断也要留住上下文（用户消息 / 已完成的工具轮次）
+			if e := a.st.Save(c); e != nil { // 中断也要留住上下文（用户消息 / 已完成的工具轮次）
+				logx.Warn("中断后保存上下文失败 conv=%s: %v", c.ID, e)
+			}
 			a.flushInterjects(c)
 			return err
 		}
@@ -371,7 +377,12 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		c.Messages = append(c.Messages, store.Message{
 			Role: "assistant", Content: strings.TrimSpace(content.String()),
 			Reasoning: reasoning.String(), ReasoningMs: reasonMs, ToolCalls: calls})
-		_ = a.st.Save(c) // 工具轮：先落库，再执行（中断也不丢）
+		// 工具轮：先落库，再执行（中断也不丢）。
+		// 写不进去就停 —— 否则这一轮真的会去执行工具，但历史里没有对应的
+		// tool_calls，下次读回来上下文是断的。
+		if err := a.st.Save(c); err != nil {
+			return fmt.Errorf("保存工具调用失败：%w", err)
+		}
 		// 并行执行
 		results := make([]any, len(calls))
 		toolMs := make([]int64, len(calls))

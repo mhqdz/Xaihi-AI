@@ -818,8 +818,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		send("error", map[string]string{"error": err.Error()})
 		return
 	}
-	// 会话一建立就先落盘：即使这一轮被中断，会话本身与用户消息也不会丢
-	_ = s.st.Save(c)
+	// 会话一建立就先落盘：即使这一轮被中断，会话本身与用户消息也不会丢。
+	// 这里必须检查错误：新建会话时 ID 是 Save 分配的，写不进去 c.ID 就是空串 ——
+	// 前端会收到 {"conv_id":""} 并把它当成"已创建"，而实际上什么都没有；
+	// 服务端还会接着跑完一整轮模型（白烧），直到最后才报错。
+	if err := s.st.Save(c); err != nil {
+		logx.Error("chat.save conv=%q err=%v", c.ID, err)
+		send("error", map[string]string{"error": "会话保存失败：" + err.Error()})
+		return
+	}
 	jb = s.job(c.ID)
 	jb.reset()
 	defer jb.finish()
