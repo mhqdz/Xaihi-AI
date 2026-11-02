@@ -206,6 +206,36 @@
 
 ---
 
+## 当前界面
+
+2026-11-03 实拍。重拍命令：`python3 scripts/ui-test/shots.py`（改动视觉后跑一次即可）。
+
+**会话页** 1600×1000 —— 分页 10 轮、右栏竖排标尺、标题只显示用户当轮原话：
+
+![会话页](screenshots/01-conversation.png)
+
+**新建会话** —— `START HERE` 三个按钮已并入 `.btn` 体系并等宽：
+
+![空状态](screenshots/02-empty.png)
+
+**设置** —— 开关 38×24，数字输入不再带原生 spinner：
+
+![设置](screenshots/03-settings.png)
+
+**模型详情** —— 下拉框是自定义 V 形箭头，与 `PROFILE` 同一形制：
+
+![模型详情](screenshots/04-model-detail.png)
+
+**窄屏 900** —— 抽屉占 250，内容区自适应：
+
+![窄屏](screenshots/05-narrow.png)
+
+**移动端 500**（Firefox headless 的最小窗口宽度）—— 抽屉收进顶栏，无横向溢出：
+
+![移动端](screenshots/06-mobile.png)
+
+---
+
 ## 批次记录
 
 | 批次 | 内容 | commit | 视觉验证 |
