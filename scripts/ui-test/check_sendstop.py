@@ -1,6 +1,7 @@
 import sys, os, time, json, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
+from dbtool import drop_conv
 
 BASE = "http://127.0.0.1:18400"
 FAIL = []
@@ -101,13 +102,9 @@ check("中止过场有序：stop → loading(disabled) → 普通键",
       f"stop@{i_stop} lastLoad@{i_last_load}={seq_b[i_last_load]} last={seq_b[-1]}")
 check("收尾后状态是已停止", '已停止' in (s.text('.status') or ''), s.text('.status'))
 
-# 清理：把测试会话归档
+# 清理：删掉测试会话（归档只是 archived=1，仍然占着会话列表的位置）
 s.close()
-try:
-    u = urllib.request.Request(BASE + "/api/conv/" + str(cid), method="DELETE")
-    urllib.request.urlopen(u, timeout=10).read()
-    print("已归档测试会话", cid)
-except Exception as e:
-    print("归档失败", e)
+drop_conv(cid)
+print("已清理测试会话", cid)
 
 print("失败:", "、".join(FAIL) if FAIL else "无")

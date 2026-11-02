@@ -1,4 +1,6 @@
-import json, urllib.request, urllib.error, time, threading, sqlite3, sys
+import json, urllib.request, urllib.error, time, threading, sqlite3, sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dbtool import new_conv as _mkconv, drop_conv
 
 BASE = "http://127.0.0.1:18400"
 DB = "/home/mhqdz/.data/agentd/agentd.db"
@@ -36,12 +38,7 @@ def running():
     return get_json("/api/running")
 
 def new_conv(title="stream-test"):
-    import sqlite3 as _s
-    c = _s.connect(DB)
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
-    cur = c.execute("INSERT INTO conversations(title,created_at,updated_at) VALUES(?,?,?)", (title, now, now))
-    c.commit(); cid = cur.lastrowid; c.close()
-    return str(cid)
+    return _mkconv(title)
 
 results = []
 def chk(name, ok, detail=""):
@@ -131,9 +128,5 @@ for n, ok, d in results:
 print("测试会话 id:", cid, cid2, cid3)
 
 # 清理：删掉本次造的会话（归档只是 archived=1，仍占列表位）
-_c = sqlite3.connect(DB)
-for _cid in (cid, cid2, cid3):
-    _c.execute("delete from messages where conv_id=?", (int(_cid),))
-    _c.execute("delete from conversations where id=?", (int(_cid),))
-_c.commit(); _c.close()
+drop_conv(cid, cid2, cid3)
 print("已清理测试会话", cid, cid2, cid3)

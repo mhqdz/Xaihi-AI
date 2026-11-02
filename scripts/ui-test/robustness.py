@@ -2,29 +2,12 @@
 """黑盒健壮性测试：异常输入、边界状态、响应式切换。
 只观察，不假设实现。任何 JS 报错 / 布局溢出 / 卡死都算问题。
 """
-import sys, os, time, json, sqlite3
+import sys, os, time, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
+from dbtool import new_conv, drop_conv
 
 BASE = "http://127.0.0.1:18400"
-DB = os.path.expanduser("~/.data/agentd/agentd.db")
-
-def new_conv(title="ui-rb"):
-    """自建会话当靶子。[3][4] 曾经直接用 ?conv=118，把 rb-test 和（已停止）
-    写进了真实对话（No.148-153）—— 会发消息的用例不许碰真实数据。"""
-    c = sqlite3.connect(DB); now = time.strftime("%Y-%m-%dT%H:%M:%S")
-    cur = c.execute("INSERT INTO conversations(title,created_at,updated_at) VALUES(?,?,?)",
-                    (title, now, now))
-    c.commit(); cid = cur.lastrowid; c.close()
-    return str(cid)
-
-def dispose(cid):
-    """删掉自建的测试会话。归档只是 archived=1，仍然占着会话列表的位置，
-    测试会话没有保留价值，直接连消息一起删。"""
-    c = sqlite3.connect(DB)
-    c.execute("delete from messages where conv_id=?", (int(cid),))
-    c.execute("delete from conversations where id=?", (int(cid),))
-    c.commit(); c.close()
 fails = []
 def check(name, ok, detail=""):
     print(("  ✓ " if ok else "  ✗ ") + name + (f"  {detail}" if detail else ""))
@@ -106,7 +89,7 @@ for cid in running:
     except Exception:
         pass
 s.close()
-dispose(rb_conv)
+drop_conv(rb_conv)
 
 # ── 5. 响应式：窄 → 宽 → 窄 连续切换
 print("\n[5] 响应式来回切换 900 ↔ 1600")

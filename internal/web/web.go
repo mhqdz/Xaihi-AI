@@ -388,10 +388,11 @@ func (s *Server) drainInterject(convID string) []string {
 	return q
 }
 
-// GET /api/conv/<id>
 // isShotPlaceholder 判断“（上一个工具的截图，请以图为准）”这类占位用户消息。
+// 角色判断放在函数里而不是交给调用方：原来只看图和前缀，assistant 消息只要带了图
+// 也会被判成占位消息 —— convWindow 是靠外层先判 role 才没出事。
 func isShotPlaceholder(m *store.Message) bool {
-	return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的截图")
+	return m.Role == "user" && len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的截图")
 }
 
 // maxPageMsgs 是一次分页返回的消息条数上限。超过就按轮二分降级；
@@ -433,6 +434,8 @@ func convWindow(all []store.Message, rounds, before, around int) (out []store.Me
 	for i := range all {
 		// 工具截图占位消息不是一次“用户提问”（前端 normalize 也把它过滤掉了），
 		// 统计轮次时必须同样排除，否则 total_rounds 会比实际多，标尺多出一格。
+		// 这里仍要自己判 role：isShotPlaceholder 内部的 role 判断是防别的调用方误用，
+		// 和「必须是一条 user 消息」是两件事 —— 只靠它会把 assistant 也算成一轮。
 		if all[i].Role == "user" && !isShotPlaceholder(&all[i]) {
 			users = append(users, i)
 		}

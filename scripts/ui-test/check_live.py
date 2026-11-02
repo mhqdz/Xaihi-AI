@@ -1,6 +1,7 @@
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
+from dbtool import drop_conv
 
 BASE = "http://127.0.0.1:18400"
 FAIL = []
@@ -64,13 +65,8 @@ errs = s.js("return (window.__errs||[]).slice(0,3)")
 check("无 JS 错误", not errs, str(errs))
 s.shot("/tmp/uitest/step2_live.png")
 print("失败:", "、".join(FAIL) if FAIL else "无")
-# 收尾：把这个测试会话归档，避免每次跑都在会话列表里堆一条
+# 收尾：删掉这个测试会话（归档只是 archived=1，仍然占着会话列表的位置）
 cid = s.js("return new URLSearchParams(location.search).get('conv')")
 s.close()
-if cid:
-    try:
-        import urllib.request as u
-        u.urlopen(u.Request(BASE + "/api/conv/" + str(cid), method="DELETE"), timeout=10).read()
-        print("已归档测试会话", cid)
-    except Exception as e:
-        print("归档失败", e)
+drop_conv(cid)
+print("已清理测试会话", cid)
