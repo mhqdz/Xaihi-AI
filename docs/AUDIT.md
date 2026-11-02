@@ -232,6 +232,49 @@ id, err := s.hst.CreateOutbox(conv, in.Origin, in.Text) // 不查存在性
 
 **两个教训**：一是**写测试永远用自建会话**（这个错误我这轮犯了两次）；二是清理数据时要**检查连锁产物**，删掉一条消息不代表它引发的后续也消失了。
 
+### P1-14 每轮都报「压缩中…（上下文超阈值）」✅ 已修
+
+**现象**：一条全新的会话（上下文总共二十来个字符），发消息时 SSE 里照样有：
+
+```
+event: stage
+data: {"stage":"compacting"}
+```
+
+前端据此显示「压缩中…（上下文超阈值，正在写摘要）」—— 对一个刚建的会话，这句话完全是假的。
+
+**根因**：
+
+```go
+if a.OnStage != nil {
+    a.OnStage("compacting")          // 无条件发
+}
+_ = a.maybeSummarize(ctx, c, keep)   // 它自己内部才判阈值
+```
+
+`maybeSummarize` 第一件事就是 `if total < a.compactAt() { return nil }`，绝大多数轮次直接返回。阶段事件却在它之前就发出去了。
+
+**为什么值得修**：这是**错误信息**，而且出现在最不该出现的地方 —— 用户刚开口，界面就告诉他「上下文超阈值」。它通常一闪而过（`generating` 紧随其后），但恰恰是这种「一闪而过的假话」最消耗信任。
+
+**修复**：抽出 `willSummarize(c)`，条件与 `maybeSummarize` 的入口保持一致（总字符数 ≥ `compactAt()`），只有成立时才发阶段事件。
+
+**验证**：在隔离实例（`AGENTD_DATA_DIR=/tmp/agentd-fresh`、端口 18500）上，新会话的 stage 序列从 `compacting, generating, generating` 变成 `generating, generating`；真超阈值的会话本来就会进压缩分支，不受影响。
+
+### 首次走查「新装 → 第一次对话」（结果：正常）
+
+以前所有验证都在有数据的实例上做，从没试过全新环境。这轮起了个彻底隔离的实例（独立数据目录 + 独立端口 + 独立进程），从空目录走了一遍：
+
+| 步骤 | 结果 |
+|---|---|
+| `agentd serve` 首启 | 自动建库（`agentd.db` + WAL）、建 `handoff/` 目录 |
+| `GET /api/health` | 200，返回 base_url / model |
+| `GET /api/profiles` | 内置 `180-low` 等默认 profile 已在 |
+| `GET /api/convs` | `[]` |
+| 第一次 `POST /api/chat`（不带 conv_id） | 建会话、标题取首条消息、user + assistant 两条落库 |
+
+没有卡住的地方。隔离实例验证完已停掉、临时目录已删，主实例数据不受影响（21 个会话）。
+
+
 
 
 
@@ -746,5 +789,8 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 21 | P0-3 `/shots/` 目录遍历（可下载整库）修复 | `81b1c27` | 无视觉改动 |
 | 22 | P0-4 CSRF（`requireJSONBody`）+ P2-10 安全响应头 | `95aa742` | 无视觉改动 |
 | 23 | P1-12 `/api/wake` 校验会话存在 + 清孤儿 outbox | `09e32ef` | 无视觉改动 |
+| 24 | P1-13 `/api/tasks` 派发前校验父会话 | `9d9d86d` | 无视觉改动 |
+| 25 | run2/run.py 自建数据并清理（修 pixel 误报） | `606e43c` | 无视觉改动 |
+| 26 | P1-14 只在真压缩时报 compacting + 新装路径走查 | `9c34426` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
