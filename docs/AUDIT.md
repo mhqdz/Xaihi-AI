@@ -93,6 +93,30 @@ return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
 
 **验证**：`POST /api/conv/999999/interject` → `404 {"error":"没有这个会话"}`，会话数保持 21。前端 `interject()` 本来就写了 `if (!r.ok) { setStatus('✗ 插话失败'); return }` —— 这条分支以前永远触发不到，现在有了。
 
+### P1-11 归档 / 恢复 / 删除不存在的会话也报成功 ✅ 已修
+
+**现象**：`DELETE /api/conv/999999` 返回 `{"archived":"999999","ok":true}` + 200。客户端以为归档成功，库里其实什么都没变。
+
+**根因**：`SQLiteStore` 的三个方法只看 `Exec` 返回的 error：
+
+```go
+func (s *SQLiteStore) Archive(id string) error {
+	_, err := s.db.Exec(`UPDATE conversations SET archived=1 WHERE id=?`, id)
+	return err
+}
+```
+
+而 `UPDATE ... WHERE id=999999` 命中 0 行**不算错误**，`err` 是 nil。`Restore` 和 `Delete` 是同一个写法。
+
+**怎么发现的**：新写 `check_api.py`，对 15 个端点逐个发不同方法、比对预期状态码。31 条用例里 11 条不符合预期 —— 其中 8 条是**我自己预期写错了**（`/api/context` 和 `/api/models` 本来就要参数，400 才对），剩下 3 条里最严重的是这条。
+
+**修复**：三个方法都检查 `RowsAffected()`，0 行返回 `os.ErrNotExist`。`Delete` 的硬删分支检查 `conversations` 的删除行数（先删 messages 可能 0 行，那是正常的），软删分支直接委托给 `Archive`。
+
+**验证**：
+- 单元测试 `TestArchiveRestoreDeleteMissingID`：四个方法对不存在的 id 都报错，**存在的会话照常成功**（不能为了判不存在把正常路径弄坏），硬删之后读不到
+- 部署实测：`DELETE /api/conv/999999` → `404 {"error":"归档失败：file does not exist"}`；自建会话归档 → 200、恢复 → 200；会话数保持 21
+
+
 
 
 ---
@@ -516,5 +540,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 16 | P1-9 多行输入框焦点可见（删 `outline:none`，不加特异性） | `10aa755` | 6/6 一致 |
 | 17 | P0-2 `Conversation()` 不再静默新建 + 单测 | `63e4158` | 无视觉改动 |
 | 18 | P1-10 插话失败不再回 200（先验会话 + 400） | `cd04cf8` | 无视觉改动 |
+| 19 | P1-11 归档/恢复/删除检查影响行数 + `check_api.py` | `6f2bffe` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

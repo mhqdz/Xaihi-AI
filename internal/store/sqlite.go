@@ -282,13 +282,27 @@ func (s *SQLiteStore) ArchiveInactiveBefore(t time.Time) (int, error) {
 }
 
 func (s *SQLiteStore) Archive(id string) error {
-	_, err := s.db.Exec(`UPDATE conversations SET archived=1 WHERE id=?`, id)
-	return err
+	res, err := s.db.Exec(`UPDATE conversations SET archived=1 WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	// 影响 0 行说明这个 id 根本不存在。不返回错误的话，调用方会回 ok:true，
+	// 等于告诉客户端「归档成功了」，实际什么也没发生。
+	if n, _ := res.RowsAffected(); n == 0 {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Restore(id string) error {
-	_, err := s.db.Exec(`UPDATE conversations SET archived=0 WHERE id=?`, id)
-	return err
+	res, err := s.db.Exec(`UPDATE conversations SET archived=0 WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Delete(id string, hard bool) error {
@@ -296,11 +310,16 @@ func (s *SQLiteStore) Delete(id string, hard bool) error {
 		if _, err := s.db.Exec(`DELETE FROM messages WHERE conv_id=?`, id); err != nil {
 			return err
 		}
-		_, err := s.db.Exec(`DELETE FROM conversations WHERE id=?`, id)
-		return err
+		res, err := s.db.Exec(`DELETE FROM conversations WHERE id=?`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return os.ErrNotExist
+		}
+		return nil
 	}
-	_, err := s.db.Exec(`UPDATE conversations SET archived=1 WHERE id=?`, id)
-	return err
+	return s.Archive(id)
 }
 
 var _ Store = (*SQLiteStore)(nil)
