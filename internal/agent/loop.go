@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,6 +246,17 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		var content, reasoning strings.Builder
 		var reasonStart, reasonMs int64
 		var calls []llm.ToolCall
+		// 流式预分配：第一条正文到达时先 INSERT 一条 running 行占住 seq，
+		// 之后每 1s 落一次盘。进程被 kill 时库里至少留一条 failed，而不是整条丢失。
+		pendingSeq := 0
+		var lastFlush time.Time
+		convID64, _ := strconv.ParseInt(c.ID, 10, 64)
+		flushPending := func(status string) {
+			if pendingSeq == 0 || convID64 == 0 {
+				return
+			}
+			_ = a.st.UpdateMessage(convID64, pendingSeq, strings.TrimSpace(content.String()), reasoning.String(), reasonMs, status)
+		}
 		if a.OnStage != nil {
 			a.OnStage("generating")
 		}
@@ -262,6 +274,19 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				}
 				content.WriteString(ch.Delta)
 				reasoning.WriteString(ch.Reasoning)
+				if ch.Delta != "" && pendingSeq == 0 && convID64 != 0 {
+					if seq, e := a.st.InsertPending(convID64, "assistant"); e == nil {
+						pendingSeq = seq
+						lastFlush = time.Now()
+						if a.OnSeq != nil {
+							a.OnSeq(seq)
+						}
+					}
+				}
+				if pendingSeq != 0 && time.Since(lastFlush) >= time.Second {
+					flushPending("running")
+					lastFlush = time.Now()
+				}
 				if onDelta != nil && (ch.Delta != "" || ch.Reasoning != "") {
 					onDelta(ch.Delta, ch.Reasoning)
 				}
@@ -276,31 +301,36 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 			reasonMs = time.Now().UnixMilli() - reasonStart
 		}
 		if err != nil {
-			// 意外中断（用户停止 / 网络断 / 上游报错）：先保住已生成的内容，再上抛错误
-			if strings.TrimSpace(content.String()) != "" || reasoning.Len() > 0 {
+			// 意外中断（用户停止 / 网络断 / 上游报错）：保住已生成的内容，用 status 标记状态，
+			// 不再把“——（中断：…）”塞进正文（说明交给前端按 status 渲染）。
+			st := "interrupted"
+			if !errors.Is(err, context.Canceled) {
+				st = "failed"
+			}
+			body := strings.TrimSpace(content.String())
+			if body != "" || reasoning.Len() > 0 {
+				flushPending(st)
 				c.Messages = append(c.Messages, store.Message{
-					Role: "assistant", Content: strings.TrimSpace(content.String()), Reasoning: reasoning.String(), ReasoningMs: reasonMs,
+					Role: "assistant", Content: body, Reasoning: reasoning.String(), ReasoningMs: reasonMs, Status: st, Seq: pendingSeq,
 				})
 			}
-			// 中断：保留半截内容，并在末尾追加一句中断说明（是数据，不是状态）
-			note := "\n\n——（已停止）"
-			if !errors.Is(err, context.Canceled) {
-				note = "\n\n——（中断：" + err.Error() + "）"
-			}
-			if len(c.Messages) > 0 && c.Messages[len(c.Messages)-1].Role == "assistant" {
-				last := &c.Messages[len(c.Messages)-1]
-				last.Content = strings.TrimRight(last.Content, "\n") + note
-			} else {
-				// 工具轮被打断：补一条 assistant 说明，前端能明确看到"中断"
-				c.Messages = append(c.Messages, store.Message{Role: "assistant", Content: strings.TrimSpace(note)})
+			if body == "" {
+				// 一个字都没出就断了：补一条说明，前端仍能看到“这一轮被中断”
+				note := "（已停止）"
+				if !errors.Is(err, context.Canceled) {
+					note = "（中断：" + err.Error() + "）"
+				}
+				c.Messages = append(c.Messages, store.Message{Role: "assistant", Content: note, Status: st})
 			}
 			_ = a.st.Save(c) // 中断也要留住上下文（用户消息 / 已完成的工具轮次）
 			a.flushInterjects(c)
 			return err
 		}
 		if len(calls) == 0 {
+			flushPending("done")
 			c.Messages = append(c.Messages, store.Message{
-				Role: "assistant", Content: strings.TrimSpace(content.String()), Reasoning: reasoning.String(), ReasoningMs: reasonMs})
+				Role: "assistant", Content: strings.TrimSpace(content.String()), Reasoning: reasoning.String(), ReasoningMs: reasonMs,
+				Status: "done", Seq: pendingSeq})
 			if err := a.st.Save(c); err != nil {
 				return err
 			}
@@ -316,6 +346,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				lastSig, sameCallStreak = sig, 1
 			}
 			if sameCallStreak >= 3 {
+				if pendingSeq != 0 { _ = a.st.DeleteMessage(convID64, pendingSeq); pendingSeq = 0 }
 				note := "（检测到连续 3 轮调用同一个工具、同样参数，已中止以免空转。可以换个说法让我继续。）"
 				c.Messages = append(c.Messages, store.Message{Role: "assistant", Content: note})
 				_ = a.st.Save(c)
@@ -327,6 +358,8 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		}
 
 		// 记录带 tool_calls 的助手消息
+		// 工具轮放弃流式占位行（UpdateMessage 不写 tool_calls），改走下面的整体插入
+		if pendingSeq != 0 { _ = a.st.DeleteMessage(convID64, pendingSeq); pendingSeq = 0 }
 		c.Messages = append(c.Messages, store.Message{
 			Role: "assistant", Content: strings.TrimSpace(content.String()),
 			Reasoning: reasoning.String(), ReasoningMs: reasonMs, ToolCalls: calls})

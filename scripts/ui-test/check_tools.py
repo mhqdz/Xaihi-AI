@@ -58,8 +58,9 @@ time.sleep(0.5)
 check("收起思考按钮不报错，思考块已关闭", s.js("const d=[...document.querySelectorAll('details.fold')][0]; return d ? d.open : true") == False)
 
 # 6) 阅读位置编号仍连续
-vidx = s.js("return [...document.querySelectorAll('[data-vidx]')].map(e=>+e.dataset.vidx)")
-check("data-vidx 从 1 递增", bool(vidx) and vidx[0] == 1 and all(b > a for a, b in zip(vidx, vidx[1:])), f"n={len(vidx)} head={vidx[:5]}")
+seqs = s.js("return [...document.querySelectorAll('[data-seq]')].map(e=>+e.dataset.seq)")
+# seq 是数据库编号：可见消息之间会跳过 tool 的号，所以只要求严格递增
+check("data-seq 严格递增（唯一事实来源）", bool(seqs) and all(b > a for a, b in zip(seqs, seqs[1:])), f"n={len(seqs)} head={seqs[:6]}")
 
 # 7) 无 JS 错误
 errs = s.js("return (window.__errs||[]).slice(0,3)")

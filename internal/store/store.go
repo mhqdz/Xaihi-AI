@@ -3,6 +3,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"agentd/internal/llm"
 	"os"
@@ -25,6 +26,10 @@ type Message struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	Origin      string         `json:"origin,omitempty"`  // user | system | timer | handoff
 	ToolMs      int64          `json:"tool_ms,omitempty"` // 工具执行耗时（tool 消息用）
+	// 消息状态：running | done | interrupted | failed；空串 = 历史数据（按 done 处理）
+	Status string `json:"status,omitempty"`
+	// 派生字段（不落库）：sysnote | ""，由 web 层读出时计算，前端不再靠正则猜
+	Kind string `json:"kind,omitempty"`
 }
 
 type Conversation struct {
@@ -55,6 +60,12 @@ type Store interface {
 	Restore(id string) error
 	Delete(id string, hard bool) error
 	NextID() string
+
+	// 流式预分配：先占一行（status=running），之后按 seq 回填内容。
+	// 不支持增量的实现（JSONStore）可以返回错误，调用方会退回“结束时一次性 Save”。
+	InsertPending(convID int64, role string) (int, error)
+	UpdateMessage(convID int64, seq int, content, reasoning string, reasoningMs int64, status string) error
+	DeleteMessage(convID int64, seq int) error
 }
 
 type JSONStore struct{ Dir string }
@@ -71,6 +82,20 @@ func NewJSON(dir string) (*JSONStore, error) {
 func (s *JSONStore) liveDir() string { return filepath.Join(s.Dir, "live") }
 
 func (s *JSONStore) file(id string) string { return filepath.Join(s.liveDir(), "conv-"+id+".json") }
+
+// InsertPending：JSONStore 不做流式增量落盘（整份文件重写代价太高），
+// 返回错误让调用方退回“结束时一次性 Save”。
+func (s *JSONStore) InsertPending(convID int64, role string) (int, error) {
+	return 0, fmt.Errorf("JSONStore 不支持流式预分配")
+}
+
+// UpdateMessage：同上，空操作。
+func (s *JSONStore) UpdateMessage(convID int64, seq int, content, reasoning string, reasoningMs int64, status string) error {
+	return nil
+}
+
+// DeleteMessage：同上，空操作。
+func (s *JSONStore) DeleteMessage(convID int64, seq int) error { return nil }
 
 func (s *JSONStore) Get(id string) (*Conversation, error) {
 	b, err := os.ReadFile(s.file(id))

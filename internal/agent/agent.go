@@ -26,6 +26,8 @@ type Agent struct {
 	OnToolStart func(name, args string)
 	// OnStage：阶段性状态（compacting / generating），前端用来显示"压缩中/生成中"
 	OnStage func(stage string)
+	// OnSeq：流式消息预分配到的 seq（前端可以据此把流式气泡挂到正确位置）
+	OnSeq func(seq int)
 	// 交接：父会话派发任务 / 子会话汇报失败
 	MsgOrigin string // 本轮用户消息的来源（user/system/timer/handoff）
 	SpawnTask func(kind string, card map[string]any) (int64, error)

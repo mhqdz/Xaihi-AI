@@ -5,12 +5,12 @@ const no3 = n => 'No.' + String(n).padStart(3, '0')
 
 // 用户 / Agent 气泡（纯展示）
 // props 全是算好的结果：组件内部不读全局 msgs / 不读其他 state，否则 memo 永远失效
-function MessageCard({ m, seq, vidx, onCollapse }) {
+function MessageCard({ m, seq, onCollapse }) {
   if (typeof window !== 'undefined') (window.__renders = window.__renders || { msg: 0, tool: 0, note: 0 }).msg++
   const isUser = m.role === 'user'
   const rms = m.reasoning_ms || (m.rsecs ? m.rsecs * 1000 : 0)
   return (
-    <div data-vidx={vidx} className={'msg ef-panel cut-tl ' + m.role}>
+    <div data-seq={m.seq} data-kind={m.kind || ''} className={'msg ef-panel cut-tl ' + m.role}>
       <div>
         <div className="mhead">
           <span className={'av' + (isUser ? ' u' : '')}>{isUser ? '用' : '◈'}</span>
@@ -48,5 +48,5 @@ function MessageCard({ m, seq, vidx, onCollapse }) {
 
 // 已完成消息对象不可变 ⇒ 同一引用即可跳过渲染（Step 2 的关键）
 export default React.memo(MessageCard, (a, b) =>
-  a.m === b.m && a.seq === b.seq && a.vidx === b.vidx && a.onCollapse === b.onCollapse
+  a.m === b.m && a.seq === b.seq && a.onCollapse === b.onCollapse
 )

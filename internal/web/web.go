@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 
@@ -388,6 +389,123 @@ func (s *Server) drainInterject(convID string) []string {
 }
 
 // GET /api/conv/<id>
+// isShotPlaceholder 判断“（上一个工具的截图，请以图为准）”这类占位用户消息。
+func isShotPlaceholder(m *store.Message) bool {
+	return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的截图")
+}
+
+// maxPageMsgs 是一次分页返回的消息条数上限。超过就按轮二分降级；
+// 降到 1 轮仍超限时宁可超限，也不能把一轮切成两半（否则会出现“没有提问的工具轮”）。
+const maxPageMsgs = 400
+
+// legacySysNote 兼容旧数据：加 status 列之前，系统提示是靠这些前缀写在正文里的。
+var legacySysNote = regexp.MustCompile(`^\s*(——)?\s*（(已达到工具轮次上限|已停止|中断|检测到连续|任务回报|任务已派发|进程中断)`)
+
+// classifyMessage 给每条消息算一个派生 kind（不落库），让前端不用再猜。
+//   sysnote     独立系统提示（timer / handoff / 空壳中断 / 旧数据前缀）
+//   interrupted 有正文的中断（前端加角标，正文照常渲染）
+//   failed      有正文的失败
+//   streaming   流式生成中
+//   ""          普通消息
+func classifyMessage(m *store.Message) string {
+	if m.Origin == "timer" || m.Origin == "handoff" {
+		return "sysnote"
+	}
+	// 纯说明（“（已停止）”“（中断：…）”）不管什么状态都当系统提示：
+	// 它们不是正文，不该按“有正文的中断”渲染。
+	if strings.TrimSpace(m.Reasoning) == "" && legacySysNote.MatchString(m.Content) {
+		return "sysnote"
+	}
+	switch m.Status {
+	case "interrupted", "failed":
+		return m.Status
+	case "running":
+		return "streaming"
+	}
+	return ""
+}
+
+// convWindow 按“轮”切窗口。轮 = 一条 user 消息 + 它后面所有 assistant/tool 消息。
+// before <= 0：取最后 rounds 轮；否则取 seq < before 的最后一轮，再往前共 rounds 轮。
+// 返回值 from/to 都是 1-based 轮号；hasMore 表示还有更早的轮没有加载。
+func convWindow(all []store.Message, rounds, before, around int) (out []store.Message, from, to, total int, hasMore bool) {
+	var users []int
+	for i := range all {
+		// 工具截图占位消息不是一次“用户提问”（前端 normalize 也把它过滤掉了），
+		// 统计轮次时必须同样排除，否则 total_rounds 会比实际多，标尺多出一格。
+		if all[i].Role == "user" && !isShotPlaceholder(&all[i]) {
+			users = append(users, i)
+		}
+	}
+	total = len(users)
+	if total == 0 {
+		return nil, 0, 0, 0, false
+	}
+	if rounds <= 0 {
+		rounds = 1
+	}
+	last := total - 1
+	var first int
+	switch {
+	case around > 0:
+		// 跳到第 around 轮（1-based）：上面留 2 轮当前情，下面铺满其余
+		first = around - 1 - 2
+		if first < 0 {
+			first = 0
+		}
+		last = first + rounds - 1
+		if last > total-1 {
+			last = total - 1
+			first = last - rounds + 1
+			if first < 0 {
+				first = 0
+			}
+		}
+	case before > 0:
+		last = -1
+		for k, idx := range users {
+			if all[idx].Seq < before {
+				last = k
+			}
+		}
+		if last < 0 {
+			return nil, 0, 0, total, false
+		}
+		first = last - rounds + 1
+		if first < 0 {
+			first = 0
+		}
+	default:
+		first = last - rounds + 1
+		if first < 0 {
+			first = 0
+		}
+	}
+	startIdx := users[first]
+	endIdx := len(all)
+	if last+1 < total {
+		endIdx = users[last+1]
+	}
+	return all[startIdx:endIdx], first + 1, last + 1, total, first > 0
+}
+
+// pageConv 取一个窗口，并在超限时按轮二分降级（10 → 5 → 2 → 1）。
+func pageConv(all []store.Message, rounds, before, around int) (out []store.Message, from, to, total int, hasMore bool, used int) {
+	if rounds <= 0 {
+		rounds = 10
+	}
+	n := rounds
+	for n >= 1 {
+		out, from, to, total, hasMore = convWindow(all, n, before, around)
+		used = n
+		if len(out) <= maxPageMsgs || n == 1 {
+			return
+		}
+		n /= 2
+	}
+	return
+}
+
 func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 	raw := strings.TrimPrefix(r.URL.Path, "/api/conv/")
 	if strings.HasSuffix(raw, "/stream") {
@@ -459,6 +577,13 @@ func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 	id := raw
 	if r.Method == http.MethodDelete {
 		logx.Info("conv.archive id=%s", id)
+		// 先把这一轮取消掉：否则会话删了，goroutine 还在烧 token，
+		// 而且 Save 会往一个已经不存在的会话里写（静默失败，白跑）
+		s.convMu.Lock()
+		if cancel := s.convCancel[id]; cancel != nil {
+			cancel()
+		}
+		s.convMu.Unlock()
 		if err := s.st.Archive(id); err != nil {
 			writeJSON(w, 404, map[string]string{"error": "归档失败：" + err.Error()})
 			return
@@ -469,6 +594,45 @@ func (s *Server) handleConv(w http.ResponseWriter, r *http.Request) {
 	c, err := s.st.Get(id)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "没有这个会话"})
+		return
+	}
+	for i := range c.Messages {
+		c.Messages[i].Kind = classifyMessage(&c.Messages[i])
+	}
+	// 分段载入：?rounds=N[&before=<seq>]。不带参数时保持全量返回（兼容旧调用）。
+	if r.URL.Query().Get("rounds") != "" {
+		rounds, _ := strconv.Atoi(r.URL.Query().Get("rounds"))
+		before, _ := strconv.Atoi(r.URL.Query().Get("before"))
+		around, _ := strconv.Atoi(r.URL.Query().Get("around"))
+		out, from, to, total, hasMore, used := pageConv(c.Messages, rounds, before, around)
+		if out == nil {
+			out = []store.Message{}
+		}
+		cc := *c
+		cc.Messages = out
+		type pageResp struct {
+			*store.Conversation
+			Page map[string]any `json:"page"`
+		}
+		remaining := 0
+		if from > 0 {
+			remaining = from - 1
+		}
+		lastSeq := 0
+		if n := len(c.Messages); n > 0 {
+			lastSeq = c.Messages[n-1].Seq
+		}
+		writeJSON(w, 200, pageResp{&cc, map[string]any{
+			"rounds":           used,
+			"total_rounds":     total,
+			"from":             from,
+			"to":               to,
+			"remaining_rounds": remaining,
+			"has_more":         hasMore,
+			"messages":         len(out),
+			"total_messages":   len(c.Messages),
+			"last_seq":         lastSeq,
+		}})
 		return
 	}
 	writeJSON(w, 200, c)
@@ -597,6 +761,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	logx.Info("chat.start conv=%s profile=%s chars=%d", convID, ag.Profile().Name, len([]rune(in.Text)))
 	ag.OnStage = func(stage string) { send("stage", map[string]string{"stage": stage}) }
+	// 流式消息预分配到的 seq：前端可以把流式气泡挂到正确位置（不用等结束重拉）
+	ag.OnSeq = func(seq int) { send("seq", map[string]int{"seq": seq}) }
 	ag.OnToolStart = func(name, args string) {
 		send("tool_start", map[string]any{"name": name, "args": args})
 	}

@@ -1170,3 +1170,232 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
   resize:vertical;outline:none;white-space:pre}
 .think-sum .num{font-variant-numeric:tabular-nums}
 .live-wait{color:var(--c5);font-size:.72rem;padding:.2rem 0 .3rem;letter-spacing:.04em}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   J 视觉层（2026-10-31）
+   纸色 + 网格 + 切角 + 橙色结构标记 + 右侧标题/标尺
+   只覆盖视觉；布局骨架（250 抽屉 / 960 读宽 / 64 右栏 / composer 位置）不变
+   回滚：删掉本文件从这里到结尾即可，或 git checkout pre-j-visual -- web/src/theme.css
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --warm:#A9673F; --warm2:#DDB49B; --warmbg:#FAF1EA;
+  --j-acc:#6E9A92; --j-accbg:#EEF4F3; --c8:#A3B0AD;
+  --ink:#2A3431; --ink2:#4E5A5B; --ink3:#6E7C7D;
+  --cut:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
+  --cut-sm:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
+}
+
+/* ── 纸面：极淡网格 + 顶部光斑（只在正文区） ── */
+.stage{
+  background:
+    radial-gradient(900px 420px at 50% -8%, rgba(255,255,255,.55), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(46,56,53,.028) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, rgba(46,56,53,.028) 0 1px, transparent 1px 48px),
+    var(--paper);
+}
+/* 顶线：2px 渐变光带 */
+.topbar .topline{height:2px;background:var(--c3)}
+.topbar .topline i{background:linear-gradient(90deg,var(--c4),var(--c5) 55%,var(--c4))}
+
+/* ── 左栏：浅灰抽屉保持，数字块浅一档 ── */
+.drawer{background:linear-gradient(180deg,var(--c1),var(--c2));border-right:1px solid var(--c3)}
+.drawer-figs{background:var(--c4)}
+.drawer-figs a{background:#C6D1D1}
+.drawer-figs a:hover{background:#BCC8C8}
+.drawer-figs a.on{box-shadow:inset 0 -2px 0 #4C5A5B}
+.drawer-figs a b{font-size:1.38rem;font-weight:800;color:#2A3431}
+.drawer-figs a span{color:#4C5A5B}
+.drawer .ef-record.on{background:rgba(153,170,173,.18);box-shadow:inset 2px 0 0 #6E7C7D}
+.drawer .ef-tag{background:#C6D1D1;color:#4C5A5B}
+
+/* ── 消息卡：白底 + 内描边 + 切角，去掉外阴影 ── */
+.msg{
+  border:0;
+  box-shadow:inset 0 0 0 1px var(--c3);
+  clip-path:var(--cut);
+  background:#fff;
+}
+.msg.user{
+  border:0;
+  box-shadow:inset 0 0 0 1px var(--c3), inset 3px 0 0 var(--warm);
+}
+.msg.assistant::before{display:none}      /* 去掉左侧青条（J 版用户线用橙，agent 不画线） */
+.msg .av{border-radius:50%;background:var(--warmbg);color:var(--warm);
+  box-shadow:inset 0 0 0 1px var(--warm2);border:0}
+.msg.assistant .av{background:var(--j-accbg);color:var(--j-acc);box-shadow:inset 0 0 0 1px #C7DCD7}
+.msg .mhead b{color:var(--ink3)}
+
+/* ── 正文排版：字深一档；章节号橙（只改颜色，不动 Markdown 渲染） ── */
+.msg .prose,.msg .ef-prose{color:var(--ink);font-size:15px;line-height:1.8}
+.msg .prose.md p,.msg .ef-prose p{margin:.55em 0}
+.msg .prose.md code,.msg .ef-prose code{background:#F0F4F3;color:var(--ink2);border:0}
+.msg .prose.md a,.msg .ef-prose a{color:var(--j-acc);border-bottom-color:#C7DCD7}
+.sec{margin:18px 0 8px;border-bottom:1px solid var(--c4);padding-bottom:5px;gap:.5rem}
+.sec .secno{color:var(--warm);font-size:.82rem;font-weight:700;opacity:1}
+.sec .secti{color:var(--ink);font-size:1.06rem}
+
+/* ── 思考链 / 工具组：线更淡 ── */
+.fold{background:rgba(46,56,53,.02);border:1px solid var(--c4);border-left:2px solid var(--c4)}
+.think{color:var(--ink3)}
+.toolnote{border-left:1px dashed rgba(46,56,53,.14)}
+.tn-tag{border-color:var(--c4);color:var(--ink3);background:transparent;box-shadow:none}
+.tn-name{color:var(--ink2)}
+pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
+
+/* ── 系统提示 ── */
+.sysnote{color:var(--c8)}
+.sysnote-t{color:var(--c8)}
+.sysnote-line{background:linear-gradient(90deg,var(--c4),transparent)}
+
+/* ── 状态栏 + 输入区 ── */
+.status{color:var(--c8)}
+.status .st-dot{background:var(--j-acc)}
+.composer{
+  border:0;
+  box-shadow:inset 0 0 0 1px var(--c3);
+  clip-path:var(--cut);
+  background:#fff;
+}
+.composer .row1{border-bottom:1px solid var(--c4);color:var(--c8)}
+.composer .pick select{background:var(--j-accbg);color:var(--j-acc);border-color:#C7DCD7}
+.composer .model{color:var(--c8)}
+.composer .hint{color:var(--c8)}
+.send{background:var(--ink2);border-color:var(--ink2);color:#fff;border-radius:50%}
+.send:hover{background:var(--ink);border-color:var(--ink)}
+.send.stop{background:transparent;border-color:var(--warm);color:var(--warm)}
+.send.stop::after{background:currentColor}
+.send.loading{background:transparent;border-color:var(--c5)}
+
+/* ── 右栏：竖排字 + 轮次 + 信息块 + 按钮（不含标尺） ── */
+.rail{
+  width:64px;flex:0 0 64px;
+  background:var(--c2);border-left:1px solid var(--c3);
+  padding:12px 0 10px;
+}
+.rail .vt{font-size:9px;letter-spacing:.3em;color:var(--c6);opacity:.7}
+.rail .rn{
+  writing-mode:vertical-rl;text-orientation:mixed;
+  font-size:11px;letter-spacing:.16em;color:var(--c5);
+  margin-top:18px;font-variant-numeric:tabular-nums;
+}
+.rail .sp{flex:1 1 auto}
+.rail .info{
+  flex:0 0 auto;width:64px;height:240px;background:#D8E1E1;
+  box-shadow:inset 0 1px 0 var(--c4);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  padding:8px 0 9px;gap:7px;
+}
+.rail .info .bar{width:7px;height:150px;background:#C9D5D5;position:relative}
+.rail .info .bar i{position:absolute;left:0;right:0;bottom:0;background:#8FA3A4}
+.rail .info .pct{font-size:9px;color:#4C5A5B;font-variant-numeric:tabular-nums}
+.rail .acts{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:9px;padding:10px 0 0}
+.rail .acts .dots{width:26px;height:26px;color:var(--c6);font-size:14px;line-height:1}
+.rail .acts .dots:hover{color:var(--ink)}
+
+/* ── 正文右侧：标题（横排右对齐）+ 半透明标尺 ── */
+.side{position:absolute;right:0;top:0;bottom:0;width:64px;z-index:5;pointer-events:none}
+.side .title{position:absolute;right:12px;top:16px;width:132px;text-align:right;pointer-events:auto}
+.side .title .no{display:block;font-size:10px;letter-spacing:.14em;color:var(--c8);font-variant-numeric:tabular-nums}
+.side .title .tt{
+  display:block;margin-top:3px;font-size:11.5px;line-height:1.6;color:#94A09D;font-weight:400;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+}
+.scale{
+  position:absolute;right:20px;top:50%;translate:0 -50%;width:44px;
+  display:flex;flex-direction:column;align-items:flex-end;gap:12px;
+}
+.scale i{display:block;height:2px;border-radius:1px;background:rgba(46,56,53,.30)}
+.scale i.off{width:8px;background:rgba(46,56,53,.18)}
+.scale i.on{width:12px}
+.scale i.cur{width:17px;height:2.5px;background:rgba(46,56,53,.58)}
+
+/* ── 窄屏（<1400）：已有 mobrail 就是上栏，只改配色 + 轮次按钮 + 进度条 ── */
+@media (max-width:1399px){
+  .topbar{background:var(--c1);border-bottom:1px solid var(--c3)}
+  .topbar .mobrail .mob-dot{background:var(--c6)}
+  .topbar .mobrail .mob-dot.busy{background:var(--j-acc)}
+  .topbar .mobrail .mob-fig{
+    color:var(--c6);border:1px solid var(--c4);background:#fff;
+    padding:1px 6px;letter-spacing:.02em;font-variant-numeric:tabular-nums;
+  }
+  .topbar .mobrail .mob-title{color:var(--c6);font-size:11px}
+  .topbar .mobrail .mob-ctx{color:var(--c6)}
+  .topbar .mobrail .mob-btn{color:var(--c6)}
+  .side{display:none}
+  .drawer{background:linear-gradient(180deg,var(--c1),var(--c2))}
+}
+
+/* J 补：右栏状态点 + 新结构（竖排字 / 轮次 / 信息块 / 按钮） */
+.rail .jdot{width:5px;height:5px;border-radius:50%;background:var(--c5);flex:0 0 auto;margin-bottom:10px}
+.rail .jdot.busy{background:var(--j-acc);animation:pulse 1.1s infinite}
+.rail .rn{cursor:ns-resize}
+.rail .vt{margin-bottom:0}
+.rail .sp{flex:1 1 auto}
+
+/* J 补：宽屏 2px 顶线（窄屏用 topbar） */
+@media (min-width:1400px){
+  .app::before{content:"";position:fixed;left:0;right:0;top:0;height:2px;z-index:1000;
+    background:linear-gradient(90deg,var(--c4),var(--c5) 55%,var(--c4));pointer-events:none}
+}
+
+/* J 补：宽屏顶线改用 stage 伪元素（.app 的 fixed 版本被 overflow 影响） */
+@media (min-width:1400px){
+  .app::before{display:none}
+  .stage::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;z-index:20;
+    background:linear-gradient(90deg,var(--c4),var(--c5) 55%,var(--c4));pointer-events:none}
+}
+
+/* J 补：窄屏上栏的标题与横向进度条 */
+.topbar .mobrail .mob-title{flex:1 1 auto;min-width:0;font-size:11px;color:var(--c6);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .mobrail .mob-bar{display:inline-block;width:44px;height:4px;background:#C9D5D5;
+  position:relative;flex:0 0 auto}
+.topbar .mobrail .mob-bar i{position:absolute;left:0;top:0;bottom:0;background:#8FA3A4;display:block}
+.topbar .mobrail .mob-fig{flex:0 0 auto}
+
+/* J 补：标题宽度自适应（不侵入正文）+ 标尺可点/可悬停 */
+.side .title{
+  right:12px;
+  width:min(132px, calc((100vw - 314px - 960px) / 2 - 10px));
+  cursor:pointer;
+}
+@media (max-width:1450px){ .side .title{display:none} }
+.side .title:hover .tt{color:#6E7C7D}
+.scale i{cursor:pointer;transition:background .1s}
+.scale i:hover{background:rgba(46,56,53,.55)!important}
+.scale .rpeek{
+  position:absolute;right:52px;width:200px;pointer-events:none;z-index:7;
+  background:#fff;box-shadow:inset 0 0 0 1px var(--c3);padding:7px 9px;
+  clip-path:var(--cut-sm);
+}
+.scale .rpeek .n{font-size:9px;letter-spacing:.12em;color:var(--c5);font-variant-numeric:tabular-nums}
+.scale .rpeek .t{margin-top:2px;font-size:12px;line-height:1.5;color:var(--c7)}
+
+/* J 补：.side 是 pointer-events:none（让正文可点），标尺必须单独打开 */
+.side .scale{pointer-events:auto}
+
+/* J 补：hover 标尺 → 标题区换内容（不用浮层，避免压正文） */
+.side .title .tt{transition:color .12s}
+.side .title:active .tt{color:#6E7C7D}
+
+/* J 修复：
+   1) 标尺刻度点击区扩到 8px 高（=行距，不与相邻条重叠），hover 向右放大
+   2) 标题宽度按实际列宽 --colw 计算（原来写死 960，拖大列宽后会压正文） */
+.side .title{
+  right:12px;
+  width:max(0px, min(132px, calc((100vw - 314px - var(--colw, 960px)) / 2 - 16px)));
+  overflow:hidden;
+}
+.scale i{position:relative}
+.scale i::after{
+  content:"";position:absolute;left:-14px;right:-10px;top:-7px;bottom:-7px;
+}
+.scale i{transition:transform .09s ease, background .09s ease}
+.scale i:hover{transform:scaleX(1.6);transform-origin:right center;background:rgba(46,56,53,.62)!important}
+.scale i.off:hover{background:rgba(46,56,53,.38)!important}
+
+/* 消息状态（后端 kind）：有正文的中断/失败，左侧竖条 + 头部角标 */
+.msg[data-kind="interrupted"]{box-shadow:inset 0 0 0 1px var(--c3), inset 3px 0 0 #8FA3A4}
+.msg[data-kind="failed"]{box-shadow:inset 0 0 0 1px var(--c3), inset 3px 0 0 #B4553F}
+.msg[data-kind="interrupted"] .mhead b::after{content:" · 已中断";color:#8FA3A4;font-weight:400}
+.msg[data-kind="failed"] .mhead b::after{content:" · 失败";color:#B4553F;font-weight:400}

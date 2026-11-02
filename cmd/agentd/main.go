@@ -42,6 +42,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "初始化存储失败:", err)
 		os.Exit(1)
 	}
+	// 上次进程若在流式中被 kill，库里会留下 status=running 的消息；启动时统一标成 failed
+	if n, err := st.MarkRunningFailed(); err != nil {
+		logx.Warn("扫描未完成的流式消息失败: %v", err)
+	} else if n > 0 {
+		logx.Info("已把 %d 条上次中断的流式消息标为 failed", n)
+	}
 	pname := "180-think"
 	for i, x := range os.Args {
 		if x == "--profile" && i+1 < len(os.Args) {

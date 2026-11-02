@@ -15,7 +15,7 @@ function LiveBubble({ busy }) {
   const has = live && ((live.content || '').trim() || (live.reasoning || '').trim())
   if (!has && !busy) return null
   return (
-    <div className="msg ef-panel cut-tl assistant">
+    <div className="msg ef-panel cut-tl assistant" data-seq={live && live.seq ? live.seq : undefined}>
       <div>
         <div className="mhead">
           <span className="av">◈</span>
@@ -198,7 +198,7 @@ export default function App() {
   const abortedRef = useRef(false)   // 用户主动中止；闭包里必须读 ref（state 会是旧值）
   const [pendingTools, setPendingTools] = useState([])
   const [openRuns, setOpenRuns] = useState(() => new Set())   // 已展开的工具组（默认全收拢）  // 正在执行的工具（tool_start 到 tool 之间）
-  const [readingIdx, setReadingIdx] = useState(0)
+  const [readingSeq, setReadingSeq] = useState(0)   // 当前阅读位置的消息 seq（唯一事实来源）
   const [peek, setPeek] = useState({ open: false, idx: -1, top: 0 })
   const convIdRef = useRef(null)   // 当前会话 id，用于丢弃过期的续流请求
   const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 1400)
@@ -212,6 +212,20 @@ export default function App() {
   const [title, setTitle] = useState('新会话')
   const [msgs, setMsgs] = useState([])
   const visible = msgs.filter(m => m.role !== 'tool')   // 工具结果不计入轮次 ✓
+  // 分段载入状态：必须在所有依赖它的计算之前声明（否则 curRound 里只能读到旧 ref）
+  const [page, setPage] = useState(null)   // {from,to,total_rounds,has_more,remaining_rounds}
+  const pageRef = useRef(null)
+  const msgsRef = useRef([])
+  const loadingMore = useRef(false)
+  const suppressLoad = useRef(false)   // 折叠/跳转期间不要触发自动上翻
+  useEffect(() => { pageRef.current = page }, [page])
+  useEffect(() => { msgsRef.current = msgs }, [msgs])
+
+  // 轮次编号约定：对外一律 1-based（第 3 轮 = 3），数组一律 0-based。
+  // 跨边界只走这两个函数，任何地方都不要再写裸 +/-1。
+  const pageFrom = page ? page.from : 1
+  const idxToRound = (i) => pageFrom + i
+  const roundToIdx = (r) => r - pageFrom
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)     // 点了发送/插话，等后端确认接上（按钮换成转圈）
@@ -370,11 +384,14 @@ export default function App() {
     if (!box) return
     const top = box.getBoundingClientRect().top
     const bottom = top + box.clientHeight
-    let idx = 0
-    box.querySelectorAll('[data-vidx]').forEach(el => {
-      if (el.getBoundingClientRect().top < bottom) idx = Number(el.dataset.vidx) || idx
+    let seq = 0
+    // 取“视口 35% 处”之前最后一条，而不是视口底部：跳转/阅读时“我在哪”以视口上部为准
+    const mark = top + box.clientHeight * 0.35
+    box.querySelectorAll('[data-seq]').forEach(el => {
+      if (el.getBoundingClientRect().top < mark) seq = Number(el.dataset.seq) || seq
     })
-    setReadingIdx(idx)
+    setReadingSeq(seq)
+    if (box.scrollTop < 240) loadEarlier()
     {
       const th = threadRef.current
       // 严格判定"在底部"：留 6px 容差；用户一旦上翻就不再跟随（直到自己滚回底部）
@@ -396,8 +413,8 @@ export default function App() {
   // 缩略图导航：悬停 36/36 → 右侧栏左侧弹出 5 条，中心对应当前阅读位置
   // 实时消息（还没落库）没有 seq：用 maxSeq+序号 给个临时编号，保证列表编号连续
   // 系统级提示（工具轮次上限 / 已停止 / 中断 / 空转中止）：模型要看到，但不该像对话那样占编号
-  const isSysNote = (m) => !(m.reasoning || '').trim() && (m.origin === 'timer' || m.origin === 'handoff' || (m.role === 'assistant' &&
-    /^\s*(——)?\s*（(已达到工具轮次上限|已停止|中断|检测到连续|任务回报|任务已派发)/.test(m.content || '')))
+  // 系统提示由后端判定（message.kind = sysnote），前端不再用正则猜正文
+  const isSysNote = (m) => m.kind === 'sysnote'
 
   const maxSeq = msgs.reduce((a, m) => Math.max(a, m.seq || 0), 0)   // 含工具消息，避免编号撞号
   const liveNo = new Map()
@@ -405,13 +422,12 @@ export default function App() {
     let n = maxSeq
     for (const m of visible) if (!m.seq) liveNo.set(m, ++n)
   }
-  // 阅读位置编号（data-vidx）：visible 下标 +1（空正文 assistant 也占号，与历史行为一致）
-  const vidxOf = new Map()
-  visible.forEach((m, i) => vidxOf.set(m, i + 1))
-
   const idxOfSeq = (seq) => visible.findIndex(m => (m.seq || 0) === seq)
+  // 当前阅读位置 → visible 下标：只认 seq（不再维护一套 vidx）
   const curIdx = () => {
-    return Math.max(0, Math.min(visible.length - 1, (readingIdx || 1) - 1))
+    if (visible.length === 0) return 0
+    const i = readingSeq ? idxOfSeq(readingSeq) : -1
+    return i >= 0 ? i : visible.length - 1
   }
   const peekRows = (() => {
     if (!peek.open || !visible.length) return []
@@ -424,7 +440,8 @@ export default function App() {
     return out
   })()
   const scrollToMsg = (i) => {
-    const el = document.querySelector('[data-vidx="' + (i + 1) + '"]')
+    const m = visible[i]
+    const el = m && m.seq != null ? document.querySelector('[data-seq="' + m.seq + '"]') : null
     if (!el) return
     suppressPeekClose.current = true
     clearTimeout(suppressTimer.current)
@@ -432,8 +449,106 @@ export default function App() {
     el.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
 
+  const PAGE_ROUNDS = 10
+  const loadEarlier = async () => {
+    const pg = pageRef.current
+    const cur = msgsRef.current
+    if (suppressLoad.current || !pg || !pg.has_more || loadingMore.current || !cur.length) return
+    const id = convIdRef.current
+    if (!id) return
+    loadingMore.current = true
+    const th = threadRef.current
+    const prevH = th ? th.scrollHeight : 0
+    const prevTop = th ? th.scrollTop : 0
+    try {
+      const c = await api('/api/conv/' + id + '?rounds=' + PAGE_ROUNDS + '&before=' + cur[0].seq)
+      const older = normalize(c.messages || [])
+      if (!older.length) { setPage(p => (p ? { ...p, has_more: false } : p)); return }
+      setMsgs(m => [...older, ...m])
+      // 窗口是累加的：from 取更早、to 取更晚；has_more 以最新一次为准
+      setPage(c.page
+        ? { ...c.page, from: Math.min(pg.from, c.page.from), to: Math.max(pg.to, c.page.to) }
+        : pg)
+      requestAnimationFrame(() => {
+        if (th) th.scrollTop = th.scrollHeight - prevH + prevTop
+      })
+    } catch (e) {
+      console.warn('loadEarlier failed', e)
+    } finally {
+      loadingMore.current = false
+    }
+  }
+
   const roundMax = visible.length
-  const roundNow = readingIdx || visible.length
+  const roundNow = curIdx() + 1
+
+  // J：右侧标题/标尺用的“当前轮”与“轮次列表”（轮 = user 消息）
+  const userRounds = visible.filter(m => m.role === 'user')
+  // pageBase：窗口之前还有几轮（未加载）。no 是绝对轮号，rel 是窗口内下标。
+  const curRound = (() => {
+    const ci = curIdx()
+    for (let i = ci; i >= 0; i--) {
+      if (visible[i] && visible[i].role === 'user') {
+        const rel0 = visible.slice(0, i + 1).filter(x => x.role === 'user').length - 1  // 0-based
+        return { no: idxToRound(rel0), rel0, text: visible[i].content || '' }
+      }
+    }
+    return { no: idxToRound(0), rel0: 0, text: '' }
+  })()
+  // 某一轮（窗口内下标）的标题：太短就拼上一条，避免只剩“继续”两个字
+  const roundText = (rel) => {
+    const m = userRounds[rel]
+    if (!m) return ''
+    // 只显示这一轮的原话。不做“太短就拼上一条”：拼完前一条会占满 3 行，把当前轮挤掉
+    return String(m.content || '').replace(/\s+/g, ' ').trim()
+  }
+  const curRoundText = roundText(curRound.rel0)
+  const ctxPct = ctx ? Math.min(100, Math.round(((ctx.est_tokens || 0) / (ctx.limit_tokens || 105000)) * 100)) : 0
+  const [hoverRound, setHoverRound] = useState(-1)
+  const peekIdx = hoverRound >= 0 ? hoverRound : curRound.rel0
+  const peekAbs = idxToRound(peekIdx)
+  const peekText = roundText(peekIdx)
+
+  // 直接算 scrollTop 定位：scrollIntoView 在长距离（几万像素）时会因为 smooth 被忽略
+  const scrollToEl = (el) => {
+    const th = threadRef.current
+    if (!th || !el) return
+    const top = el.getBoundingClientRect().top - th.getBoundingClientRect().top + th.scrollTop
+    th.scrollTop = Math.max(0, top - Math.round(th.clientHeight * 0.12))
+  }
+  // 跳到“未加载”的轮：以该轮为中心重新取一个窗口（上 2 下 8），替换当前内容再定位
+  const jumpToRound = async (absRound) => {
+    const id = convIdRef.current
+    if (!id || !absRound) return
+    try {
+      const c = await api('/api/conv/' + id + '?rounds=' + PAGE_ROUNDS + '&around=' + absRound)
+      const list = normalize(c.messages || [])
+      setMsgs(list)
+      setPage(c.page || null)
+      const from = c.page ? c.page.from : 1
+      const users = list.filter(x => x.role === 'user')
+      const target = users[absRound - from]
+      if (target && target.seq != null) {
+        // 等 React 把新窗口提交到 DOM（rAF 时新节点通常还没换上去，量到的是旧位置）
+        setTimeout(() => {
+          const el = document.querySelector('[data-seq="' + target.seq + '"]')
+          scrollToEl(el)
+        }, 120)
+      }
+    } catch (e) {
+      console.warn('jumpToRound failed', e)
+    }
+  }
+
+  const scrollToRound = (i) => {
+    const m = userRounds[i]
+    if (!m) return
+    // 用 seq 定位，不用 vidx：空正文 assistant 会占 vidx 但不渲染，导致缺号跳空
+    const el = m.seq != null ? document.querySelector('[data-seq="' + m.seq + '"]') : null
+    if (el) { scrollToEl(el); return }
+    const idx = visible.indexOf(m)
+    if (idx >= 0) scrollToMsg(idx)
+  }
 
   const refresh = async () => {
     setConvs(await api('/api/convs'))
@@ -550,8 +665,9 @@ export default function App() {
     if (id) history.replaceState(null, '', '?conv=' + id)
     else history.replaceState(null, '', location.pathname)
     if (!id) { setMsgs([]); setTitle('新会话'); return }
-    const c = await api('/api/conv/' + id)
+    const c = await api('/api/conv/' + id + '?rounds=' + PAGE_ROUNDS)
     setMsgs(normalize(c.messages || [])); setTitle(c.title || '会话')
+    setPage(c.page || null)
     scrollToBottom()   // 进入会话定位到最新消息
       loadCtx(id)
     // 后台仍在跑？轮询直到结束（刷新页面后能"接上"）
@@ -568,7 +684,7 @@ export default function App() {
   const attachStream = async (id) => {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms))
     const running = async () => ((await api('/api/running').catch(() => [])) || []).includes(String(id))
-    let live = { role: 'assistant', content: '', reasoning: '', at: now() }
+    let live = { role: 'assistant', content: '', reasoning: '', at: now(), seq: 0 }
     let pushTimer = null
     let done = false
     const push = () => {
@@ -618,7 +734,8 @@ export default function App() {
               else if (line.startsWith('data: ')) data = line.slice(6)
             }
             let d = {}; try { d = JSON.parse(data) } catch { }
-            if (ev === 'reasoning') { live.reasoning += d.text || ''; push() }
+            if (ev === 'seq') { live.seq = d.seq; push() }
+            else if (ev === 'reasoning') { live.reasoning += d.text || ''; push() }
             else if (ev === 'delta') { live.content += d.text || ''; push() }
             else if (ev === 'tool_start') {
               setPendingTools(p => [...p, { id: Math.random().toString(36).slice(2), name: d.name, args: d.args, t0: Date.now() }])
@@ -626,7 +743,7 @@ export default function App() {
             else if (ev === 'tool') {
               setPendingTools(p => { const key = d.name + '|' + (d.args || ''); const k = p.findIndex(x => x.name + '|' + (x.args || '') === key); return k >= 0 ? p.filter((_, idx) => idx !== k) : p.slice(1) })
               const doneLive = { ...live }
-              live = { role: 'assistant', content: '', reasoning: '', tools: [], at: now() }
+              live = { role: 'assistant', content: '', reasoning: '', tools: [], at: now(), seq: 0 }
               setMsgs(m => [...m.filter(x => !x.__live), doneLive,
                 { role: 'tool', toolName: d.name, toolArgs: d.args, content: d.text || '', ms: d.ms || 0, at: now(), __liveTool: true }])
               stream.clear()
@@ -797,10 +914,12 @@ export default function App() {
   }, [])
   // 收起思考后回到这条消息的开头（比"思考过程"那一行再高一点）
   const collapseMsg = useCallback((box) => {
+    suppressLoad.current = true
     requestAnimationFrame(() => {
       box.scrollIntoView({ block: 'start' })
       const th = threadRef.current
       if (th) th.scrollTop -= 12
+      setTimeout(() => { suppressLoad.current = false }, 500)
     })
   }, [])
 
@@ -809,8 +928,10 @@ export default function App() {
       <div className="topbar">
         <div className="mobrail">
           <span className={'mob-dot' + (busy ? ' busy' : '')} title={busy ? '运行中' : '空闲'} />
-          <span className="mob-fig" title="本轮 / 上限">{String(roundNow).padStart(2,'0')}/{roundMax ? String(roundMax).padStart(2,'0') : '∞'}</span>
+          <span className="mob-fig" title="第几轮 / 总轮数">{String(curRound.no || 1).padStart(2,'0')}/{page ? page.total_rounds : (userRounds.length || 1)}</span>
+          <span className="mob-title">{curRoundText}</span>
           {tps > 0 ? <span className="mob-tps"><b>{Math.round(tps)}</b> tok/s</span> : null}
+          {ctx ? <i className="mob-bar"><i style={{ width: Math.max(2, ctxPct) + '%' }} /></i> : null}
           {ctx ? (
             <span className={'mob-ctx' + ((((ctx.est_tokens || 0) / (ctx.limit_tokens || 105000)) * 100) >= (ctx.compact_pct || 80) ? ' hot' : '')}
               title={Math.round((ctx.est_tokens || 0) / 1000) + ' / ' + Math.round((ctx.limit_tokens || 105000) / 1000) + 'k tokens'}>
@@ -842,7 +963,7 @@ export default function App() {
                title="只看会话"><FigCell value={convs.length} /><span>会话</span></a>
             <a className={tab === 'archive' ? 'on' : ''} onClick={() => setTab('archive')}
                title="只看归档"><FigCell value={archived.length} /><span>归档</span></a>
-            <a title="当前会话最后一条消息的落库序号"><FigCell value={msgs.length ? (msgs[msgs.length - 1].seq || 0) : 0} /><span>本轮</span></a>
+            <a title="当前会话最后一条消息的落库序号"><FigCell value={page ? (page.last_seq || 0) : (msgs.length ? (msgs[msgs.length - 1].seq || 0) : 0)} /><span>本轮</span></a>
           </div>
           <div className="list" style={{ padding: '0 .5rem' }}>
             {list.length === 0 ? (
@@ -912,6 +1033,33 @@ export default function App() {
           )
         })()}
           {msgs.length ? <i className="guideline" aria-hidden="true" /> : null}
+        <div className="side">
+          <div className="title" onClick={() => scrollToRound(peekIdx)}
+            title={'跳到第 ' + (peekIdx + 1) + ' 轮'}>
+            <span className="no">{String(peekAbs).padStart(2,'0')}</span>
+            <span className="tt">{peekText}</span>
+          </div>
+          <div className="scale" onMouseLeave={() => setHoverRound(-1)}>
+            {(() => {
+              const total = page ? page.total_rounds : userRounds.length
+              const base = page ? page.from : 1
+              const absCur = curRound.no   // 已是绝对轮次（idxToRound），不再加偏移
+              return Array.from({ length: total || 1 }).map((_, i) => {
+                const abs = i + 1
+                const loaded = page ? (abs >= page.from && abs <= page.to) : true
+                const rel = roundToIdx(abs)
+                return (
+                  <i key={i}
+                    className={abs === absCur ? 'cur' : (loaded ? 'on' : 'off')}
+                    title={loaded ? '第 ' + abs + ' 轮' : '第 ' + abs + ' 轮（未加载）'}
+                    onMouseEnter={() => setHoverRound(loaded && rel >= 0 && rel < userRounds.length ? rel : -1)}
+                    onClick={() => { if (loaded) scrollToRound(rel); else jumpToRound(abs) }} />
+                )
+              })
+            })()}
+
+          </div>
+        </div>
           <div className="thread" ref={threadRef} onScroll={onThreadScroll}
             onWheel={e => { if (e.deltaY < 0) stickRef.current = false }}>
             {msgs.length === 0 ? (
@@ -955,7 +1103,7 @@ export default function App() {
                               open={openRuns.has(gmeta.start)} onToggle={toggleRun} />
                   }
                   if (isSysNote(m)) return <SysNote key={i} m={m} seq={seq} />
-                  return <MessageCard key={i} m={m} seq={seq} vidx={vidxOf.get(m)} onCollapse={collapseMsg} />
+                  return <MessageCard key={i} m={m} seq={seq} onCollapse={collapseMsg} />
                 })}
                 <LiveBubble busy={busy} />
                 {pendingTools.map(p => (
@@ -1046,48 +1194,40 @@ export default function App() {
           </div>
         ) : null}
         <aside className="rail">
-          <span className="vt">AGENT EXECUTE · CREATE</span>          <span className="rail-mid">
-            <span className="fig" style={{ cursor: 'pointer' }}
-              onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setPeek({ open: true, idx: curIdx(), top: r.top + r.height / 2 }) }}
-              onMouseLeave={() => setPeek({ open: false, idx: -1, top: 0 })}
-              onWheel={e => {
-                e.preventDefault()
-                const base = peek.idx >= 0 ? peek.idx : curIdx()
-                const next = Math.max(0, Math.min(visible.length - 1, base + (e.deltaY > 0 ? 1 : -1)))
-                if (next !== base) {
-                  setPeek(p => ({ ...p, idx: next }))
-                  scrollToMsg(next)        // 滚动页面 ✓
-                }
-              }}>
-              {String(roundNow).padStart(2,'0')} / {roundMax ? String(roundMax).padStart(2,'0') : '∞'}
-            </span>
+          <span className={'jdot' + (busy ? ' busy' : '')} />
+          <span className="vt">AGENT EXECUTE</span>
+          <span className="rn" title="滚轮切换轮次"
+            onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setPeek({ open: true, idx: curIdx(), top: r.top + r.height / 2 }) }}
+            onMouseLeave={() => setPeek({ open: false, idx: -1, top: 0 })}
+            onWheel={e => {
+              e.preventDefault()
+              const base = peek.idx >= 0 ? peek.idx : curIdx()
+              const next = Math.max(0, Math.min(visible.length - 1, base + (e.deltaY > 0 ? 1 : -1)))
+              if (next !== base) {
+                setPeek(p => ({ ...p, idx: next }))
+                scrollToMsg(next)
+              }
+            }}>
+            {String(curRound.no || 1).padStart(2,'0')} / {page ? page.total_rounds : (userRounds.length || 1)}
           </span>
-          <div className="rail-foot">
-            <div className="rail-acts">
-              <button className="dots" onClick={() => openConv(null)} aria-label="新会话" title="新会话">
-                <svg className="plus" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square"/>
-                </svg>
-              </button>
-              <button className="dots" onClick={() => settingsUI.setShowSet(true)} aria-label="设置" title="设置">
-                <i /><i /><i />
-              </button>
-            </div>
-            <div className="rail-group">
-              <span className="rail-status"><span className={'dot' + (busy ? ' busy' : '')} />{busy ? '运行中' : '空闲'}</span>
-              {tps > 0 ? (
-                <span className="rail-tps"><b>{Math.round(tps)}</b> tok/s</span>
-              ) : null}
-              {ctx ? (
-                <span
-                  title={Math.round((ctx.est_tokens || 0) / 1000) + ' / ' + Math.round((ctx.limit_tokens || 105000) / 1000) + 'k tokens（已压缩）'
-                    + ' · 原始 ' + Math.round(((ctx.raw || 0) / 1.8) / 1000) + 'k tokens · 窗口 '
-                    + Math.round((ctx.window || 131072) / 1000) + 'k · 达 ' + (ctx.compact_pct || 80) + '% 自动压缩'}
-                  className={'rail-ctx' + ((((ctx.est_tokens || 0) / (ctx.limit_tokens || 105000)) * 100) >= (ctx.compact_pct || 80) ? ' hot' : '')}>
-                  <b>{Math.round(((ctx.est_tokens || 0) / (ctx.limit_tokens || 105000)) * 100)}%</b>
-                </span>
-              ) : null}
-            </div>
+          <span className="sp" />
+          <div className="info" title={ctx
+            ? Math.round((ctx.est_tokens || 0) / 1000) + ' / ' + Math.round((ctx.limit_tokens || 105000) / 1000) + 'k tokens（已压缩）'
+              + ' · 原始 ' + Math.round(((ctx.raw || 0) / 1.8) / 1000) + 'k tokens · 窗口 '
+              + Math.round((ctx.window || 131072) / 1000) + 'k · 达 ' + (ctx.compact_pct || 80) + '% 自动压缩'
+            : '上下文占用'}>
+            <div className="bar"><i style={{ height: Math.max(2, ctxPct) + '%' }} /></div>
+            <span className="pct">{ctx ? ctxPct + '%' : '—'}</span>
+          </div>
+          <div className="acts">
+            <button className="dots" onClick={() => openConv(null)} aria-label="新会话" title="新会话">
+              <svg className="plus" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square"/>
+              </svg>
+            </button>
+            <button className="dots" onClick={() => settingsUI.setShowSet(true)} aria-label="设置" title="设置">
+              <i /><i /><i />
+            </button>
           </div>
         </aside>
       </div>

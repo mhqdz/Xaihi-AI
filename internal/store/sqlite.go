@@ -19,6 +19,7 @@ type SQLiteStore struct{ db *sql.DB }
 func ensureReasoningMs(db *sql.DB) {
 	db.Exec(`ALTER TABLE messages ADD COLUMN reasoning_ms INTEGER NOT NULL DEFAULT 0`)
 	db.Exec(`ALTER TABLE messages ADD COLUMN tool_ms INTEGER NOT NULL DEFAULT 0`)
+	db.Exec(`ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT ''`)
 }
 
 func NewSQLite(dir string) (*SQLiteStore, error) {
@@ -102,7 +103,7 @@ func (s *SQLiteStore) Get(id string) (*Conversation, error) {
 }
 
 func (s *SQLiteStore) messages(convID int) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT seq,role,content,reasoning,reasoning_ms,tool_calls,tool_call_id,tool_result,images,created_at,origin,tool_ms
+	rows, err := s.db.Query(`SELECT seq,role,content,reasoning,reasoning_ms,tool_calls,tool_call_id,tool_result,images,created_at,origin,tool_ms,status
 		FROM messages WHERE conv_id=? ORDER BY seq`, convID)
 	if err != nil {
 		return nil, err
@@ -113,7 +114,7 @@ func (s *SQLiteStore) messages(convID int) ([]Message, error) {
 		var m Message
 		var tc, tr, im, ca string
 		var seq int
-		if err := rows.Scan(&seq, &m.Role, &m.Content, &m.Reasoning, &m.ReasoningMs, &tc, &m.ToolCallID, &tr, &im, &ca, &m.Origin, &m.ToolMs); err != nil {
+		if err := rows.Scan(&seq, &m.Role, &m.Content, &m.Reasoning, &m.ReasoningMs, &tc, &m.ToolCallID, &tr, &im, &ca, &m.Origin, &m.ToolMs, &m.Status); err != nil {
 			return nil, err
 		}
 		m.Seq = seq
@@ -135,6 +136,49 @@ func (s *SQLiteStore) messages(convID int) ([]Message, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// InsertPending 预分配一条消息行（status=running），返回 seq。
+// 流式输出期间靠它“先占位后填充”：进程崩了至少留下一条 failed 消息，而不是什么都没有。
+func (s *SQLiteStore) InsertPending(convID int64, role string) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var nextSeq int
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conv_id=?`, convID).Scan(&nextSeq); err != nil {
+		return 0, err
+	}
+	now := time.Now().Format(time.RFC3339Nano)
+	if _, err := tx.Exec(`INSERT INTO messages(conv_id,seq,role,content,reasoning,reasoning_ms,tool_calls,tool_call_id,tool_result,images,created_at,origin,tool_ms,status)
+		VALUES(?,?,?,'','',0,'','','','',?,'',0,'running')`, convID, nextSeq, role, now); err != nil {
+		return 0, err
+	}
+	return nextSeq, tx.Commit()
+}
+
+// UpdateMessage 流式/收尾时更新一条已分配 seq 的消息（content/reasoning/status）。
+func (s *SQLiteStore) UpdateMessage(convID int64, seq int, content, reasoning string, reasoningMs int64, status string) error {
+	_, err := s.db.Exec(`UPDATE messages SET content=?, reasoning=?, reasoning_ms=?, status=? WHERE conv_id=? AND seq=?`,
+		content, reasoning, reasoningMs, status, convID, seq)
+	return err
+}
+
+// DeleteMessage 删掉一条按 seq 定位的消息（工具轮放弃流式占位行时用）。
+func (s *SQLiteStore) DeleteMessage(convID int64, seq int) error {
+	_, err := s.db.Exec(`DELETE FROM messages WHERE conv_id=? AND seq=?`, convID, seq)
+	return err
+}
+
+// MarkRunningFailed 启动时把上次进程留下的 running 消息标记为 failed。
+// systemd 单实例：服务启动时旧进程必然已退出，不存在“还活着但在 running”的情况。
+func (s *SQLiteStore) MarkRunningFailed() (int64, error) {
+	res, err := s.db.Exec(`UPDATE messages SET status='failed' WHERE status='running'`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (s *SQLiteStore) Save(c *Conversation) error {
@@ -181,12 +225,15 @@ func (s *SQLiteStore) Save(c *Conversation) error {
 		if err := tx.QueryRow(`SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conv_id=?`, c.ID).Scan(&nextSeq); err != nil {
 			return err
 		}
+		if m.Status == "" {
+			m.Status = "done" // user/tool 与普通回复落库即完整；assistant 的 running/interrupted/failed 由 agent 显式设置
+		}
 		origin := m.Origin
 		if origin == "" {
 			origin = "user"
 		}
-		res, err := tx.Exec(`INSERT INTO messages(conv_id,seq,role,content,reasoning,reasoning_ms,tool_calls,tool_call_id,tool_result,images,created_at,origin,tool_ms)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, nextSeq, m.Role, m.Content, m.Reasoning, m.ReasoningMs, string(tc), m.ToolCallID, tr, string(im), nStr, origin, m.ToolMs)
+		res, err := tx.Exec(`INSERT INTO messages(conv_id,seq,role,content,reasoning,reasoning_ms,tool_calls,tool_call_id,tool_result,images,created_at,origin,tool_ms,status)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, nextSeq, m.Role, m.Content, m.Reasoning, m.ReasoningMs, string(tc), m.ToolCallID, tr, string(im), nStr, origin, m.ToolMs, m.Status)
 		if err != nil {
 			return err
 		}
