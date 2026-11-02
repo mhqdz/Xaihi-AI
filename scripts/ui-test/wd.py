@@ -1,4 +1,4 @@
-import base64, json, time, urllib.request
+import base64, json, os, subprocess, time, urllib.request
 
 BASE = "http://127.0.0.1:4444"
 
@@ -16,22 +16,33 @@ def req(method, path, body=None):
             time.sleep(0.3)
     raise RuntimeError("webdriver 不可用")
 
-def clear_sessions():
-    """清掉 geckodriver 里残留的会话（DELETE /session 无 id 不是标准，必须按 id 删）"""
+def _probe():
+    """快速探测 geckodriver 是否 ready（不走 req 的 60 次重试）"""
     try:
-        r = req("GET", "/sessions")
-        for s in (r.get("value") or []):
-            sid = s.get("id")
-            if sid:
-                try:
-                    req("DELETE", "/session/" + sid)
-                except Exception:
-                    pass
+        with urllib.request.urlopen(BASE + "/status", timeout=2) as r:
+            return json.loads(r.read().decode()).get("value", {}) or {}
     except Exception:
-        pass
+        return {}
+
+def ensure_driver():
+    """geckodriver 一旦卡在 'Session already started' 就永远不会自愈，
+    而且它没有 /sessions 端点可以清理。唯一可靠做法是杀掉重启。"""
+    if _probe().get("ready") is True:
+        return
+    subprocess.run(["pkill", "-x", "geckodriver"], capture_output=True)
+    time.sleep(1.0)
+    exe = os.path.expanduser("~/.local/bin/geckodriver")
+    subprocess.Popen([exe, "--port", "4444"], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(24):
+        time.sleep(0.5)
+        if _probe().get("ready") is True:
+            return
+    raise RuntimeError("geckodriver 起不来（检查 ~/.local/bin/geckodriver 是否可执行）")
 
 class Session:
     def __init__(self, w=1500, h=950):
+        ensure_driver()
         r = None
         for attempt in range(3):
             r = req("POST", "/session", {"capabilities": {"alwaysMatch": {
@@ -39,8 +50,8 @@ class Session:
                 "moz:firefoxOptions": {"args": ["-headless", f"--window-size={w},{h}"]}}}})
             if "sessionId" in r.get("value", {}):
                 break
-            # 上一个用例没收尾：按 id 清掉再试
-            clear_sessions()
+            # 还失败：进程彻底卡死，重启一次
+            ensure_driver()
             time.sleep(1.0)
         if "sessionId" not in r.get("value", {}):
             raise RuntimeError(f"建会话失败: {r}")

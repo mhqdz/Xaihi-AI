@@ -2,8 +2,8 @@
 """黑盒健壮性测试：异常输入、边界状态、响应式切换。
 只观察，不假设实现。任何 JS 报错 / 布局溢出 / 卡死都算问题。
 """
-import sys, time, json
-sys.path.insert(0, "scripts/ui-test")
+import sys, os, time, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
 
 BASE = "http://127.0.0.1:18400"
