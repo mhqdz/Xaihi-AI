@@ -382,6 +382,14 @@ agentd/internal/web.(*Server).handleChat.func1(...)   web.go:755
 
 也就是说：客户端断开不再中断这一轮，服务端照跑完、照落库 —— 这本来就是这个设计（`context.Background()` 不绑请求），只是以前被 panic 打断了。
 
+**补一刀（同一批修复的遗漏）**：上一批只改了 `web.go` 里的两处 `Flush`，**漏了 `job.go` 里的 4 处**。`streamFrom` 是断点续传那条路径 —— 浏览器订阅 `?from=N` 后跟随后续帧，用户刷新/关标签页时同样会断开，所以那里一样会 panic。
+
+这批把 `job.go` 的四处置换掉（回 done 流、写帧循环、收尾 done、心跳），并顺手给两处 `fmt.Fprint` 补了写错误检查。
+
+**验证**：订阅 `?from=0` 后 0.4 秒强制断开，连做三次，日志 panic 计数 **0**，消息仍完整落库（`user/done` → `assistant/done` → `tool/done` → `assistant/done, 345 字符`），`chat.done secs=7.4` 正常。
+
+**教训**：修 panic 这类问题必须**全仓库搜一遍同一个调用模式**（`grep -n "flusher.Flush()"`），而不是只改报错栈里出现的那一处。我第一次修完就应该跑这个 grep。
+
 ### P1-16 同一会话并发两个请求会打乱消息顺序 ✅ 已修
 
 **现象**：对同一个会话同时发两个 `POST /api/chat`，落库结果：
@@ -1020,5 +1028,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 29 | P0-5 断开即 panic + P1-16 同会话并发 | `aef86f6` | 无视觉改动 |
 | 30 | P0-6 存储写失败不再静默继续（4 处 `Save` 错误） | `cd8cf48` | 无视觉改动 |
 | 31 | P1-17 断线重连不再拼接重复内容 | `71e7aa8` | 无视觉改动 |
+| 32 | P0-5 补刀：`job.go` 里 4 处裸 `Flush` | `e76efaf` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

@@ -61,9 +61,12 @@ func (j *job) snapshot(from int) ([]string, bool) {
 func (j *job) length() int { j.mu.Lock(); defer j.mu.Unlock(); return len(j.buf) }
 
 // GET /api/conv/<id>/stream?from=N：先回放缓冲，再跟随后续帧；结束后返回。
+//
+// 这里所有刷行都用 http.NewResponseController(w).Flush() 而不是 w.(http.Flusher).Flush()：
+// 客户端断开后底层 bufio 会拿到 ErrShortWrite 并 panic（见 web.go 里 send 的注释），
+// 而这条路径在用户关标签页 / 刷新时同样会跑到。
 func (s *Server) streamFrom(w http.ResponseWriter, r *http.Request, convID string) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		writeJSON(w, 500, map[string]string{"error": "不支持流式"})
 		return
 	}
@@ -83,8 +86,10 @@ func (s *Server) streamFrom(w http.ResponseWriter, r *http.Request, convID strin
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Accel-Buffering", "no")
-		fmt.Fprint(w, "event: done\ndata: {}\n\n")
-		flusher.Flush()
+		if _, err := fmt.Fprint(w, "event: done\ndata: {}\n\n"); err != nil {
+			return
+		}
+		_ = http.NewResponseController(w).Flush()
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -98,19 +103,21 @@ func (s *Server) streamFrom(w http.ResponseWriter, r *http.Request, convID strin
 			if _, err := w.Write([]byte(f)); err != nil {
 				return
 			}
-			flusher.Flush()
+			_ = http.NewResponseController(w).Flush()
 			idx++
 		}
 		if done && len(frames) == 0 {
-			fmt.Fprint(w, "event: done\ndata: {}\n\n")
-			flusher.Flush()
+			if _, err := fmt.Fprint(w, "event: done\ndata: {}\n\n"); err != nil {
+				return
+			}
+			_ = http.NewResponseController(w).Flush()
 			return
 		}
 		if time.Since(lastBeat) > 5*time.Second {
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
+			_ = http.NewResponseController(w).Flush()
 			lastBeat = time.Now()
 		}
 		select {
