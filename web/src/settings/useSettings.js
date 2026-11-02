@@ -1,6 +1,6 @@
 // 设置面板的容器：状态机 + 保存/取消/关闭 + 深链（?profile=&field=&tool=&tooledit=&newplugin=&task=）
 // 展示组件只拿算好的值，不放业务逻辑在这里之外。
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const api = (p, opt) => fetch(p, opt).then(r => r.json())
 
@@ -19,6 +19,28 @@ const NEW_PLUGIN = {
 
 export function useSettings({ refresh }) {
   const [showSet, setShowSet] = useState(() => new URLSearchParams(location.search).has('settings'))
+  // 焦点管理：打开时记住是谁触发的、并把焦点送进面板；关闭时还回去。
+  // 不做这两步，键盘/读屏用户打开后焦点停在 BODY，关掉后也不知道自己回到哪了。
+  const lastFocus = useRef(null)
+  const wasOpen = useRef(showSet)
+  useEffect(() => {
+    if (showSet && !wasOpen.current) {
+      lastFocus.current = document.activeElement
+      // 双 rAF 而不是 setTimeout(0)：点按钮打开时，浏览器要等这一轮点击的默认聚焦
+      // 处理完才轮到我们，只排一个宏任务会被它盖掉（实测焦点停在触发按钮上）。
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        // 只取真正可见的：面板里第一个可聚焦元素常常是 narrow-only 的返回按钮，
+        // 宽屏下是 display:none —— 对不可见元素调 focus() 什么也不会发生。
+        const el = [...document.querySelectorAll(
+          '.set-cols button, .set-cols input, .set-cols select, .set-cols textarea, .set-cols [tabindex]')]
+          .find(e => e.getClientRects().length > 0)
+        if (el) el.focus()
+      }))
+    } else if (!showSet && wasOpen.current) {
+      setTimeout(() => { try { lastFocus.current && lastFocus.current.focus() } catch (e) {} }, 0)
+    }
+    wasOpen.current = showSet
+  }, [showSet])
   const [editP, setEditP] = useState(null)
   const [editField, setEditField] = useState(null)
   const [editOriginal, setEditOriginal] = useState('')

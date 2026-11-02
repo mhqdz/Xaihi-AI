@@ -260,6 +260,23 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 - 关闭后 Tab 恢复：`DIV.list` → `BUTTON.new-conv` → `BUTTON.side-toggle`
 - `pixel_diff` 6/6 一致（`inert` 不影响渲染）
 
+### P1-8 打开/关闭设置时焦点不跟随 ✅ 已修
+
+**现象**：点设置按钮打开面板后，`document.activeElement` 仍是 `BODY`；按 Esc 关掉后也停在 `BODY`。键盘用户得从页面最开头重新 Tab，读屏用户不知道面板已经打开、也不知道自己回到哪了。
+
+**根因**：`useSettings` 只管 `showSet` 这个布尔值，完全没有焦点管理 —— 打开不送进去，关闭不还回去。
+
+**修复**：在 `useSettings` 里加一个 effect：
+- 打开：把 `document.activeElement` 记成归还目标，然后送焦点进面板第一个**可见**的可聚焦元素
+- 关闭：把焦点还给那个目标
+
+踩了两个坑，都记在代码注释里：
+1. **`setTimeout(0)` 不够**。点按钮打开时，浏览器要等这一轮点击的默认聚焦处理完，单个宏任务会被它盖掉 —— 实测焦点仍停在触发按钮。换成双 `requestAnimationFrame`。
+2. **第一个匹配元素是不可见的**。`querySelector` 拿到的是 `.card-back.narrow-only`（窄屏专用的返回按钮），宽屏下 `display:none`，对不可见元素调 `focus()` 静默失败。改成筛 `getClientRects().length > 0`。
+
+**验证**：打开后焦点在 `BUTTON.tg`（面板里的开关），Esc 后在 `BUTTON.dots`（触发按钮）。`pixel_diff` 6/6 一致 —— Firefox 的 `:focus-visible` 只在键盘交互时画环，程序化 `focus()` 不画，所以截图不受影响。
+
+
 
 
 ---
@@ -395,5 +412,6 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | 10 | P1-6 停止跟踪 `web/node_modules`（2488 → 136 个文件） | `36121c2` | 无视觉改动 |
 | 11 | P2-6 下拉框光标统一 + `check_cursor.py` | `59564f6` | 6/6 一致 |
 | 12 | P1-7 设置面板打开时背景 `inert` + `check_focus.py` | `bc23147` | 6/6 一致 |
+| 13 | P1-8 设置面板焦点进出闭环 | `3e5b25a` | 6/6 一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
