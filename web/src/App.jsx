@@ -660,6 +660,7 @@ export default function App() {
   const loadCtx = async (id) => {
     if (!id) { setCtx(null); return }
     const r = await api('/api/context?conv=' + id + '&profile=' + encodeURIComponent(profile)).catch(() => null)
+    if (convIdRef.current !== id) return   // 快速切换时，旧会话的上下文别覆盖新的
     setCtx(r && !r.error ? r : null)
   }
 
@@ -676,6 +677,9 @@ export default function App() {
     else history.replaceState(null, '', location.pathname)
     if (!id) { setMsgs([]); setTitle('新会话'); return }
     const c = await api('/api/conv/' + id + '?rounds=' + PAGE_ROUNDS)
+    // 请求期间用户可能已经点到别的会话了。不校验的话，慢的那个响应后到，
+    // 会把它的消息画到当前会话上（URL 是 B、内容却是 A）。
+    if (convIdRef.current !== id) return
     setMsgs(normalize(c.messages || [])); setTitle(c.title || '会话')
     setPage(c.page || null)
     scrollToBottom()   // 进入会话定位到最新消息
@@ -684,6 +688,7 @@ export default function App() {
     // 单一事实来源：直接请求续传流。没内容/已结束会立刻返回，不会挂着
     // 只有真的在跑才去接续传流；否则后端会回 404（控制台里那条红字），纯噪声
     const runningNow = ((await api('/api/running').catch(() => [])) || []).includes(String(id))
+    if (convIdRef.current !== id) return   // 同上：别把已经切走的会话接上流
     if (runningNow) attachStream(id)
     else setBusy(false)
   }

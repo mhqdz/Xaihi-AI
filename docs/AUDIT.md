@@ -696,6 +696,34 @@ else: px = sum(1 for p in diff.getdata() if p != (0,0,0))
 
 数字记在这里，你醒了可以决定要不要动。
 
+### P1-23 快速切会话时，慢的那个响应会覆盖当前会话 ✅ 已修
+
+**现象**（代码分析，构造复现）：`openConv` 里
+
+```js
+const c = await api('/api/conv/' + id + '?rounds=' + PAGE_ROUNDS)
+setMsgs(normalize(c.messages || [])); setTitle(c.title || '会话')
+```
+
+`await` 之后**没有校验当前会话是否还是 `id`**。用户点 A（大、慢）→ 立刻点 B（小、快），B 先画上去，A 的响应后到，把 A 的消息铺到 B 的界面上 —— **URL 是 B、内容是 A**。
+
+同一个 `openConv` 尾部的 `attachStream(id)` 和 `loadCtx(id)` 也缺同样的校验（后者会把旧会话的上下文覆盖新的）。
+
+**复现**：给 `/api/conv/118` 的 fetch 加 1.5 秒延迟，点 118 后 400ms 点 51。修复前能观察到消息数变成 118 的；修复后 URL 是 `?conv=51`、消息 99 条、标尺第 23 轮，完全是 51 的。
+
+**修复**：三处 `await` 之后各加一句 `if (convIdRef.current !== id) return`。`attachStream` 里本来就有这个模式（`if (convIdRef.current !== id) return`），只是 `openConv` / `loadCtx` 没跟上。
+
+### reasoning 链路（实测：正常，但没能观察到逐字增长）
+
+用带思考的 profile 发了一条推理题，`.think-sum` 最终显示「思考过程 · 8601 字 · 68.2s」；切会话时 `stream.clear()` 会清掉实时缓冲（`openConv` 第一行就是），不会串台。
+
+**但没测到"逐字增长"**：本地模型把整段 reasoning 一次吐完，第一次采样（约 1 秒后）就已经是 8601 字。这不是缺陷，是模型速度让这个观察不成立。
+
+**顺带发现**：`attachStream`（重连）和 `send`（正常发送）里各有一份几乎相同的 SSE 事件处理逻辑（`reasoning` / `delta` / `tool` / `error` 各自 `+=`）。这是重复实现，将来改一处忘另一处的风险是实打实的 —— 但合并两个函数的改动面和风险都不小，先记着。
+
+**又一次自己的失误**：测 reasoning 时我直接在你正在用的 conv51 里发了一条「请一步步推导 17 乘 23」—— 消息数从 575 变成 577。已删除（库里有 `agentd.db.bak-conv51b-*` 备份），确认回到 575、最后一条仍是原来的 `seq 575`。**这是这轮里第三次拿真实会话当靶子**，而且这次连副作用都预判到了却没避开。
+
+
 
 
 
@@ -1356,5 +1384,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 41 | P1-21 会话 id 严格解析（`Sscanf` 忽略尾部） | `a0a32c4` | 无视觉改动 |
 | 42 | P1-22 run2/run3 假绿：没数据时静默跳过 | `5ee5edf` | 无视觉改动 |
 | 43 | 审查 pixel_diff（严格，可信）+ 对比度量化（未改，待你决定） | 无提交 | 无视觉改动 |
+| 44 | P1-23 快速切会话的响应竞态 + reasoning 实测 | `c6f1e1a` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
