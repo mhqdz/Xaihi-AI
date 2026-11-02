@@ -390,6 +390,35 @@ agentd/internal/web.(*Server).handleChat.func1(...)   web.go:755
 
 **教训**：修 panic 这类问题必须**全仓库搜一遍同一个调用模式**（`grep -n "flusher.Flush()"`），而不是只改报错栈里出现的那一处。我第一次修完就应该跑这个 grep。
 
+### 分页窗口的边界（新增 `check_paging.py`，16 条断言全过）
+
+以前分页只在 conv51（575 条、41 轮）上测过 —— 那种规模下 `first < 0` 之类的 clamp 根本不会触发。这轮专门造了空会话、1 轮、2 轮三种极小样本，把参数边界都打了一遍：
+
+| 用例 | 结果 |
+|---|---|
+| 空会话 | `from=0 to=0 total_rounds=0`，不报错 |
+| 1 轮会话（2 条消息） | `from=1 to=1`，`has_more=false` |
+| 3 条消息 | 正确算出 `total_rounds=2`，全量返回 |
+| `before=1`（小于最小 seq） | 空窗口 `from=0 to=0`，`has_more=false` |
+| `around=99`（超过总轮数） | 夹回 `from=1 to=2` |
+| `around=0` | 当作未指定 |
+| `rounds=0` / `rounds=-5` | 回落默认 10，**不产生负窗口** |
+
+除了逐项数值，还写了个 `sane(p)` 检查一组不变量：`from/to` 非负、`from<=to`、`to<=total_rounds`、`remaining_rounds` 与 `total_rounds` 自洽、窗口不超过 `rounds`。所有用例都通过。
+
+**结论**：分页的边界处理是干净的，没有需要修的。但这个脚本留下了 —— 这些值直接决定标尺画几格、上翻还能不能再加载，算错就是"状态错乱"，以后改分页有一道网。
+
+### 极端标题的渲染（实测：正常）
+
+按「标题只显示用户原话、不压正文」这条已确认的决策，造了三种极端标题：
+
+- 24 个 emoji（`🚀🎉🔥…`）
+- 44 个字符、完全没有空格的中文长句
+- 60 字符的超长 URL
+
+量 `.ef-record` 的 `scrollWidth - clientWidth`：三者都是 **0**，宽度稳定在 221px。emoji 标题的 `textContent.length` 是 83（代理对让 length 翻倍），但 `text-overflow: ellipsis` 照常截断，没有撑破、也没有压到正文。
+
+
 ### P1-16 同一会话并发两个请求会打乱消息顺序 ✅ 已修
 
 **现象**：对同一个会话同时发两个 `POST /api/chat`，落库结果：
@@ -1029,5 +1058,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 30 | P0-6 存储写失败不再静默继续（4 处 `Save` 错误） | `cd8cf48` | 无视觉改动 |
 | 31 | P1-17 断线重连不再拼接重复内容 | `71e7aa8` | 无视觉改动 |
 | 32 | P0-5 补刀：`job.go` 里 4 处裸 `Flush` | `e76efaf` | 无视觉改动 |
+| 33 | 新增 `check_paging.py`（16 条边界断言）+ 极端标题实测 | `c89f94e` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
