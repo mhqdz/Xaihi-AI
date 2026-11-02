@@ -158,6 +158,30 @@ POST /api/chat   Content-Type: text/plain
 
 **验证**：`curl -I` 三个头都在；用 JS 建 iframe 加载同源页面，`contentDocument` 为 `null`（被 DENY 拒绝）。
 
+### P1-12 `/api/wake` 接受不存在的会话，写入孤儿记录 ✅ 已修
+
+**现象**：带正确 token 调 `POST /api/wake {"conv_id":"999999","text":"孤儿测试"}` → `{"ok":true,"outbox_id":18}`。会话根本不存在，outbox 里却真的多了一条。
+
+**根因**：`handleWake` 校验了 token、也校验了 `conv_id` 是正整数，但**没校验会话存在**：
+
+```go
+conv, _ := strconv.ParseInt(in.ConvID, 10, 64)          // 只要 > 0 就过
+id, err := s.hst.CreateOutbox(conv, in.Origin, in.Text) // 不查存在性
+```
+
+`CreateOutbox` 不做外键检查（SQLite 默认也不强制），写进去的就是一条**永远没人消费**的记录 —— 没有对应会话的 agent 会去读它。
+
+**怎么发现的**：上一轮把 `Conversation()` 改成「读不到就报错」之后，顺着同一条线索去查其它接受 id 的写入口。`/api/wake` 是唯一带 token 的端点，也是唯一一个我还没测过「不存在 id」的写入口。
+
+**修复**：`CreateOutbox` 之前先 `s.st.Get(in.ConvID)`，读不到回 404。
+
+**验证**：`conv_id: 999999` → `404 {"error":"没有这个会话"}`；真实会话 → `200 {"ok":true,"outbox_id":19}`。
+
+**顺带清理了两条历史孤儿**：`id=17` 指向 conv 99（早先删掉的测试会话 `uitest`），`id=18` 是这次造的。两条已删，outbox 现在为空。
+
+**这里要记一笔自己的失误**：验证 200 那条时我直接用了 `conv_id=51`（真实会话），outbox 被消费后在里面多出一条 `（测试写一条）`（seq 576）。已删除并确认回到 575 条、最后一条仍是原来的 `seq 575`。**同一个错误（拿真实会话当靶子）我在这轮里犯了第二次** —— 上一个是 robustness.py 写脏 conv118。以后写这个端点的验证必须走 `dbtool.new_conv()`。
+
+
 
 
 ### P1-10 插话失败却回 200 ✅ 已修
@@ -669,5 +693,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 20 | P2-9 五个端点补方法校验 + 修正 8 条错预期 | `868a5ba` | 无视觉改动 |
 | 21 | P0-3 `/shots/` 目录遍历（可下载整库）修复 | `81b1c27` | 无视觉改动 |
 | 22 | P0-4 CSRF（`requireJSONBody`）+ P2-10 安全响应头 | `95aa742` | 无视觉改动 |
+| 23 | P1-12 `/api/wake` 校验会话存在 + 清孤儿 outbox | `09e32ef` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

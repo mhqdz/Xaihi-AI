@@ -173,6 +173,12 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 	if in.Origin == "" {
 		in.Origin = "system"
 	}
+	// 会话必须真的存在：CreateOutbox 不校验，写进去的会是一条永远没人消费的
+	// 孤儿记录（没有对应会话的 agent 会去读它），而这里还回了 ok:true。
+	if _, err := s.st.Get(in.ConvID); err != nil {
+		writeJSON(w, 404, map[string]string{"error": "没有这个会话"})
+		return
+	}
 	id, err := s.hst.CreateOutbox(conv, in.Origin, in.Text)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
