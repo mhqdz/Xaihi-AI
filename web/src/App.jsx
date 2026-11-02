@@ -935,7 +935,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="topbar">
+      <div className="topbar" inert={settingsUI.showSet ? '' : undefined}>
         <div className="mobrail">
           <span className={'mob-dot' + (busy ? ' busy' : '')} title={busy ? '运行中' : '空闲'} />
           <span className="mob-fig" title="第几轮 / 总轮数">{String(curRound.no || 1).padStart(2,'0')}/{page ? page.total_rounds : (userRounds.length || 1)}</span>
@@ -964,7 +964,7 @@ export default function App() {
 
       {sideOpen ? <div className="drawer-scrim" onClick={() => setSideOpen(false)} /> : null}
       <div className="work" style={{ '--sidew': (sideOpen ? sideW : 0) + 'px' }}>
-        <aside className={'drawer' + (sideOpen ? '' : ' hide')}
+        <aside className={'drawer' + (sideOpen ? '' : ' hide')} inert={settingsUI.showSet ? '' : undefined}
           style={{ width: sideW, flexBasis: sideW }}
           >
           <span className="edge" onMouseDown={startDrag} aria-hidden="true" />
@@ -1020,6 +1020,7 @@ export default function App() {
           </div>
         </aside>
         <button className={'side-toggle' + (sideOpen ? '' : ' collapsed')}
+          inert={settingsUI.showSet ? '' : undefined}
           onPointerDown={e => { e.preventDefault(); setSideOpen(v => !v) }}
           title={sideOpen ? '收起会话列表' : '展开会话列表'}
           aria-label={sideOpen ? '折叠侧栏' : '展开侧栏'}
@@ -1070,7 +1071,7 @@ export default function App() {
 
           </div>
         </div>
-          <div className="thread" ref={threadRef} onScroll={onThreadScroll}
+          <div className="thread" ref={threadRef} onScroll={onThreadScroll} inert={settingsUI.showSet ? '' : undefined}
             onWheel={e => { if (e.deltaY < 0) stickRef.current = false }}>
             {msgs.length === 0 ? (
               <div className="col empty">
@@ -1138,7 +1139,7 @@ export default function App() {
                 ? (stage === 'compacting' ? '压缩中…（上下文超阈值，正在写摘要）' : (stage === 'generating' ? '生成中…　' + quip : (quip || '正在处理…')))
                 : status}
             </div>
-          <div className="composer" onWheel={onComposerWheel}>
+          <div className="composer" onWheel={onComposerWheel} inert={settingsUI.showSet ? '' : undefined}>
             <div className="row1">
               <span className="eb" style={{ display: 'inline', letterSpacing: '.14em' }}>PROFILE</span>
               <label className="pick">
@@ -1203,7 +1204,7 @@ export default function App() {
             ))}
           </div>
         ) : null}
-        <aside className="rail">
+        <aside className="rail" inert={settingsUI.showSet ? '' : undefined}>
           <span className={'jdot' + (busy ? ' busy' : '')} />
           <span className="vt">AGENT EXECUTE</span>
           <span className="rn" title="滚轮切换轮次"

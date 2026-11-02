@@ -240,6 +240,27 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 
 **验证**：不达标组 会话 2→1 / 空状态 2→1 / 设置 3→2 / 模型详情 4→3。剩下的是 `label.field`（点它聚焦输入框）和 label 里的 checkbox，属于合理行为，不算问题。`pixel_diff` 6/6 一致（光标不参与渲染）。
 
+### P1-7 设置面板打开后，键盘焦点困在背景里 ✅ 已修
+
+**现象**：用 `?settings=1&conv=51` 打开设置，连按 **30 次 Tab 都没进得去**。焦点一路在背景会话页的 `.think-sum`（每轮一个「思考过程」折叠按钮）上打转 —— conv51 有 99 条消息，按几十次也走不完。
+
+**根因**：两个问题叠加。
+1. 设置面板渲染在 `<main>` 内、composer 之后，DOM 顺序排在会话内容后面，键盘必须先把整个背景走一遍才碰得到。
+2. 背景没有 `inert` / `aria-hidden`：被 `.set-scrim` 遮住了，却仍然可聚焦、可 Tab、可被读屏读到。
+
+视觉上有遮罩，键盘用户面对的是「看不见的页面在抢焦点」。
+
+**修复**：设置面板打开时给背景容器加 `inert` —— `.topbar`、`.drawer`、`.side-toggle`、`.thread`、`.composer`、`.rail` 共 6 处。React 18 不认 `inert={true}`（会当非布尔属性报警），所以传空字符串：`inert={showSet ? '' : undefined}`。
+
+**怎么发现的**：新增 `check_focus.py`，用 WebDriver **真的按 Tab 键**而不是程序化 `focus()` —— 后者不触发 `:focus-visible`，测不出真实键盘路径。顺带确认了焦点可见性本身没问题：每步都有 outline 或 box-shadow，没有一处「不可见」。
+
+**验证**：
+- 打开时 `document.querySelector('.thread').inert === true`，关闭后为 `false`
+- 打开后 Tab：第 1 步就落在面板内容 `DIV.card-bd`，接着 `tg on` → `input` → `textarea.ui-quips` → `btn 立即清理`
+- 关闭后 Tab 恢复：`DIV.list` → `BUTTON.new-conv` → `BUTTON.side-toggle`
+- `pixel_diff` 6/6 一致（`inert` 不影响渲染）
+
+
 
 ---
 
@@ -373,5 +394,6 @@ return len(m.Images) > 0 && strings.HasPrefix(m.Content, "（上一个工具的�
 | 9 | P2-5 favicon + `endfield.css` 死代码核实 | `35dee65` | 无视觉改动 |
 | 10 | P1-6 停止跟踪 `web/node_modules`（2488 → 136 个文件） | `36121c2` | 无视觉改动 |
 | 11 | P2-6 下拉框光标统一 + `check_cursor.py` | `59564f6` | 6/6 一致 |
+| 12 | P1-7 设置面板打开时背景 `inert` + `check_focus.py` | `bc23147` | 6/6 一致 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
