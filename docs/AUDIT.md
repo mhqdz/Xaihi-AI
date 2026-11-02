@@ -458,6 +458,41 @@ data: {"error":"会话保存失败：attempt to write a readonly database (8)"}
 
 只有这一个事件，日志里**没有** `chat.start` / `tool.run` —— 一秒内失败，不再白跑一轮模型。
 
+### P1-17 断线重连会把已经收到的内容再拼一遍 ✅ 已修
+
+**现象**：SSE 断线重连后，正在生成的回复会变成两份重复（"甲乙" → "甲乙甲乙"）。
+
+**根因**：`attachStream` 里 `live`（累积中的消息）在重连循环**外面**初始化：
+
+```js
+let live = { role: 'assistant', content: '', reasoning: '', at: now(), seq: 0 }
+for (let attempt = 0; attempt < 60 && !done; attempt++) {
+    resp = await fetch('/api/conv/' + id + '/stream?from=0')   // 每次都是从 0 重放
+    ...
+    live.content += ...                                        // 直接往后拼
+}
+```
+
+而服务端的 `streamFrom` 在轮次**还在跑**时，会从 `from` 处回放整个 `job.buf`。`from=0` 就是全量重放。于是每次重连都把前面收到的 delta 再拼一遍。
+
+**为什么一直没被发现**：刷新页面时 `attachStream` 是全新执行的，`live` 本来就从空开始，看起来完全正常。只有**同一次页面会话内**的重连（网络抖动、切 VPN、休眠唤醒）才会踩到。`stream_test` 的「刷新重连」用例验的是「数据库里的消息完整」，不是「界面上有没有重复」。
+
+**修复**：每轮重连开始前重置 `live` 和流式状态 —— 既然服务端每次都从头重放，客户端就必须从头接。
+
+```js
+for (let attempt = 0; ...) {
+    live = { role: 'assistant', content: '', reasoning: '', at: now(), seq: 0 }
+    stream.clear()
+    ...
+}
+```
+
+**验证**：
+- 读 `streamFrom` 确认语义：轮次在跑 → `snapshot(from)` 回放缓冲（`from=0` 即全量）；轮次已结束 → 只回一个空 `event: done`
+- 实测两次 `curl .../stream?from=0`（轮次结束后）都只拿到 1 个 `done` 事件，符合上面的分支
+- `check_live` / `check_sendstop` / `stream_test` / `robustness` / `check_api` 全绿，`pixel_diff` 6/6
+
+
 
 
 
@@ -984,5 +1019,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 28 | 真压缩 / 上翻分页 / 时间格式的验证记录 | `3150b93` | 无视觉改动 |
 | 29 | P0-5 断开即 panic + P1-16 同会话并发 | `aef86f6` | 无视觉改动 |
 | 30 | P0-6 存储写失败不再静默继续（4 处 `Save` 错误） | `cd8cf48` | 无视觉改动 |
+| 31 | P1-17 断线重连不再拼接重复内容 | `71e7aa8` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

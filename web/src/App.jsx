@@ -716,6 +716,12 @@ export default function App() {
     }
     for (let attempt = 0; attempt < 60 && !done; attempt++) {
       if (convIdRef.current !== id) return
+      // 每次重连都从 ?from=0 重放整轮，所以必须先把已收到的内容清掉 ——
+      // live 原来在循环外初始化，重连一次就会把前面收到的 delta 再累加一遍
+      // （"甲乙" 变成 "甲乙甲乙"）。刷新页面时是从零开始，看不出来；
+      // 断线重连（网络抖动、切网络）才会踩到。
+      live = { role: 'assistant', content: '', reasoning: '', at: now(), seq: 0 }
+      stream.clear()
       let resp = null
       try {
         resp = await fetch('/api/conv/' + id + '/stream?from=0')
