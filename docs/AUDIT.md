@@ -188,6 +188,6 @@
 | 2 | P0-1 测试脚本不再往真实会话写数据 | `f6d1ab1` | 无视觉改动 |
 | 3 | P2-1 + P2-2 下拉箭头统一 + 去 spinner | `9ab1b8b` | 会话页内容区逐像素一致；设置页差异仅 `x1521–1539` 竖带 |
 | 4 | P2-3 开关加高 + `check_targets.py` + `pixel_diff` 裁剪数据区 | `7f312dc` | 重拍基线后立即 compare：6/6 一致 |
-| 5 | P1-3 `isShotPlaceholder` 补 role + 单测 + `dbtool.py` 统一清理 | `0948a09` | 无视觉改动 | 无视觉改动 |
+| 5 | P1-3 `isShotPlaceholder` 补 role + 单测 + `dbtool.py` 统一清理 | `0948a09` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
