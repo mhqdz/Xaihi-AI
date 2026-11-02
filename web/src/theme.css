@@ -78,8 +78,7 @@ body{background:var(--paper);color:var(--ink);
 .empty .step .n{color:var(--sage-d);font-weight:700}
 .empty .step .t b{display:block;font-size:.9rem}
 .empty .step .t span{font-size:.78rem;color:var(--ink2)}
-.empty .step button{border:1px solid var(--line);background:#fff;padding:.32rem .7rem;font:inherit;font-size:.8rem;cursor:pointer;
-  clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
+.empty .step .btn{justify-self:end;min-width:4.4rem}
 .empty .tips{margin-top:.9rem;font-size:.76rem;color:var(--ink3);display:flex;gap:1.2rem}
 .empty .tips code{background:#fff;border:1px solid var(--line);padding:0 .3rem}
 
@@ -317,22 +316,22 @@ body{background:var(--paper);color:var(--ink);
 
 .card-actions{display:flex;align-items:center;gap:.5rem}
 /* 按钮（终末地风格）：直角、细边框 + 左上/右下角标，不使用切角也不使用黄色 */
-.card .btn{position:relative;box-sizing:border-box;border:1px solid var(--c4);border-radius:0;
+.btn{position:relative;box-sizing:border-box;border:1px solid var(--c4);border-radius:0;
   background:var(--panel);color:var(--ink2);font:inherit;font-size:.74rem;letter-spacing:.02em;
   padding:.32rem .7rem;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
-.card .btn::before,.card .btn::after{content:"";position:absolute;width:5px;height:5px;
+.btn::before,.btn::after{content:"";position:absolute;width:5px;height:5px;
   border:0 solid var(--c6);pointer-events:none;transition:border-color .12s}
-.card .btn::before{left:-1px;top:-1px;border-left-width:2px;border-top-width:2px}
-.card .btn::after{right:-1px;bottom:-1px;border-right-width:2px;border-bottom-width:2px}
-.card .btn:hover{border-color:var(--c6);background:var(--c1);color:var(--c7)}
-.card .btn:hover::before,.card .btn:hover::after{border-color:var(--c7)}
-.card .btn:active{background:var(--c2)}
-.card .btn.primary{background:var(--c6);border-color:var(--c6);color:#fff}
-.card .btn.primary::before,.card .btn.primary::after{border-color:#fff}
-.card .btn.primary:hover{background:var(--c7);border-color:var(--c7)}
+.btn::before{left:-1px;top:-1px;border-left-width:2px;border-top-width:2px}
+.btn::after{right:-1px;bottom:-1px;border-right-width:2px;border-bottom-width:2px}
+.btn:hover{border-color:var(--c6);background:var(--c1);color:var(--c7)}
+.btn:hover::before,.btn:hover::after{border-color:var(--c7)}
+.btn:active{background:var(--c2)}
+.btn.primary{background:var(--c6);border-color:var(--c6);color:#fff}
+.btn.primary::before,.btn.primary::after{border-color:#fff}
+.btn.primary:hover{background:var(--c7);border-color:var(--c7)}
 /* 危险动作（删除）：同一套形制，靠颜色区分，不用黄色 */
-.card .btn.danger{border-color:var(--c5);color:var(--c6)}
-.card .btn.danger:hover{border-color:var(--c7);background:var(--c2);color:var(--c7)}
+.btn.danger{border-color:var(--c5);color:var(--c6)}
+.btn.danger:hover{border-color:var(--c7);background:var(--c2);color:var(--c7)}
 .card-hd .btn{padding:.2rem .5rem}
 
 /* 右栏动作区：＋ 新会话 + 三个点设置（同一套观感与动效） */

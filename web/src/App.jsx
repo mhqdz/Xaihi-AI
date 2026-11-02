@@ -1082,17 +1082,17 @@ export default function App() {
                   <div className="step">
                     <span className="n">01</span>
                     <span className="t"><b>新建会话</b><span>从空白开始，或点左侧任一历史记录继续</span></span>
-                    <button onClick={() => openConv(null)}>新建</button>
+                    <button className="btn" onClick={() => openConv(null)}>新建</button>
                   </div>
                   <div className="step">
                     <span className="n">02</span>
                     <span className="t"><b>选 profile</b><span>180-think 规划 · 180-low 快速 · 9-exec 只跑命令</span></span>
-                    <button onClick={() => document.querySelector('.composer select')?.focus()}>选择</button>
+                    <button className="btn" onClick={() => document.querySelector('.composer select')?.focus()}>选择</button>
                   </div>
                   <div className="step">
                     <span className="n">03</span>
                     <span className="t"><b>写一句话</b><span>Ctrl+Enter 发送；要中断就刷新页面</span></span>
-                    <button onClick={() => document.querySelector('.composer textarea')?.focus()}>去输入</button>
+                    <button className="btn" onClick={() => document.querySelector('.composer textarea')?.focus()}>去输入</button>
                   </div>
                 </div>
                 <div className="tips">
