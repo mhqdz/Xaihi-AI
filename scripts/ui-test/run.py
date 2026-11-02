@@ -1,6 +1,9 @@
-import sys, os, time, json, urllib.request
+import sys, os, time, json, sqlite3, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
+from dbtool import new_conv, drop_conv
+
+DB = os.path.expanduser("~/.data/agentd/agentd.db")
 
 FAIL = []
 def check(name, cond, extra=""):
@@ -13,16 +16,21 @@ def api(path):
 
 BASE = "http://127.0.0.1:18400"
 # 准备一条任务（有步骤可看）
+# 只能清理自己造的那份：库里已有任务时别动别人的
+created_cid, created_tid = None, None
 tasks = api("/api/tasks").get("tasks") or []
 if not tasks:
-    # 造会话 + smoke 任务
-    import subprocess
-    cid = subprocess.check_output(["sqlite3", "/home/mhqdz/.data/agentd/agentd.db",
-        "insert into conversations(title,summary,summary_upto,summary_model,kv,created_at,updated_at) values('uitest','',0,'','{}',datetime('now'),datetime('now')); select last_insert_rowid();"]).decode().strip().splitlines()[-1]
-    req2 = urllib.request.Request(BASE + "/api/tasks", data=json.dumps({"kind":"smoke","conv_id":cid,"card":{"goal":"ui"}}).encode(),
-        headers={"Content-Type":"application/json"}, method="POST")
-    urllib.request.urlopen(req2, timeout=30).read()
-    time.sleep(3)
+    created_cid = new_conv("ui-run")
+    r = urllib.request.Request(BASE + "/api/tasks",
+        data=json.dumps({"kind": "smoke", "conv_id": created_cid, "card": {"goal": "ui"}}).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    created_tid = json.loads(urllib.request.urlopen(r, timeout=30).read()).get("task_id")
+    for _ in range(24):
+        time.sleep(0.5)
+        d = json.loads(urllib.request.urlopen(BASE + "/api/tasks/" + str(created_tid), timeout=10).read())
+        if (d.get("task") or {}).get("steps") or d.get("steps"):
+            break
+    time.sleep(1.5)
     tasks = api("/api/tasks")["tasks"]
 TID = tasks[0]["id"]
 
@@ -111,4 +119,15 @@ def composer():
     s.close()
 
 wide(); narrow(); composer()
+
+# 清理自己造的那份（smoke 任务跑完还会往 outbox 写一条「任务回报」）
+if created_cid:
+    c = sqlite3.connect(DB)
+    c.execute("delete from task_steps where task_id=?", (created_tid,))
+    c.execute("delete from tasks where parent_conv=?", (int(created_cid),))
+    c.execute("delete from outbox where conv_id=?", (int(created_cid),))
+    c.commit(); c.close()
+    drop_conv(created_cid)
+    print("已清理测试任务与会话", created_tid, created_cid)
+
 print("\n失败:", FAIL if FAIL else "无")
