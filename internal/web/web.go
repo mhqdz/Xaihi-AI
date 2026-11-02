@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -731,8 +732,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "需要 text"})
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		writeJSON(w, 500, map[string]string{"error": "不支持流式"})
 		return
 	}
@@ -751,8 +751,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if jb != nil {
 			jb.emit(frame)
 		}
-		fmt.Fprint(w, frame)
-		flusher.Flush()
+		if _, err := io.WriteString(w, frame); err != nil {
+			return // 连接已经没了，后面的帧也不用写了
+		}
+		// 用 ResponseController.Flush 而不是 flusher.Flush()：客户端断开后底层
+		// bufio 会拿到 ErrShortWrite 并 panic（bufio.go:642），panic 会杀掉这个
+		// 请求的 goroutine，于是这一轮留下一条 status=running 的僵尸消息、
+		// 而且永远等不到 chat.done。ResponseController.Flush 只返回 error。
+		_ = http.NewResponseController(w).Flush()
 	}
 
 	// 心跳：工具执行可能几十秒没有任何帧，不加心跳连接会被浏览器/系统判为空闲断掉 ✗
@@ -767,8 +773,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-t.C:
 				sendMu.Lock()
-				fmt.Fprint(w, ": ping\n\n")
-				flusher.Flush()
+				if _, err := io.WriteString(w, ": ping\n\n"); err == nil {
+					_ = http.NewResponseController(w).Flush()
+				}
 				sendMu.Unlock()
 			}
 		}
@@ -828,6 +835,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	s.convMu.Lock()
 	if s.convCancel == nil {
 		s.convCancel = map[string]context.CancelFunc{}
+	}
+	// 同一会话同时只允许跑一轮。不拦的话两个请求会同时往后追加 user 消息，
+	// 谁先 Save 谁赢 —— 实测消息顺序会颠倒（先发的落在后面），而且两边都会
+	// 预分配 seq 占位，最后留下一条 status=running 的僵尸消息（没人再更新它）。
+	// 顺带也保住了 convCancel[convID] 不被后一个请求覆盖（否则 /stop 只能停后一个）。
+	if _, busy := s.convCancel[convID]; busy {
+		s.convMu.Unlock()
+		cancel()
+		logx.Warn("chat.busy conv=%s 上一个回合还没结束，拒绝并发", convID)
+		send("error", map[string]string{"error": "这个会话正在生成中，等它结束或先点停止"})
+		return
 	}
 	s.convCancel[convID] = cancel
 	s.convMu.Unlock()

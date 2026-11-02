@@ -344,6 +344,70 @@ conv51（575 条、41 轮）连续三次滚到顶部：
 
 会话本身不读 `created_at`（只有任务列表读），所以一直没暴露；但造出来的数据不像真的。改成 `datetime.now().astimezone().isoformat()`，实测落库为 `2026-11-03T06:38:17.514012+08:00`，和真实数据一致。
 
+### P0-5 客户端一断开，服务端就 panic ✅ 已修
+
+**这是本轮最严重的一个。**
+
+**怎么发现的**：为了测并发，我让 curl 带着 90 秒超时发请求、同时起两个。跑完发现：
+
+- `/api/running` 是空的
+- 但库里留着一条 `status=running` 的僵尸消息
+- 请求方的 SSE 停在 `event: delta` 就没有下文了
+- 服务日志里有一大段 **panic 堆栈**
+
+**堆栈指向的地方**：
+
+```
+bufio.(*Writer).Flush(...)
+net/http.(*response).FlushError(...)
+net/http.(*response).Flush(...)
+agentd/internal/web.(*Server).handleChat.func1(...)   web.go:755
+```
+
+也就是 `send()` 里那句 `flusher.Flush()`。客户端一断开（curl 超时、浏览器刷新、关标签页），底层 `bufio` 拿到 `ErrShortWrite` 就 panic。panic 杀掉这个请求的 goroutine —— 于是：
+
+- `chat.done` 永远不会打印
+- 这一轮预分配的 seq 留在库里、永远是 `running`
+- 也就是那条僵尸消息的来历
+
+**影响面比想象大**：任何一次页面刷新都可能踩到（SSE 断开但服务端还在跑）。只是平时没人去看日志。
+
+**修复**：两处 `Flush` 都换成 `http.NewResponseController(w).Flush()` —— 它返回 error 而不是 panic（Go 1.20+）。写失败就直接 return，后面的帧不再写；心跳同理。
+
+**验证**：`--max-time 3` 让客户端在 3 秒后断开，等 12 秒再看：
+
+- 日志里 panic 计数 **0**
+- 消息正常落库：`user(done, 14 字符)` + `assistant(done, 197 字符)`
+- `chat.done conv=1 secs=4.2` 正常打印
+
+也就是说：客户端断开不再中断这一轮，服务端照跑完、照落库 —— 这本来就是这个设计（`context.Background()` 不绑请求），只是以前被 panic 打断了。
+
+### P1-16 同一会话并发两个请求会打乱消息顺序 ✅ 已修
+
+**现象**：对同一个会话同时发两个 `POST /api/chat`，落库结果：
+
+```
+3 user 乙      ← 后发的请求
+4 user 甲      ← 先发的请求
+```
+
+顺序颠倒。而且两边各自预分配 seq 占位，最后留一条 `running` 僵尸。
+
+**根因**：`handleChat` 不检查这个会话是否已有轮次在跑。两个请求都能通过，各自 `append` 到 `c.Messages` 再 `Save` —— 谁先落库谁在前面。顺带 `s.convCancel[convID] = cancel` 也被后一个覆盖，`/api/stop` 只能停到后一个。
+
+**修复**：在注册 `convCancel[convID]` 的地方做「检查并占用」：
+
+```go
+if _, busy := s.convCancel[convID]; busy {
+    s.convMu.Unlock(); cancel()
+    send("error", map[string]string{"error": "这个会话正在生成中，等它结束或先点停止"})
+    return
+}
+```
+
+**验证**：并发两次 → 先到的正常跑完（`user` + `assistant` 都 `done`），后到的收到 `event: error` + 「这个会话正在生成中」，库里没有多余消息。
+
+
 
 
 
@@ -866,5 +930,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 26 | P1-14 只在真压缩时报 compacting + 新装路径走查 | `9c34426` | 无视觉改动 |
 | 27 | P1-15 `AGENTD_DATA_DIR` 统一 13 处硬编码路径 + 错误路径验证 | `e5c860f` | 无视觉改动 |
 | 28 | 真压缩 / 上翻分页 / 时间格式的验证记录 | `3150b93` | 无视觉改动 |
+| 29 | P0-5 断开即 panic + P1-16 同会话并发 | `aef86f6` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
