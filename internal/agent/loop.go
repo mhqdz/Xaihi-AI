@@ -190,7 +190,10 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		if keep <= 0 {
 			keep = a.cfg.KeepMessages
 		}
-		if a.OnStage != nil {
+		// 只有真会压缩时才报 compacting。原来是无条件发，于是每轮都闪一下
+		// 「压缩中…（上下文超阈值，正在写摘要）」—— 新会话离阈值还差得远，
+		// 这句话是假的（maybeSummarize 内部自己会判断阈值，直接返回）。
+		if a.willSummarize(c) && a.OnStage != nil {
 			a.OnStage("compacting")
 		}
 		_ = a.maybeSummarize(ctx, c, keep)
@@ -528,6 +531,16 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	out = append(out, note)
 	out = append(out, body[cut:]...)
 	return out
+}
+
+// willSummarize：本轮是否真的会触发摘要压缩。和 maybeSummarize 的入口条件保持一致
+// （超过 compactAt），用来决定要不要给前端发 compacting 阶段。
+func (a *Agent) willSummarize(c *store.Conversation) bool {
+	total := 0
+	for _, m := range c.Messages {
+		total += wireLen(m.Content)
+	}
+	return total >= a.compactAt()
 }
 
 // maybeSummarize：超过预算的一半时，把"最近 keep 条之前"的消息交给摘要模型，
