@@ -10,13 +10,22 @@
   避免"框架默认样式 + 层层覆盖"。
 
 ## 2. 动态状态不落库
-"正在生成""当前第几轮""任务缓冲区"只在内存；数据库只存用户可见的事实（消息、标题、时间、归档位）。
-- 中断的判定靠数据（最后一条不是 assistant，或正文带 `——（中断：…）`），不靠状态位。
-- 好处：重启后没有"僵尸运行中"；坏处：重启丢流（用 `/api/conv/{id}/stream?from=N` 兜 5 分钟缓冲）。
+"正在生成""当前第几轮""任务缓冲区"只在内存；数据库存用户可见的事实（消息、标题、时间、归档位）。
+
+- **消息状态是落库的**：`messages.status` 取 `running` / `done` / `failed` / `interrupted`。
+  早期设计是"不看状态位、靠数据推断"，后来为了让失败和中断在界面上能区分（以及避免前端
+  猜不出"这条到底完了没有"），还是把它落了库。
+- 代价与兜底：进程重启时 `running` 会变成"僵尸"，所以启动时扫一遍未完成的流式消息，
+  把 `running` 改写成 `interrupted`（并打一条 WARN）。也就是说**状态位只在本次进程内可信**。
+- 好处：重启后不会出现永远转圈的"正在生成"；坏处：重启丢流（用 `/api/conv/{id}/stream?from=N` 兜 5 分钟缓冲）。
 
 ## 3. 生成与连接解耦
 `/api/chat` 的后台任务用 `context.Background()`，不绑请求上下文：浏览器刷新/断网不打断生成。
-取消只能显式 `POST /api/conv/{id}/stop`。SSE 帧进环形缓冲，供重连回放。
+取消只能显式 `POST /api/conv/{id}/stop`。SSE 帧进按会话保存的缓冲（`internal/web/job.go`），供重连回放。
+
+缓冲不是环形数组，而是一个随轮次增长的 `[]string`：一轮结束后保留 5 分钟（`AGENTD_JOB_TTL` 可覆盖），
+期间 `/stream?from=N` 可以按帧号重放；TTL 到期或下一轮 `reset()` 时清空。
+单轮帧数受输出长度限制，实测 60KB 的回复也就几千帧、几百 KB，不构成内存压力。
 
 ## 4. 工具：内置 + 外置插件（2026-10-28 起）
 
@@ -31,7 +40,7 @@ Go 的 `plugin` 平台与构建耦合；要插件化只能"独立进程 + 协议
 
 | 层 | 工具 | 定义位置 | 生效方式 |
 |---|---|---|---|
-| 内置 | `bash` / `screenshot` / `recall` | `internal/tools/tools.go`（Spec） | 编译期 |
+| 内置 | `bash` / `screenshot` / `recall` / `view_image` / `spawn_task` | `internal/tools/tools.go`（Spec） | 编译期 |
 | 外置插件 | `kb_search` / `kb_get` / `web_search` / `web_fetch`（以及以后新增） | `~/.data/agentd/tools.d/*.json` + 脚本 | 每次请求重建 registry，改完即生效 |
 
 为什么不走 Go `plugin`：平台与构建参数耦合、无法热重载；我们只需要"独立进程 + 协议"。

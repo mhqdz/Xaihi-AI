@@ -7,6 +7,7 @@
 ```css
 --c1:#F3F5F5  --c2:#DEE4E5  --c3:#C4CECF  --c4:#99AAAD
 --c5:#778587  --c6:#596364  --c7:#3A4142        --panel:#fff
+--c8:#637172  （比 c7 稍浅，用于小字号辅助文字，如 .no / .tt）
 ```
 语义映射（全部指向色阶，不要另造颜色）：
 
@@ -66,7 +67,9 @@ body: 14px/1.7 "Maple Mono NF CN", ui-monospace, …
 · !important 会压过内联样式 → 曾导致 JS 设的 height 失效
 · grid-template-areas 与 grid-template-columns 列数不一致 → 整条声明被浏览器丢弃（查不到该属性）
 · 给祖先加 z-index 会形成层叠上下文 → 面板被遮罩盖住，点击失效
-· .ef-read / .ef-prose 自带字体变量 → 与全局字体不一致，需要同步 --ef-font-*
+· .ef-read / .ef-prose 自带字体变量 → 与全局字体不一致；已在 theme.css 里把
+  --ef-font-ui / --ef-font-text / --ef-font-mono 三条覆盖成 Maple Mono NF CN，
+  盖掉 vendor 的 Saira（新增字体时记得这三条要一起改）
 ```
 
 ## 8. 消息的三种形态
