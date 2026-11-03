@@ -152,6 +152,9 @@ export function useSettings({ refresh }) {
     }
     await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
     setSetSnap(JSON.stringify(settings))
+    // 后端在"自动归档天数/开关"变化时会立刻巡检一次，可能刚把一批会话归档。
+    // 不刷左栏的话，用户会看到"保存成功了但列表没变"，切到归档 tab 才发现消息跑去那边了。
+    await refresh()
   }
 
   // 逐级退出：编辑器 → 详情 → 设置；有改动先问是否保存
