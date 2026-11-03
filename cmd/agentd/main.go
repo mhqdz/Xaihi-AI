@@ -191,9 +191,15 @@ func main() {
 		}
 		fmt.Printf("agentd %s · model=%s · conv=%s\n（空行退出；Ctrl-D 结束）\n", version, cfg.Model, c.ID)
 		sc := bufio.NewScanner(os.Stdin)
+		// 默认 64KB 的行上限：粘贴一大段日志就会让 Scan() 返回 false，
+		// 而下面只写了 break —— 表现是"打完字回车，程序直接退出，什么都没说"。
+		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for {
 			fmt.Print("\n> ")
 			if !sc.Scan() {
+				if err := sc.Err(); err != nil {
+					fmt.Fprintln(os.Stderr, "✗ 读取输入失败：", err)
+				}
 				break
 			}
 			line := strings.TrimSpace(sc.Text())
@@ -213,7 +219,13 @@ func main() {
 				fmt.Fprintln(os.Stderr, "✗", err)
 			}
 		}
-		fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
+		// 一句话都没说就退出时 c.ID 是空的（Conversation 只建对象、没落库）——
+		// 这时候说"已保存"是假话，agentd show 也拿不到东西。
+		if c.ID == "" {
+			fmt.Fprintln(os.Stderr, "（没有对话，未创建会话）")
+		} else {
+			fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "未知命令 %q\n\n可用: chat | send | convs | show | config | version\n", cmd)
 		os.Exit(2)

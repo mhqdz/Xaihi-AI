@@ -794,6 +794,67 @@ env := append(os.Environ(), "XDG_RUNTIME_DIR=/run/user/"+…, "WAYLAND_DISPLAY=w
 - 文件名用 `UnixNano()`，同一秒内连续截也不会覆盖
 - 截图失败时返回 `✗ 截图失败：…` 而不是报错（模型能看到并换方式）
 
+### P2-17 CLI `agentd chat` 的两个静默问题 ✅ 已修
+
+顺着"硬编码/环境耦合"扫代码时拐到 CLI 入口，发现两个独立的小问题。
+
+**（1）超长输入会让程序静默退出**
+
+```go
+sc := bufio.NewScanner(os.Stdin)   // 默认行上限 64KB
+for {
+    fmt.Print("\n> ")
+    if !sc.Scan() { break }        // 超长时 Scan() 返回 false
+```
+
+`bufio.Scanner` 默认 `MaxScanTokenSize = 64KB`。粘贴一段大日志（我的复现是 10 万字符）→ `Scan()` 返回 false → 直接 `break` 退出，**没有任何提示**。用户看到的是"打完字回车，程序没了"。
+
+`sc.Err()` 其实会告诉你是 `bufio.Scanner: token too long`，但代码没读它。
+
+**修复**：`sc.Buffer(..., 4MB)` 提高上限，并在 `Scan()` 返回 false 时检查 `sc.Err()` 打印原因。
+
+**（2）一句话没说也打印「会话已保存」**
+
+```go
+c, err := a.Conversation("")
+...
+fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
+```
+
+`Conversation("")` 只是建了个内存对象，**真正落库是在第一次 `Send`**。直接空行退出时 `c.ID` 是空串，输出就是：
+
+```
+会话已保存: （agentd show ）
+```
+
+—— 既没保存，`agentd show ` 也是个无效命令。
+
+**修复**：`c.ID == ""` 时改说「（没有对话，未创建会话）」。
+
+**验证**：
+- 10 万字符输入：不再静默退出，正常进入 `> ` 提示（4MB 上限装得下）
+- 空行退出：输出 `（没有对话，未创建会话）`，不再是假话
+
+### P2-18 `.gitignore` 的 `agentd` 没锚定，连 `cmd/agentd/` 一起忽略 ✅ 已修
+
+**现象**：提交 CLI 修复时 `git add cmd/agentd` 报
+
+```
+下列路径根据您的一个 .gitignore 文件而被忽略：cmd/agentd
+```
+
+**根因**：`.gitignore` 第一行是 `agentd` —— 没有前导 `/` 的 pattern 会匹配**任意层级**下叫这个名字的文件或目录。本意是忽略编译出来的二进制 `./agentd`，实际把 `cmd/agentd/` 整个目录也盖住了。
+
+**为什么一直没出事**：`cmd/agentd/main.go` 在加这条 ignore **之前**就已经被跟踪了，而已跟踪的文件不受 ignore 规则影响，所以代码一直在仓库里。出问题的只是"往这个目录里加新文件" —— `git add <目录>` 会展开并过滤，于是报 ignored。
+
+**修复**：改成 `/agentd`，只忽略根目录那个二进制。
+
+**验证**：改完后 `git add cmd/agentd` 正常，`git ls-files cmd/` 仍能看到 `main.go`。
+
+**这类 bug 的特点**：它不制造错误，只是让某个操作悄悄失效/变形。如果那次提交没恰好走 `git add <目录>` 的路径，可能一直不会发现 —— 而往 `cmd/agentd/` 加新文件时就会莫名其妙地"加不进去"。
+
+
+
 
 
 
@@ -1462,5 +1523,7 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 45 | 抽取 `pumpSSE`（两处重复的 SSE 拆帧） | `2ecd40d` | 无视觉改动 |
 | 46 | P2-15 `recall` 摘要按字节索引切 rune（中文永不命中） | `b3f5220` | 无视觉改动 |
 | 47 | P2-16 截图工具 `WAYLAND_DISPLAY` 硬编码 | `0ae2a2f` | 无视觉改动 |
+| 48 | P2-17 CLI 超长输入静默退出 + 假「会话已保存」 | `128dbbf` | 无视觉改动 |
+| 49 | P2-18 `.gitignore` 未锚定（忽略 cmd/agentd） | `128dbbf` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

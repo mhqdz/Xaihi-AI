@@ -1,4 +1,4 @@
-agentd
+/agentd
 *.log
 node_modules/
 /tmp/
