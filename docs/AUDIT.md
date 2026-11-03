@@ -746,6 +746,37 @@ setMsgs(normalize(c.messages || [])); setTitle(c.title || '会话')
 
 **验证**：`check_live`（覆盖 `send` 路径）、`stream_test`（覆盖 `attachStream` 的重连路径）、`check_sendstop`、`robustness`、`run`、`run3` 全绿，`pixel_diff` 6/6 一致。
 
+### P2-15 `recall` 在中文会话里的摘要永远不含关键词 ✅ 已修
+
+**现象**：`recall` 检索命中后会给一段「…上下文摘录…」。英文会话里摘录正常地框住命中词，**中文会话里永远只给开头 120 字**，跟关键词没有关系。
+
+**根因**：`snippet()` 里
+
+```go
+rs := []rune(s)                                    // rune 切片
+if idx := strings.Index(low, strings.ToLower(w[0])); idx >= 0 {
+    if idx+window < len(rs) && idx-window > 0 {    // idx 是「字节」偏移
+        return "…" + string(rs[idx-window:idx+window]) + "…"
+    }
+}
+```
+
+`strings.Index` 返回**字节**偏移，`rs` 是**rune** 切片。中文一个字 3 字节，于是 `idx` 大约是 rune 索引的 3 倍 —— `idx + window < len(rs)` 几乎**永远不成立**，整个函数直接掉到 `truncate(s, 120)`。
+
+代码里原来有句注释「字符索引与 rune 索引不一致时退化为前段」，但它描述的不是"有意退化"，而是**没意识到两者不同**。
+
+**修复**：`utf8.RuneCountInString(s[:idx])` 把字节偏移换算成 rune 索引再切。
+
+**验证**：
+- 新增 `TestSnippetCJKOffset`：60 组「前缀」+ 关键词 + 60 组「前缀」，断言摘录既不是"前 120 字"、也真的含关键词
+- **确认这个测试能抓到 bug**：把 `ri` 临时改回 `idx`（保留 import 占位避免编译失败），测试报红「摘录退化成了前段」；恢复后转绿。不这样验一遍，测试可能是白写的。
+
+**顺带审查了 `recall` 的其它保护**（都没问题）：
+- 正则用 Go 的 RE2 —— **没有回溯，不存在 ReDoS**；编译失败返回「✗ 正则编译失败（Go RE2 语法）：…」而不是报错崩掉（`TestRecallBadRegex` 覆盖）
+- 扫描循环每条消息前 `select { case <-cctx.Done() }`，300ms 超时真的能停
+- `level == "summary"` 时工具输出先截断 400 字再参与匹配
+
+
 
 
 
@@ -1410,5 +1441,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 43 | 审查 pixel_diff（严格，可信）+ 对比度量化（未改，待你决定） | 无提交 | 无视觉改动 |
 | 44 | P1-23 快速切会话的响应竞态 + reasoning 实测 | `c6f1e1a` | 无视觉改动 |
 | 45 | 抽取 `pumpSSE`（两处重复的 SSE 拆帧） | `2ecd40d` | 无视觉改动 |
+| 46 | P2-15 `recall` 摘要按字节索引切 rune（中文永不命中） | `b3f5220` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

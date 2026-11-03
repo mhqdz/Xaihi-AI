@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"agentd/internal/store"
 	"time"
@@ -356,9 +357,13 @@ func snippet(s, q string, window int) string {
 	low := strings.ToLower(s)
 	if w := strings.Fields(q); len(w) > 0 && !strings.ContainsAny(q, "()|*+?[{\\") {
 		if idx := strings.Index(low, strings.ToLower(w[0])); idx >= 0 {
-			// 字符索引与 rune 索引不一致时退化为前段
-			if idx+window < len(rs) && idx-window > 0 {
-				return "…" + string(rs[idx-window:idx+window]) + "…"
+			// strings.Index 给的是**字节**偏移，而 rs 是 **rune** 切片。
+			// 中文一个字 3 字节，直接拿字节偏移去切 rune：轻则错位，重则
+			// idx+window 永远超出 len(rs)，整个函数退化成「返回前 120 字」——
+			// 于是中文会话里的检索摘要永远不含命中的关键词。
+			ri := utf8.RuneCountInString(s[:idx])
+			if ri+window < len(rs) && ri-window > 0 {
+				return "…" + string(rs[ri-window:ri+window]) + "…"
 			}
 		}
 	}
