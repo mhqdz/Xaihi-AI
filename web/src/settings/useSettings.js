@@ -172,7 +172,13 @@ export function useSettings({ refresh }) {
       if (editField) setEditField(null); else setToolEdit(null)
       return
     }
-    if (editP) { setEditP(null); return }
+    // 详情卡 / 设置层：原来直接关，脏了也一样 —— 改完参数按 Esc 或点 ×，
+    // 面板消失、服务端没变、一句提示都没有。编辑器那层有确认，这两层没有。
+    if (editP) {
+      if (formDirty && !confirm('模型配置有未保存的修改，确定放弃？')) return
+      setEditP(null); return
+    }
+    if (anyDirty && !confirm('设置有未保存的修改，确定放弃？')) return
     setShowSet(false)
   }
 
