@@ -58,7 +58,7 @@ func SavePlugin(d PluginDraft) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, name+".json"), append(b, '\n'), 0o644)
+	return config.WriteFileAtomic(filepath.Join(dir, name+".json"), append(b, '\n'), 0o644)
 }
 
 // DeletePlugin：删除一份清单（内置工具不可删）

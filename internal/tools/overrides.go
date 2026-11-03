@@ -48,7 +48,7 @@ func SaveOverride(name, desc string) error {
 	if err := os.MkdirAll(filepath.Dir(OverridePath()), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(OverridePath(), b, 0o644)
+	return config.WriteFileAtomic(OverridePath(), b, 0o644)
 }
 
 // applyOverrides 把覆盖后的说明写回注册表。

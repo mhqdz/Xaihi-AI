@@ -40,6 +40,17 @@ func LoadSettings() Settings {
 	return s
 }
 
+// WriteFileAtomic：先写同目录的 .tmp 再 rename。
+// 直接 os.WriteFile 时，写一半被 kill / 磁盘满会留下半截 JSON —— 下次读解析失败，
+// 那个文件承载的东西（插件、覆盖说明）就"凭空消失"了。rename 是同目录内的原子操作。
+func WriteFileAtomic(path string, b []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func SaveSettings(s Settings) error {
 	if s.ToolRounds <= 0 {
 		s.ToolRounds = 8

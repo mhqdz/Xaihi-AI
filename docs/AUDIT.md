@@ -964,6 +964,30 @@ setSetSnap(JSON.stringify(settings))
 
 **验证**（不碰真实数据）：拦截 `window.fetch` 统计 `/api/convs` 请求数，改一个不影响归档的设置（工具轮次 +1）再点保存 —— 请求数从 **0 变成 2**，同时脏标记清空。说明 `refresh()` 确实跑了，列表会跟着更新。
 
+### P2-21 `tools.json` / `tools.d/*.json` 不是原子写 ✅ 已修
+
+**背景**：查配置写入的可靠性时，先确认了几个"重要文件"的做法：
+
+| 文件 | 写法 |
+|---|---|
+| `settings.json` | `.tmp` + `os.Rename` ✓ |
+| `profiles.json` | `.tmp` + `os.Rename` ✓ |
+| 会话快照（store） | `.tmp` + `os.Rename` ✓ |
+| **`tools.json`（工具说明覆盖）** | `os.WriteFile` 直写 ✗ |
+| **`tools.d/<name>.json`（插件清单）** | `os.WriteFile` 直写 ✗ |
+
+**风险**：写到一半被 kill、或者磁盘满，会留下**半截 JSON**。而这两个文件都是"读失败就当空"的语义 ——
+
+- `LoadOverrides()` 解析失败 → 所有工具的说明覆盖**全部消失**
+- `LoadPlugins()` 解析失败 → 那个插件**被静默跳过**（工具从列表里没了）
+
+不是崩溃，是"东西不见了"，而且不会报错。
+
+**修复**：在 `config` 里加 `WriteFileAtomic`（`.tmp` + rename），三处（含原有的）统一用它。
+
+**验证**：隔离实例上调 `PUT /api/tools/bash`（写 `tools.json`）和 `POST /api/plugins`（写 `tools.d/atomic_test.json`），两个文件都是合法 JSON，目录里**没有残留 `.tmp`**。
+
+
 
 
 
@@ -1644,5 +1668,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 51 | 完整用户旅程串走（全通，未改代码） | 无提交 | 无视觉改动 |
 | 52 | P1-24 改了设置直接关面板会无声丢失 | `b26b95f` | 无视觉改动（confirm 是原生对话框） |
 | 53 | 设置生效范围实测 + P2-20 保存后不刷新左栏 | `8fc6aa7` | 无视觉改动 |
+| 54 | P2-21 `tools.json` / 插件清单非原子写 | `2a84a2b` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
