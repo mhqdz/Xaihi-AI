@@ -776,6 +776,25 @@ if idx := strings.Index(low, strings.ToLower(w[0])); idx >= 0 {
 - 扫描循环每条消息前 `select { case <-cctx.Done() }`，300ms 超时真的能停
 - `level == "summary"` 时工具输出先截断 400 字再参与匹配
 
+### P2-16 截图工具的 `WAYLAND_DISPLAY` 是硬编码的 ✅ 已修
+
+**现象**（读代码发现，未造成故障）：`runScreenshot` 拼环境变量时写死了
+
+```go
+env := append(os.Environ(), "XDG_RUNTIME_DIR=/run/user/"+…, "WAYLAND_DISPLAY=wayland-1")
+```
+
+`exec.Cmd.Env` 里重复的键以**最后一个**为准，所以这句会**覆盖**从 systemd 继承来的值。这台机器上显示恰好是 `wayland-1`（已确认 `/run/user/1000/wayland-1` 存在），所以一直没出问题；但换一台机器、或者用户切到 `wayland-0` / X11，截图就会失败，而错误信息只会显示 grim 报的 socket 路径，看不出是这里写死的。
+
+**修复**：只在环境里没有时才补默认值。
+
+**验证**：写了个一次性探针直接调 `Registry()["screenshot"].Run(...)`，返回 `text + image(/shots/1793664506338626842.png)`；该 URL 通过服务访问得到 **200 / 3.8MB**，截图内容正常。探针和截图文件都已删除。
+
+**顺带确认的两点**：
+- 文件名用 `UnixNano()`，同一秒内连续截也不会覆盖
+- 截图失败时返回 `✗ 截图失败：…` 而不是报错（模型能看到并换方式）
+
+
 
 
 
@@ -1442,5 +1461,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 44 | P1-23 快速切会话的响应竞态 + reasoning 实测 | `c6f1e1a` | 无视觉改动 |
 | 45 | 抽取 `pumpSSE`（两处重复的 SSE 拆帧） | `2ecd40d` | 无视觉改动 |
 | 46 | P2-15 `recall` 摘要按字节索引切 rune（中文永不命中） | `b3f5220` | 无视觉改动 |
+| 47 | P2-16 截图工具 `WAYLAND_DISPLAY` 硬编码 | `0ae2a2f` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

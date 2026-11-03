@@ -197,7 +197,12 @@ func runScreenshot(ctx context.Context, args map[string]any, _ *Env) (any, error
 	}
 	name := fmt.Sprintf("%d.png", time.Now().UnixNano())
 	img := filepath.Join(dir, name)
-	env := append(os.Environ(), "XDG_RUNTIME_DIR=/run/user/"+fmt.Sprint(os.Getuid()), "WAYLAND_DISPLAY=wayland-1")
+	env := append(os.Environ(), "XDG_RUNTIME_DIR=/run/user/"+fmt.Sprint(os.Getuid()))
+	// 只在环境里没有时才补默认。硬编码 "WAYLAND_DISPLAY=wayland-1" 会覆盖继承值，
+	// 用户切到 wayland-0 或换机器时截图直接失败（而且错误信息只显示 grim 报的 socket 路径）。
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		env = append(env, "WAYLAND_DISPLAY=wayland-1")
+	}
 	grim := exec.CommandContext(ctx, "grim", img)
 	grim.Env = env
 	if err := grim.Run(); err != nil {
