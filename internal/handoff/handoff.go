@@ -3,6 +3,7 @@ package handoff
 
 import (
 	"agentd/internal/config"
+	"agentd/internal/logx"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,7 +83,18 @@ func (m *Manager) LoadDir(dir string) error {
 			continue
 		}
 		var r Recipe
-		if json.Unmarshal(b, &r) != nil || r.Kind == "" || len(r.Steps) == 0 {
+		// 坏配方只跳过这一条（不整批失败），但必须留下痕迹 ——
+		// 否则用户改完配方发现"没生效"，翻遍日志也找不到原因。
+		if err := json.Unmarshal(b, &r); err != nil {
+			logx.Warn("配方 %s 不是合法 JSON，已跳过：%v", e.Name(), err)
+			continue
+		}
+		if r.Kind == "" {
+			logx.Warn("配方 %s 缺少 kind 字段，已跳过", e.Name())
+			continue
+		}
+		if len(r.Steps) == 0 {
+			logx.Warn("配方 %s 没有 steps，已跳过", e.Name())
 			continue
 		}
 		out[r.Kind] = r

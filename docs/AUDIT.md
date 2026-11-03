@@ -987,6 +987,25 @@ setSetSnap(JSON.stringify(settings))
 
 **验证**：隔离实例上调 `PUT /api/tools/bash`（写 `tools.json`）和 `POST /api/plugins`（写 `tools.d/atomic_test.json`），两个文件都是合法 JSON，目录里**没有残留 `.tmp`**。
 
+### P2-22 坏配方静默消失，日志一句提示都没有 ✅ 已修
+
+**好消息先说**：`LoadDir` 的容错设计是对的 —— 坏配方**只跳过那一条**，不会整批失败。隔离实例里放了 1 个好配方 + 3 个坏配方（非法 JSON / 缺 `kind` / 缺 `steps`），`/api/tasks` 返回 `recipes: ["good"]`，服务正常。
+
+**问题在另一半**：三个坏配方**完全静默**。用户写完配方发现"没生效"，翻日志找不到任何线索 —— 不知道是文件名错了、字段名错了、还是 JSON 少了个逗号。
+
+**修复**：跳过时按原因分别 `logx.Warn`：
+
+```
+[WARN] 配方 broken-json.json 不是合法 JSON，已跳过：invalid character 'o' in literal null (expecting 'u')
+[WARN] 配方 no-kind.json 缺少 kind 字段，已跳过
+[WARN] 配方 no-steps.json 没有 steps，已跳过
+```
+
+带文件名和具体原因，能直接定位。
+
+**一个观察（没改）**：这些警告会出现两次，因为 `LoadDir` 在启动和每次 `/api/tasks`（为了"改完即生效"）都会跑一遍。重复但无害，反而保证了你改坏配方后立刻就能在日志里看到。
+
+
 
 
 
@@ -1669,5 +1688,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 52 | P1-24 改了设置直接关面板会无声丢失 | `b26b95f` | 无视觉改动（confirm 是原生对话框） |
 | 53 | 设置生效范围实测 + P2-20 保存后不刷新左栏 | `8fc6aa7` | 无视觉改动 |
 | 54 | P2-21 `tools.json` / 插件清单非原子写 | `2a84a2b` | 无视觉改动 |
+| 55 | P2-22 坏配方静默消失（补警告） | `b9cdab3` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
