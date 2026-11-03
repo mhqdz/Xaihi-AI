@@ -227,7 +227,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "未知命令 %q\n\n可用: chat | send | convs | show | config | version\n", cmd)
+		fmt.Fprintf(os.Stderr, "未知命令 %q\n\n用法:\n"+
+			"  agentd serve                       起 HTTP 服务\n"+
+			"  agentd chat                        交互式对话\n"+
+			"  agentd send <文本>                  发一条就退出\n"+
+			"  agentd convs | archived            列出未归档 / 已归档会话\n"+
+			"  agentd show <id>                   看一段会话\n"+
+			"  agentd archive|restore <id>        归档 / 恢复\n"+
+			"  agentd rm <id> [--hard]            归档；加 --hard 才是真删\n"+
+			"  agentd config | version            看配置 / 版本\n", cmd)
 		os.Exit(2)
 	}
 	_ = llm.Chunk{}

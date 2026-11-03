@@ -853,6 +853,34 @@ fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
 
 **这类 bug 的特点**：它不制造错误，只是让某个操作悄悄失效/变形。如果那次提交没恰好走 `git add <目录>` 的路径，可能一直不会发现 —— 而往 `cmd/agentd/` 加新文件时就会莫名其妙地"加不进去"。
 
+### CLI 八个子命令逐个走查（行为全对）+ P2-19 usage 提示不全
+
+用隔离数据目录把 CLI 全跑了一遍：
+
+| 命令 | 期望 | 实测 |
+|---|---|---|
+| `convs`（空库） | 无输出不报错 | ✓ |
+| `send "只回复两个字：好"` | 回复「好」并落库 | ✓ |
+| `convs` | 列出 1 条（id / 时间 / 标题） | ✓ |
+| `show 1` | 打印标题 + 每条消息 | ✓ |
+| `archive 1` | `convs` 空、`archived` 有 1 条 | ✓ |
+| `restore 1` | 回到 `convs` | ✓ |
+| `rm 1` | **只归档**（库中 `archived=1`，行还在） | ✓ |
+| `rm 1 --hard` | 真删（表空） | ✓ |
+
+**P2-19**：`agentd bogus` 的提示只列了 6 个命令：
+
+```
+可用: chat | send | convs | show | config | version
+```
+
+实际有 11 个 —— 少了 `serve` / `archived` / `archive` / `restore` / `rm`。尤其 `rm` 缺得不巧：它的默认行为是**归档而非删除**，只加 `--hard` 才真删，而这个信息只在用户已经知道有 `rm` 的前提下才可能被查到。
+
+改成完整用法表，并把 `rm` 的两种语义写清楚。
+
+**一个观察（没改）**：每条 CLI 命令都会往 stderr 打一行 `[INFO] start model=…`，脚本里用会显得吵。但它走 stderr、不影响管道内容，而且对"配置到底加载了哪个 profile"是有用的确认，先留着。
+
+
 
 
 
@@ -1525,5 +1553,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 47 | P2-16 截图工具 `WAYLAND_DISPLAY` 硬编码 | `0ae2a2f` | 无视觉改动 |
 | 48 | P2-17 CLI 超长输入静默退出 + 假「会话已保存」 | `128dbbf` | 无视觉改动 |
 | 49 | P2-18 `.gitignore` 未锚定（忽略 cmd/agentd） | `128dbbf` | 无视觉改动 |
+| 50 | CLI 八命令走查 + P2-19 usage 提示不全 | `5d8cc05` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
