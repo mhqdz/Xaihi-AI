@@ -723,6 +723,30 @@ setMsgs(normalize(c.messages || [])); setTitle(c.title || '会话')
 
 **又一次自己的失误**：测 reasoning 时我直接在你正在用的 conv51 里发了一条「请一步步推导 17 乘 23」—— 消息数从 575 变成 577。已删除（库里有 `agentd.db.bak-conv51b-*` 备份），确认回到 575、最后一条仍是原来的 `seq 575`。**这是这轮里第三次拿真实会话当靶子**，而且这次连副作用都预判到了却没避开。
 
+### 两处 SSE 处理：差异是必要的，重复是多余的 ✅ 已抽公共函数
+
+上一轮注意到 `attachStream`（重连）和 `send`（正常发送）里各有一份 SSE 处理逻辑，这轮逐事件对比。
+
+**处理的事件确实不同，而且差异都合理**：
+
+| 事件 | `send` | `attachStream` | 为什么 |
+|---|---|---|---|
+| `meta` | ✓ 设 conv_id / 标题 / 写 URL | ✗ | 重连时会话已知 |
+| `reasoning` | ✓ 带 `_r0` 算耗时 | ✓ 不带 | 重连后不知道从何时起算，干脆不显示秒数（`rsecs` 为 undefined → 不渲染） |
+| `delta` / `tool_start` / `tool` / `usage` | ✓ | ✓ | 内容重建必需 |
+| `error` | ✓ 追加 `✗ …` | ✗ | 收尾的 `finish()` 会拉全量，错误已落库，靠刷新兜底 |
+| `interject` | ✓ 状态栏提示 | ✗ | 同上 |
+| `done` | ✓ 写 secs / 状态栏 | ✗ | 重连结尾走 `finish('已同步')` |
+
+渲染节流也一致（都是 80ms 的 `pushTimer`）。**所以这不是"改一处忘另一处"的 bug，是两份场景不同的处理。**
+
+**但拆帧那段（`buf.indexOf('\n\n')` → 逐行取 `event:` / `data:` → `JSON.parse`）是逐字相同的 15 行**。这部分没有任何场景差异，改了一边忘另一边是迟早的事。抽成 `pumpSSE(reader, onEvent)`，两边只留各自的事件分支。
+
+结论：`attachStream` 和 `send` 的重复**不是**问题，但它们共享的解析层**是**。改完之后 JS 体积还小了 0.2KB。
+
+**验证**：`check_live`（覆盖 `send` 路径）、`stream_test`（覆盖 `attachStream` 的重连路径）、`check_sendstop`、`robustness`、`run`、`run3` 全绿，`pixel_diff` 6/6 一致。
+
+
 
 
 
@@ -1385,5 +1409,6 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 42 | P1-22 run2/run3 假绿：没数据时静默跳过 | `5ee5edf` | 无视觉改动 |
 | 43 | 审查 pixel_diff（严格，可信）+ 对比度量化（未改，待你决定） | 无提交 | 无视觉改动 |
 | 44 | P1-23 快速切会话的响应竞态 + reasoning 实测 | `c6f1e1a` | 无视觉改动 |
+| 45 | 抽取 `pumpSSE`（两处重复的 SSE 拆帧） | `2ecd40d` | 无视觉改动 |
 
 基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

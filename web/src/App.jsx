@@ -35,6 +35,31 @@ function LiveBubble({ busy }) {
   )
 }
 
+// 逐帧解析 SSE，交给 onEvent(ev, data)。
+// send() 和 attachStream() 原来各写了一遍完全相同的 15 行解析 —— 抽出来，
+// 免得改了这条路径忘了那条（它们处理的事件不同，但拆帧方式必须一致）。
+async function pumpSSE(reader, onEvent) {
+  const dec = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const r = await reader.read()
+    if (r.done) break
+    buf += dec.decode(r.value, { stream: true })
+    let i
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, i); buf = buf.slice(i + 2)
+      let ev = '', data = ''
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event: ')) ev = line.slice(7)
+        else if (line.startsWith('data: ')) data = line.slice(6)
+      }
+      let d = {}
+      try { d = JSON.parse(data) } catch { }
+      onEvent(ev, d)
+    }
+  }
+}
+
 // 日历式翻数：数字变化时逐位滚动（+1 向上，-1 向下）
 function Roll({ value, digits = 2 }) {
   const txt = String(value ?? 0).padStart(digits, '0')
@@ -755,18 +780,7 @@ export default function App() {
       setBusy(true)   // 刷新后仍能反映"运行中"（状态从后端流推断）
       const guard = setInterval(async () => { if (!done && !(await running())) finish('已同步') }, 2500)
       try {
-        for (;;) {
-          const r = await reader.read(); if (r.done) break
-          buf += dec.decode(r.value, { stream: true })
-          let i
-          while ((i = buf.indexOf('\n\n')) >= 0) {
-            const block = buf.slice(0, i); buf = buf.slice(i + 2)
-            let ev = '', data = ''
-            for (const line of block.split('\n')) {
-              if (line.startsWith('event: ')) ev = line.slice(7)
-              else if (line.startsWith('data: ')) data = line.slice(6)
-            }
-            let d = {}; try { d = JSON.parse(data) } catch { }
+        await pumpSSE(reader, (ev, d) => {
             if (ev === 'seq') { live.seq = d.seq; push() }
             else if (ev === 'reasoning') { live.reasoning += d.text || ''; push() }
             else if (ev === 'delta') { live.content += d.text || ''; push() }
@@ -782,8 +796,7 @@ export default function App() {
               stream.clear()
             }
               else if (ev === 'usage') { if (d.tps > 0) setTps(d.tps) }
-          }
-        }
+        })
       } catch (e) {
         /* 读流中断：下面按运行状态决定重连还是收尾 */
       } finally { clearInterval(guard) }
@@ -823,18 +836,7 @@ export default function App() {
         if (pushTimer || ended) return
         pushTimer = setTimeout(() => { pushTimer = null; if (!ended) stream.set({ ...asst }) }, 80)
       }
-      for (;;) {
-        const { value, done } = await reader.read(); if (done) break
-        buf += dec.decode(value, { stream: true })
-        let i
-        while ((i = buf.indexOf('\n\n')) >= 0) {
-          const block = buf.slice(0, i); buf = buf.slice(i + 2)
-          let ev = '', data = ''
-          for (const line of block.split('\n')) {
-            if (line.startsWith('event: ')) ev = line.slice(7)
-            else if (line.startsWith('data: ')) data = line.slice(6)
-          }
-          let d = {}; try { d = JSON.parse(data) } catch { }
+      await pumpSSE(reader, (ev, d) => {
           if (ev === 'meta') {
             cur = d.conv_id; setConvId(cur)
             if (cur) history.replaceState(null, '', '?conv=' + cur)   // A：新会话也写进 URL
@@ -863,8 +865,7 @@ export default function App() {
           else if (ev === 'interject') { setStatus('模型已收到插话：' + (d.text || '').slice(0, 30)) }
           else if (ev === 'done') { setSecs(d.secs); setStatus(`完成 · ${(d.secs || 0).toFixed(1)}s`) }
             else if (ev === 'usage') { if (d.tps > 0) setTps(d.tps) }
-        }
-      }
+      })
       // 收流即定稿：先停掉节流里还没落地的 push，否则它会在 clear 之后把旧内容塞回缓冲
       //（表现：正文已落库，底下却多一个"生成中…"的幽灵气泡）
       ended = true
