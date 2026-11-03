@@ -14,7 +14,7 @@ const fmtTime = (s) => {
 export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) {
   return (
     <Card kind="col-list" top={top} hdClass="list-hd" title="SETTINGS / PROFILES" closeTitle="退出设置"
-      onClose={() => v.closeOne()} actions={<DirtyActions v={v} dirty={v.settingsDirty} />}>
+      onClose={() => v.closeOne()} actions={<DirtyActions v={v} dirty={v.anyDirty} />}>
       <div className="card-bd">
         <div className="set-section">常规配置</div>
         <div className="set-card">

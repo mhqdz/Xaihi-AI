@@ -1,5 +1,4 @@
 import React from 'react'
-import DirtyActions from './DirtyActions'
 import Card from './Card'
 
 // 模型详情 / 新建模型（第二级）
@@ -11,13 +10,9 @@ export default function ModelForm({ v, narrow, top }) {
     <Card kind="col-detail" top={top}
       title={isNew ? '新建模型' : ('模型详情 · ' + editP.name)}
       onClose={() => v.closeOne()}
-      actions={<>
-        {/* system 提示也算 profile 的字段：改它会让 formDirty 变真，
-            但那次保存归编辑器那层（save 的最内层优先）。这里排除掉，
-            免得两张卡同时冒出保存按钮，分不清点哪个 */}
-        <DirtyActions v={v} dirty={v.formDirty && !v.editorDirty} />
-        {!isNew ? <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button> : null}
-      </>}>
+      actions={!isNew
+        ? <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button>
+        : null}>
       <div className="card-bd">
         {[['name', '名称'], ['base_url', '接口地址 (url+/v1)'], ['api_key', 'API Key']].map(([k, label]) => (
           <label className="field" key={k}><span>{label}</span>

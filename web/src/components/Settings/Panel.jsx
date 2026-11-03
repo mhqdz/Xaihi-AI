@@ -3,6 +3,7 @@ import EditorCard from './EditorCard'
 import ToolCard from './ToolCard'
 import ModelForm from './ModelForm'
 import ListCard from './ListCard'
+import DirtyActions from './DirtyActions'
 
 // 设置面板（装配层）：编辑器 / 工具 / 模型 / 列表 四张卡按状态互斥出现
 export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) {
@@ -24,6 +25,13 @@ export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) 
         {v.editP ? <ModelForm v={v} narrow={narrow} top={top === 'detail'} /> : null}
         <ListCard v={v} narrow={narrow} profiles={profiles} uiCfg={uiCfg} openConv={openConv} top={top === 'list'} />
       </div>
+      {/* 窄屏时一级卡是隐藏的，保存/取消放这儿，任何层级都够得着。
+          宽屏由一级卡自己带，这里不渲染（CSS 也兜了一层）。 */}
+      {narrow && v.anyDirty ? (
+        <div className="set-actions">
+          <DirtyActions v={v} dirty={v.anyDirty} />
+        </div>
+      ) : null}
     </aside>
   )
 }

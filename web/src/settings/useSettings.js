@@ -176,7 +176,11 @@ export function useSettings({ refresh }) {
   const closeOne = async () => {
     const open = editField || toolEdit
     if (open) {
-      if (editorDirty) { setNudge(n => n + 1); return }
+      // system 提示的改动落在 editP 上，退出编辑器不会丢 —— 直接退。
+      // 常见用法：改完 system 还想改这个模型的别的字段，一起保存；
+      // 在中间层就拦住会打断这个流程。
+      // 工具说明存在 toolEdit 里，退出即丢，只有它对"退出"负责。
+      if (!editField && editorDirty) { setNudge(n => n + 1); return }
       if (editField) setEditField(null); else setToolEdit(null)
       return
     }
