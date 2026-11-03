@@ -12,7 +12,10 @@ export default function ModelForm({ v, narrow, top }) {
       title={isNew ? '新建模型' : ('模型详情 · ' + editP.name)}
       onClose={() => v.closeOne()}
       actions={<>
-        <DirtyActions v={v} show={narrow} />
+        {/* system 提示也算 profile 的字段：改它会让 formDirty 变真，
+            但那次保存归编辑器那层（save 的最内层优先）。这里排除掉，
+            免得两张卡同时冒出保存按钮，分不清点哪个 */}
+        <DirtyActions v={v} dirty={v.formDirty && !v.editorDirty} />
         {!isNew ? <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button> : null}
       </>}>
       <div className="card-bd">

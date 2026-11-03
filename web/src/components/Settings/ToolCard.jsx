@@ -1,5 +1,4 @@
 import React from 'react'
-import DirtyActions from './DirtyActions'
 import Card from './Card'
 
 // 工具详情 / 插件表单卡（第二级）
@@ -10,13 +9,13 @@ export default function ToolCard({ v, narrow, profiles, top }) {
   return (
     <Card kind="col-detail" top={top}
       title={form ? (form.isNew ? 'new plugin' : 'tool · ' + form.name) : ('tool · ' + cfg.name)}
-      onClose={() => v.closeOne()}
+      onClose={() => (form ? v.closeToolForm() : v.closeOne())}
       actions={form ? (
         <span className="card-actions title-actions">
           <button className="btn" onClick={v.closeToolForm}>取消</button>
           <button className="btn" onClick={v.savePlugin}>保存</button>
         </span>
-      ) : <DirtyActions v={v} show={narrow} />}>
+      ) : null}>
 
       {form ? (
         <div className="card-bd">

@@ -965,6 +965,25 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 .title-actions .btn.save::before,.title-actions .btn.save::after{border-color:var(--c6)}
 .title-actions .btn.save:hover::before,.title-actions .btn.save:hover::after{border-color:var(--c7)}
 
+/* 带着未保存修改想关面板：这两个按钮跳两下 + 描边高亮（不弹窗）。
+   跳两下而不是一下：单次位移容易看成渲染抖动，两次才有"提醒"的语义。
+   位移用 translateY 而不是缩放 —— 标题栏高度固定 36px，缩放会撞到上下边。 */
+@keyframes nudge{
+  0%,100%{transform:translateY(0)}
+  12%{transform:translateY(-4px)}
+  26%{transform:translateY(0)}
+  40%{transform:translateY(-3px)}
+  54%{transform:translateY(0)}
+}
+.title-actions.nudge .btn{animation:nudge .68s cubic-bezier(.36,.07,.19,.97) both;
+  border-color:var(--c6);color:var(--c7)}
+.title-actions.nudge .btn.save{border-color:var(--c7);background:var(--c1);color:var(--c7)}
+.title-actions.nudge .btn.save::before,.title-actions.nudge .btn.save::after{border-color:var(--c7)}
+/* 系统设了"减少动态效果"就别跳，改成静默描边 —— 提醒不靠动画也能看懂 */
+@media (prefers-reduced-motion:reduce){
+  .title-actions.nudge .btn{animation:none;outline:2px solid var(--c5);outline-offset:1px}
+}
+
 /* 系统级提示（工具轮次上限 / 已停止 / 中断）：一行灰字，不占编号、不套气泡 */
 /* 系统级提示（终末地风格）：无气泡，四角角标 + 渐隐底 + 尾部细线 */
 .sysnote{position:relative;display:flex;align-items:center;gap:.55rem;

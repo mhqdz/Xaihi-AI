@@ -119,6 +119,9 @@ export function useSettings({ refresh }) {
     : false
   const settingsDirty = JSON.stringify(settings) !== setSnap
   const anyDirty = formDirty || editorDirty || settingsDirty
+  // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
+  // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
+  const [nudge, setNudge] = useState(0)
 
   // 取消：只回滚当前层
   const cancel = () => {
@@ -132,6 +135,18 @@ export function useSettings({ refresh }) {
     }
   }
 
+  // 把 editP 写回 profile。三级编辑器和二级详情共用一个出口 ——
+  // system 提示本来就是 profile 的字段，两处保存必须是同一件事。
+  const putProfile = async () => {
+    if (!editP.name || !editP.base_url || !editP.model) { alert('名称 / 接口地址 / 模型 必填'); return false }
+    const { _new, ...body } = editP
+    await fetch('/api/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
+        keep_messages: body.keep_messages || 16 }) })
+    setEditSnap(snapOf(editP)); await refresh()
+    return true
+  }
+
   // 保存：三级编辑器 → profile → 常规配置
   const save = async () => {
     if (editorDirty) {
@@ -139,17 +154,14 @@ export function useSettings({ refresh }) {
         await fetch('/api/tools/' + toolEdit.name, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ description: toolEdit.description }) })
         setEditOriginal(toolEdit.description || ''); await reload()
-      } else { setEditOriginal(editP?.[editField] || '') }
+      } else if (await putProfile()) {
+        // 原来这里只 setEditOriginal，等于"看起来存了、其实没发请求"，
+        // system 提示会在关掉面板后悄悄退回旧值。
+        setEditOriginal(editP?.[editField] || '')
+      }
       return
     }
-    if (formDirty) {
-      if (!editP.name || !editP.base_url || !editP.model) { alert('名称 / 接口地址 / 模型 必填'); return }
-      const { _new, ...body } = editP
-      await fetch('/api/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
-          keep_messages: body.keep_messages || 16 }) })
-      setEditSnap(snapOf(editP)); await refresh(); return
-    }
+    if (formDirty) { await putProfile(); return }
     await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
     setSetSnap(JSON.stringify(settings))
     // 后端在"自动归档天数/开关"变化时会立刻巡检一次，可能刚把一批会话归档。
@@ -157,31 +169,22 @@ export function useSettings({ refresh }) {
     await refresh()
   }
 
-  // 逐级退出：编辑器 → 详情 → 设置；有改动先问是否保存
+  // 逐级退出：编辑器 → 详情 → 设置。
+  // 这一层有未保存修改时**不关**，而是让该卡的"取消/保存"跳两下（nudge）——
+  // 弹窗会打断、要读字、还要点一下；跳动是"这里有东西没存"的即时反馈，
+  // 按钮就在眼前，想存还是想丢都直接点。
   const closeOne = async () => {
     const open = editField || toolEdit
     if (open) {
-      const cur = editField ? (editP?.[editField] || '') : (toolEdit?.description || '')
-      if (cur !== (editOriginal || '')) {
-        if (!confirm('文本已修改，是否保存？\n确定 = 保存并关闭　取消 = 放弃修改')) {
-          if (editField) setEditP({ ...editP, [editField]: editOriginal })
-          else setToolEdit({ ...toolEdit, description: editOriginal })
-        } else if (toolEdit) {
-          await fetch('/api/tools/' + toolEdit.name, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description: toolEdit.description }) })
-          await reload()
-        }
-      }
+      if (editorDirty) { setNudge(n => n + 1); return }
       if (editField) setEditField(null); else setToolEdit(null)
       return
     }
-    // 详情卡 / 设置层：原来直接关，脏了也一样 —— 改完参数按 Esc 或点 ×，
-    // 面板消失、服务端没变、一句提示都没有。编辑器那层有确认，这两层没有。
     if (editP) {
-      if (formDirty && !confirm('模型配置有未保存的修改，确定放弃？')) return
+      if (formDirty) { setNudge(n => n + 1); return }
       setEditP(null); return
     }
-    if (anyDirty && !confirm('设置有未保存的修改，确定放弃？')) return
+    if (settingsDirty) { setNudge(n => n + 1); return }
     setShowSet(false)
   }
 
@@ -259,7 +262,7 @@ export function useSettings({ refresh }) {
     toolList, toolCfg, setToolCfg, toolForm, setToolForm, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     models, shotInfo,
-    formDirty, editorDirty, settingsDirty, anyDirty,
+    formDirty, editorDirty, settingsDirty, anyDirty, nudge,
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     openSystemEditor, openToolEditor,
