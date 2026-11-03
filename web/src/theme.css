@@ -997,6 +997,33 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
   .title-actions.nudge .btn{animation:none;outline:2px solid var(--c5);outline-offset:1px}
 }
 
+/* ── 保存前的改动清单 ──
+   改动先攒在前端（草稿），这里摊开再统一提交。
+   旧值加删除线、新值用正文色：一眼能看出"从什么变成什么"，
+   比只写"已修改"有用 —— 尤其是 system 提示这种长文本。 */
+.sheet-scrim{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;
+  padding:1.2rem;background:rgba(46,56,53,.28)}
+.sheet{width:min(600px,100%);max-height:min(78vh,660px);display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);box-shadow:0 10px 30px rgba(58,65,66,.18)}
+.sheet-hd{flex:0 0 auto;display:flex;align-items:center;gap:.6rem;height:36px;padding:0 .85rem;
+  border-bottom:1px solid var(--line);font-size:.66rem;letter-spacing:.18em;color:var(--ink3)}
+.sheet-bd{flex:1 1 auto;min-height:0;overflow:auto;padding:.7rem .85rem;
+  display:flex;flex-direction:column;gap:.7rem}
+.sheet-grp{border:1px solid var(--line)}
+.sheet-grp-t{padding:.3rem .55rem;background:var(--c1);border-bottom:1px solid var(--line);
+  font-size:.64rem;letter-spacing:.12em;color:var(--ink2)}
+.sheet-row{display:grid;grid-template-columns:5.4rem minmax(0,1fr) 1rem minmax(0,1fr);
+  align-items:center;gap:.5rem;padding:.3rem .55rem;font-size:.7rem}
+.sheet-row + .sheet-row{border-top:1px dashed var(--c3)}
+.sheet-k{color:var(--ink3)}
+.sheet-from,.sheet-to{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet-from{color:var(--c6);text-decoration:line-through;text-decoration-color:var(--c4)}
+.sheet-to{color:var(--ink)}
+.sheet-ar{color:var(--c5);text-align:center}
+.sheet-ft{flex:0 0 auto;display:flex;align-items:center;gap:.5rem;padding:.55rem .85rem;
+  border-top:1px solid var(--line);background:var(--c1)}
+.sheet-sum{font-size:.64rem;color:var(--ink3);letter-spacing:.06em}
+
 /* 系统级提示（工具轮次上限 / 已停止 / 中断）：一行灰字，不占编号、不套气泡 */
 /* 系统级提示（终末地风格）：无气泡，四角角标 + 渐隐底 + 尾部细线 */
 .sysnote{position:relative;display:flex;align-items:center;gap:.55rem;

@@ -17,6 +17,37 @@ const NEW_PLUGIN = {
   persistent: false, paramsText: '{\n  "query": { "type": "string" }\n}', requiredText: 'query'
 }
 
+
+// 改动清单里的字段名。后端字段直白，但"上下文窗口"比 context_window 好认。
+const FIELD_LABELS = {
+  name: '名称', base_url: '接口地址', api_key: 'API Key', model: '模型',
+  reasoning_effort: '思考强度', tools: '可用工具', system: 'system 提示',
+  keep_messages: '保留消息数', context_window: '上下文窗口', compact_pct: '压缩阈值'
+}
+const SETTING_LABELS = {
+  tool_rounds_enabled: '工具轮次上限开关', tool_rounds: '工具轮次上限',
+  auto_archive_enabled: '自动归档开关', auto_archive_days: '自动归档天数',
+  shots_auto_clean: '截图自动清理', shots_keep_days: '截图保留天数'
+}
+const showVal = (v) => {
+  if (Array.isArray(v)) return v.join('、') || '（空）'
+  if (v === true) return '开'
+  if (v === false) return '关'
+  if (v === '' || v == null) return '（空）'
+  return String(v)
+}
+// 只列出真正变了的字段
+const diffFields = (base, next, labels) => {
+  const out = []
+  const keys = new Set([...Object.keys(base || {}), ...Object.keys(next || {})])
+  for (const k of keys) {
+    if (k === '_new') continue
+    const a = showVal(base?.[k]); const b = showVal(next?.[k])
+    if (a !== b) out.push({ key: k, label: labels[k] || k, from: a, to: b })
+  }
+  return out
+}
+
 export function useSettings({ refresh }) {
   const [showSet, setShowSet] = useState(() => new URLSearchParams(location.search).has('settings'))
   // 焦点管理：打开时记住是谁触发的、并把焦点送进面板；关闭时还回去。
@@ -118,10 +149,17 @@ export function useSettings({ refresh }) {
     ? ((editField ? (editP?.[editField] || '') : (toolEdit?.description || '')) !== (editOriginal || ''))
     : false
   const settingsDirty = JSON.stringify(settings) !== setSnap
-  const anyDirty = formDirty || editorDirty || settingsDirty
+  // 草稿：退出详情卡时把没保存的改动按 profile 名存这儿。
+  // 目的——改完 A 想再看 B、回头一起保存；退出层级不等于放弃改动。
+  const [drafts, setDrafts] = useState({})
+  const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
+  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
   const [nudge, setNudge] = useState(0)
+  // 保存前弹出的改动清单；null = 不显示。确认后才真正写后端。
+  const [sheet, setSheet] = useState(null)
+  const [committing, setCommitting] = useState(false)
 
   // 取消：只回滚当前层
   const cancel = () => {
@@ -130,43 +168,96 @@ export function useSettings({ refresh }) {
       else setToolEdit({ ...toolEdit, description: editOriginal })
     } else if (formDirty) {
       setEditP(JSON.parse(editSnap || '{}'))
+      setDrafts(d => { const n = { ...d }; delete n[editP?.name]; return n })
     } else {
       setSettings(JSON.parse(setSnap || '{}'))
     }
   }
 
-  // 把 editP 写回 profile。三级编辑器和二级详情共用一个出口 ——
-  // system 提示本来就是 profile 的字段，两处保存必须是同一件事。
-  const putProfile = async () => {
-    if (!editP.name || !editP.base_url || !editP.model) { alert('名称 / 接口地址 / 模型 必填'); return false }
-    const { _new, ...body } = editP
-    await fetch('/api/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
-        keep_messages: body.keep_messages || 16 }) })
-    setEditSnap(snapOf(editP)); await refresh()
-    return true
+  // 把所有"攒着没存"的改动收集成一份清单：当前打开的 profile、草稿里的其它 profile、
+  // 工具说明、常规配置。保存时先给它看，确认后一次提交。
+  const pendingChanges = () => {
+    const out = []
+    const seen = new Set()
+    if (formDirty && editP) {
+      out.push({ kind: 'profile', title: '模型 · ' + editP.name, name: editP.name,
+        base: JSON.parse(editSnap || '{}'), next: editP, rows: diffFields(JSON.parse(editSnap || '{}'), editP, FIELD_LABELS) })
+      seen.add(editP.name)
+    }
+    for (const [name, d] of Object.entries(drafts)) {
+      if (seen.has(name) || snapOf(d.data) === d.base) continue
+      out.push({ kind: 'profile', title: '模型 · ' + name, name,
+        base: JSON.parse(d.base || '{}'), next: d.data,
+        rows: diffFields(JSON.parse(d.base || '{}'), d.data, FIELD_LABELS) })
+    }
+    if (toolEdit && editorDirty && !editField) {
+      out.push({ kind: 'tool', title: '工具说明 · ' + toolEdit.name, name: toolEdit.name,
+        base: { description: editOriginal }, next: { description: toolEdit.description },
+        rows: diffFields({ description: editOriginal }, { description: toolEdit.description }, FIELD_LABELS) })
+    }
+    if (settingsDirty) {
+      out.push({ kind: 'settings', title: '常规配置',
+        base: JSON.parse(setSnap || '{}'), next: settings,
+        rows: diffFields(JSON.parse(setSnap || '{}'), settings, SETTING_LABELS) })
+    }
+    return out
   }
 
-  // 保存：三级编辑器 → profile → 常规配置
-  const save = async () => {
-    if (editorDirty) {
-      if (toolEdit) {
-        await fetch('/api/tools/' + toolEdit.name, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: toolEdit.description }) })
-        setEditOriginal(toolEdit.description || ''); await reload()
-      } else if (await putProfile()) {
-        // 原来这里只 setEditOriginal，等于"看起来存了、其实没发请求"，
-        // system 提示会在关掉面板后悄悄退回旧值。
-        setEditOriginal(editP?.[editField] || '')
+  // 放弃清单里的全部改动：草稿清空、当前层回滚
+  const discardAll = () => {
+    setDrafts({})
+    setEditP(null); setEditField(null); setToolEdit(null)
+    setSettings(JSON.parse(setSnap || '{}'))
+    setSheet(null)
+  }
+
+  // 把清单真正写进后端。一项失败就停在那儿并保留清单，不假装成功。
+  const commitSheet = async () => {
+    const list = sheet || []
+    setCommitting(true)
+    for (const c of list) {
+      let resp
+      try {
+        if (c.kind === 'profile') {
+          const { _new, ...body } = c.next
+          resp = await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
+              keep_messages: body.keep_messages || 16 })
+          })
+        } else if (c.kind === 'tool') {
+          resp = await fetch('/api/tools/' + c.name, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: c.next.description })
+          })
+        } else {
+          resp = await fetch('/api/settings', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c.next)
+          })
+        }
+      } catch (e) {
+        setCommitting(false); alert('保存失败（' + c.title + '）：' + e.message); return
       }
-      return
+      if (!resp.ok) {
+        let msg = 'HTTP ' + resp.status
+        try { msg = (await resp.json()).error || msg } catch (e) {}
+        setCommitting(false); alert('保存失败（' + c.title + '）：' + msg); return
+      }
     }
-    if (formDirty) { await putProfile(); return }
-    await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
+    // 全部成功才清状态
+    setDrafts({})
+    if (editP) { setEditSnap(snapOf(editP)) }
+    setEditOriginal(editField ? (editP?.[editField] || '') : (toolEdit?.description || ''))
     setSetSnap(JSON.stringify(settings))
-    // 后端在"自动归档天数/开关"变化时会立刻巡检一次，可能刚把一批会话归档。
-    // 不刷左栏的话，用户会看到"保存成功了但列表没变"，切到归档 tab 才发现消息跑去那边了。
-    await refresh()
+    setSheet(null); setCommitting(false)
+    await reload(); await refresh()
+  }
+
+  // 保存：不直接发请求，先把攒着的改动摊成清单给人过一眼，确认后统一提交
+  const save = async () => {
+    const list = pendingChanges()
+    if (!list.length) return
+    setSheet(list)
   }
 
   // 逐级退出：编辑器 → 详情 → 设置。
@@ -185,7 +276,8 @@ export function useSettings({ refresh }) {
       return
     }
     if (editP) {
-      if (formDirty) { setNudge(n => n + 1); return }
+      // 退出详情卡不再拦：脏的存成草稿，下次打开还在，可以和后面的改动一起提交
+      if (formDirty) setDrafts(d => ({ ...d, [editP.name]: { data: editP, base: editSnap } }))
       setEditP(null); return
     }
     if (settingsDirty) { setNudge(n => n + 1); return }
@@ -194,8 +286,14 @@ export function useSettings({ refresh }) {
 
   // —— 列表卡上的各种"打开"——
   const openProfile = (pr) => {
-    const v = { ...pr, tools: (pr.tools || []).join(',') }
-    setEditP(v); setEditSnap(snapOf(v)); setEditField(null); setToolEdit(null); setToolCfg(null)
+    // 有草稿就续上：用户上次退出时改过但没保存，再打开应该看到自己改的版本
+    const d = drafts[pr.name]
+    if (d) { setEditP(d.data); setEditSnap(d.base) }
+    else {
+      const v = { ...pr, tools: (pr.tools || []).join(',') }
+      setEditP(v); setEditSnap(snapOf(v))
+    }
+    setEditField(null); setToolEdit(null); setToolCfg(null)
   }
   const newProfile = () => {
     setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
@@ -267,6 +365,7 @@ export function useSettings({ refresh }) {
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     models, shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,
+    drafts, draftsDirty, sheet, setSheet, committing, commitSheet, discardAll, pendingChanges,
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     openSystemEditor, openToolEditor,

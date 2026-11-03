@@ -4,6 +4,7 @@ import ToolCard from './ToolCard'
 import ModelForm from './ModelForm'
 import ListCard from './ListCard'
 import DirtyActions from './DirtyActions'
+import SaveSheet from './SaveSheet'
 
 // 设置面板（装配层）：编辑器 / 工具 / 模型 / 列表 四张卡按状态互斥出现
 export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) {
@@ -32,6 +33,7 @@ export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) 
           <DirtyActions v={v} dirty={v.anyDirty} />
         </div>
       ) : null}
+      <SaveSheet v={v} />
     </aside>
   )
 }
