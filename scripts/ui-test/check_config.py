@@ -223,7 +223,7 @@ def functional(s):
     check("探针 profile 打开", open_profile(s, PROBE_NAME), "")
 
     cases = [
-        ("接口地址 (url+/v1)", "http://127.0.0.1:18320/180/v2"),
+        ("接口地址", "http://127.0.0.1:18320/180/v2"),
         ("API Key", "sk-probe-123"),
         ("窗口大小 (tokens)", "4096"),
         ("输入上限 (tokens)", "3000"),

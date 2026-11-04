@@ -41,7 +41,7 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
               className={'tg' + (v.settings.auto_archive_enabled ? ' on' : '')}
               onClick={() => v.setSettings({ ...v.settings, auto_archive_enabled: !v.settings.auto_archive_enabled })}><b /></button>
           </div>
-          <div className="set-meta">超过设定天数未活跃的会话自动归入归档</div>
+          <div className="set-meta">超过设定天数没有活动的会话自动归档</div>
           {v.settings.auto_archive_enabled ? (
             <label className="field" style={{ marginTop: '.5rem' }}><span>未活跃天数</span>
               <input type="number" min="1" max="3650" value={v.settings.auto_archive_days || 7}

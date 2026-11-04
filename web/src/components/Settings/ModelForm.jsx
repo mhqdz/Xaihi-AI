@@ -23,8 +23,9 @@ export default function ModelForm({ v, narrow, top }) {
       <div className="card-bd">
         <Section>接入</Section>
         <Field label="名称"><input value={editP.name || ''} onChange={e => set('name', e.target.value)} /></Field>
-        <Field label="接口地址 (url+/v1)">
-          <input value={editP.base_url || ''} onChange={e => set('base_url', e.target.value)} />
+        <Field label="接口地址" hint="填到 /v1 为止，不带 /chat/completions">
+          <input value={editP.base_url || ''} placeholder="http://127.0.0.1:18320/180/v1"
+            onChange={e => set('base_url', e.target.value)} />
         </Field>
         <Field label="API Key" hint="留空则回落全局配置里的 key">
           <input type="password" value={editP.api_key || ''} onChange={e => set('api_key', e.target.value)} />
@@ -46,7 +47,7 @@ export default function ModelForm({ v, narrow, top }) {
             ) : <input value={editP.model || ''} placeholder="没取到模型列表，可手填"
               onChange={e => set('model', e.target.value)} />}
         </Field>
-        <Field label="思考强度">
+        <Field label="思考强度" hint="none 表示不传该字段；其余直接透传给上游">
           <select value={editP.reasoning_effort || 'none'}
             onChange={e => set('reasoning_effort', e.target.value)}>
             {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
