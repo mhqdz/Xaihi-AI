@@ -10,7 +10,7 @@ export default function EditorCard({ v, narrow, top }) {
       title={isTool ? ('tool · ' + v.toolEdit.name) : 'system'}
       onClose={() => v.closeOne()}
 >
-      <textarea className="set-area" value={value}
+      <textarea className="set-area" aria-label={isTool ? '工具说明' : 'system 提示词'} value={value}
         placeholder={isTool ? '工具说明（模型会看到这段文字）…' : '这里写完整的 system 提示…'}
         onChange={e => {
           if (isTool) v.setToolEdit({ ...v.toolEdit, description: e.target.value })

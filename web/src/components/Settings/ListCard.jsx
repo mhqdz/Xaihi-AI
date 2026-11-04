@@ -52,7 +52,9 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
             <span className="item-title">界面 · 运行中提示</span>
           </div>
           <div className="set-meta">运行中状态栏轮播的句子，一行一条；存在本机 localStorage（不进后端）</div>
-          <textarea className="ui-quips" key={uiCfg ? 'cfg' : 'none'} defaultValue={(() => { try { const a = JSON.parse(localStorage.getItem('ui.quips') || '[]'); const list = (Array.isArray(a) && a.length) ? a : (uiCfg?.quips || []); return list.join('\n') } catch { return (uiCfg?.quips || []).join('\n') } })()}
+          {/* 标题已在上面那行 item-title 里，这里不再重复一遍；
+              用 aria-label 让读屏同样能认出这是什么 */}
+          <textarea className="ui-quips" aria-label="运行中提示" key={uiCfg ? 'cfg' : 'none'} defaultValue={(() => { try { const a = JSON.parse(localStorage.getItem('ui.quips') || '[]'); const list = (Array.isArray(a) && a.length) ? a : (uiCfg?.quips || []); return list.join('\n') } catch { return (uiCfg?.quips || []).join('\n') } })()}
             onChange={e => { const arr = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); try { localStorage.setItem('ui.quips', JSON.stringify(arr)) } catch {} }} />
           <div className="set-meta">改完刷新页面生效；留空则回到 ui.json 的默认值</div>
         </div>

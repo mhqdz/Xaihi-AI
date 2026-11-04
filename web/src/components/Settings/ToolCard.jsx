@@ -1,5 +1,6 @@
 import React from 'react'
 import Card from './Card'
+import { Section, Field, SwitchRow } from './form'
 
 // 工具详情 / 插件表单卡（第二级）
 //
@@ -25,31 +26,39 @@ export default function ToolCard({ v, narrow, profiles, top }) {
 
       {form ? (
         <div className="card-bd">
-          <label className="field"><span>名称（小写字母开头，a-z 0-9 _）</span>
+          <Section>基本信息</Section>
+          <Field label="名称" hint={form.isNew ? '小写字母开头，可用 a-z 0-9 _' : '创建后不可改名（要改就新建一个）'}>
             <input value={form.name} disabled={!form.isNew}
-              onChange={e => v.setToolForm({ ...form, name: e.target.value })} /></label>
-          <label className="field"><span>说明（模型看到的描述，也可在三级卡里改）</span>
+              onChange={e => v.setToolForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label="说明" hint="模型看到的描述；也可以之后在详情卡点「说明」改">
             <input value={form.description}
-              onChange={e => v.setToolForm({ ...form, description: e.target.value })} /></label>
-          <label className="field"><span>命令（每行一个参数，直接 exec 不走 shell）</span>
-            <textarea className="plugin-cmd plugin-json" value={form.command}
+              onChange={e => v.setToolForm({ ...form, description: e.target.value })} />
+          </Field>
+
+          <Section>执行</Section>
+          <Field label="命令" hint="每行一个参数，直接 exec 不走 shell">
+            <textarea className="plugin-cmd" value={form.command}
               placeholder={'~/Workspace/agentd/scripts/tools/kb_get\n{{id}}'}
-              onChange={e => v.setToolForm({ ...form, command: e.target.value })} /></label>
-          <label className="field"><span>超时（毫秒）</span>
+              onChange={e => v.setToolForm({ ...form, command: e.target.value })} />
+          </Field>
+          <Field label="超时（毫秒）">
             <input type="number" min="1000" value={form.timeoutMs}
-              onChange={e => v.setToolForm({ ...form, timeoutMs: e.target.value })} /></label>
-          <div className="item static">
-            <span className="item-title">常驻进程（JSON-RPC over stdio）</span>
-            <button type="button" role="switch" aria-checked={!!form.persistent}
-              className={'tg' + (form.persistent ? ' on' : '')}
-              onClick={() => v.setToolForm({ ...form, persistent: !form.persistent })}><b /></button>
-          </div>
-          <label className="field"><span>参数（JSON Schema properties）</span>
+              onChange={e => v.setToolForm({ ...form, timeoutMs: e.target.value })} />
+          </Field>
+          <SwitchRow label="常驻进程" hint="开启后按 JSON-RPC over stdio 长连接，适合每次启动都很慢的脚本"
+            checked={!!form.persistent}
+            onChange={x => v.setToolForm({ ...form, persistent: x })} />
+
+          <Section>参数</Section>
+          <Field label="JSON Schema properties">
             <textarea className="plugin-json" value={form.paramsText}
-              onChange={e => v.setToolForm({ ...form, paramsText: e.target.value })} /></label>
-          <label className="field"><span>必填参数（逗号分隔）</span>
+              onChange={e => v.setToolForm({ ...form, paramsText: e.target.value })} />
+          </Field>
+          <Field label="必填参数" hint="逗号分隔，必须出现在上面的 properties 里">
             <input value={form.requiredText}
-              onChange={e => v.setToolForm({ ...form, requiredText: e.target.value })} /></label>
+              onChange={e => v.setToolForm({ ...form, requiredText: e.target.value })} />
+          </Field>
         </div>
       ) : null}
 
