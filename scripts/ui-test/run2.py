@@ -13,6 +13,8 @@ s=Session(1600,1000); req("POST",f"/session/{s.id}/window/rect",{"width":1600,"h
 # 自建一条带步骤的任务。原来直接依赖库里已有任务，一旦 tasks 表是空的
 # （新机器、或刚清过数据），第 22 行点了没反应、第 32 行直接 TypeError 崩掉。
 task_conv = new_conv("ui-run2")
+import atexit
+atexit.register(drop_conv, task_conv)   # 断言失败/异常退出也要清，别把测试会话留在真实库里
 task_id = None
 try:
     r = urllib.request.Request(B + "/api/tasks",

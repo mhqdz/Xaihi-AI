@@ -84,6 +84,11 @@ class Session:
 
     def shot(self, path):
         r = req("GET", f"/session/{self.id}/screenshot")
+        # 目录不存在就建：/tmp 会被系统定期清理，脚本不该因为少个目录就在
+        # 最后一步崩掉（崩溃还会跳过清理，把测试会话留在真实库里）
+        d = os.path.dirname(os.path.abspath(path))
+        if d:
+            os.makedirs(d, exist_ok=True)
         with open(path, "wb") as f:
             f.write(base64.b64decode(r["value"]))
         return path

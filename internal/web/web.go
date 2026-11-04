@@ -266,8 +266,11 @@ func (s *Server) Handler() http.Handler {
 			if sp.Name == "handoff_fail" {
 				continue // 子会话专用，不进配置界面
 			}
+			// command / required 也要给前端：插件编辑表单靠它们回显，
+			// 缺了就会拿一个"命令为空"的表单给你，一保存就被校验拦下。
 			out = append(out, map[string]any{"name": sp.Name, "description": sp.Description,
-				"params": sp.Params, "source": sp.Source, "path": sp.Path,
+				"params": sp.Params, "required": sp.Required, "command": sp.Command,
+				"source": sp.Source, "path": sp.Path,
 				"timeout_ms": sp.TimeoutMs, "persistent": sp.Persistent})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i]["name"].(string) < out[j]["name"].(string) })

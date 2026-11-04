@@ -13,6 +13,8 @@ B="http://127.0.0.1:18400"
 # 而断言写成 (not tid) or (...)，于是 tkid 为 None 时它直接算通过：
 # 测试绿了，但其实什么都没测。
 task_conv = new_conv("ui-run3-task")
+import atexit
+atexit.register(drop_conv, task_conv)   # 断言失败/异常退出也要清，别把测试会话留在真实库里
 tid = None
 try:
     r = urllib.request.Request(B + "/api/tasks",

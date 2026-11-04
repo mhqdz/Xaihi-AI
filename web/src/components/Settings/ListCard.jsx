@@ -98,7 +98,10 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
             <div className="item" key={t.name} title={t.path || '内置工具（在程序内指定）'}
               onClick={() => v.pickTool(t)}>
               <b className="item-title">{t.name}
-                {t.source !== 'plugin' ? <span className="src-tag builtin">内置</span> : null}
+                {/* 两种来源都标：只给内置标，等于让"外置"靠这一行的缺失来表达 */}
+                <span className={'src-tag ' + (t.source === 'plugin' ? 'plugin' : 'builtin')}>
+                  {t.source === 'plugin' ? '外置' : '内置'}
+                </span>
               </b>
               <span className="item-desc">{t.description}</span>
             </div>

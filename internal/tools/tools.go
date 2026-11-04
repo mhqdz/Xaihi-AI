@@ -35,6 +35,7 @@ type Spec struct {
 	Description string
 	Source      string         // builtin（Go 内置）或 plugin（外置插件）
 	Path        string         // 插件清单路径（builtin 为空）
+	Command     []string       // 插件启动命令（builtin 为空；配置界面要回显它才能编辑）
 	TimeoutMs   int            // 插件声明的超时（0 = 内置/默认）
 	Persistent  bool           // 是否常驻进程
 	Params      map[string]any // JSON Schema properties

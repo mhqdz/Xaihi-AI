@@ -18,6 +18,13 @@ BASE = "http://127.0.0.1:18400"
 # 准备一条任务（有步骤可看）
 # 只能清理自己造的那份：库里已有任务时别动别人的
 created_cid, created_tid = None, None
+import atexit
+
+def _cleanup_run():
+    if created_cid:
+        drop_conv(created_cid)
+atexit.register(_cleanup_run)   # 中途崩了也要清，否则测试会话会留在真实库里
+
 tasks = api("/api/tasks").get("tasks") or []
 if not tasks:
     created_cid = new_conv("ui-run")

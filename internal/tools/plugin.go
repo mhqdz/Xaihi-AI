@@ -110,6 +110,7 @@ func LoadPlugins(dir string) (map[string]*Spec, []string) {
 			Required:    m.Required,
 			Source:      "plugin",
 			Path:        path,
+			Command:     m.Command,
 			TimeoutMs:   m.TimeoutMs,
 		}
 		sp.Run = pluginRun(m)

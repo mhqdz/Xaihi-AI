@@ -2,10 +2,16 @@ import React from 'react'
 import Card from './Card'
 
 // 工具详情 / 插件表单卡（第二级）
+//
+// 内置工具和外置插件走同一个详情模板：来源、超时、进程、启用情况都在固定位置，
+// 外置多出命令和清单，以及底部的编辑入口。
+// 以前外置工具点开是直接进编辑表单（没有详情这一层），而列表接口当时又不返回
+// command —— 于是给出一张"命令为空"的表单，一保存就被校验拦下。
 export default function ToolCard({ v, narrow, profiles, top }) {
   const cfg = v.toolCfg
   const form = v.toolForm
   if (!cfg && !form) return null
+  const isPlugin = cfg?.source === 'plugin'
   return (
     <Card kind="col-detail" top={top}
       title={form ? (form.isNew ? 'new plugin' : 'tool · ' + form.name) : ('tool · ' + cfg.name)}
@@ -13,7 +19,7 @@ export default function ToolCard({ v, narrow, profiles, top }) {
       actions={form ? (
         <span className="card-actions title-actions">
           <button className="btn" onClick={v.closeToolForm}>取消</button>
-          <button className="btn" onClick={v.savePlugin}>保存</button>
+          <button className="btn save" onClick={v.savePlugin}>保存</button>
         </span>
       ) : null}>
 
@@ -26,7 +32,7 @@ export default function ToolCard({ v, narrow, profiles, top }) {
             <input value={form.description}
               onChange={e => v.setToolForm({ ...form, description: e.target.value })} /></label>
           <label className="field"><span>命令（每行一个参数，直接 exec 不走 shell）</span>
-            <textarea className="plugin-cmd" value={form.command}
+            <textarea className="plugin-cmd plugin-json" value={form.command}
               placeholder={'~/Workspace/agentd/scripts/tools/kb_get\n{{id}}'}
               onChange={e => v.setToolForm({ ...form, command: e.target.value })} /></label>
           <label className="field"><span>超时（毫秒）</span>
@@ -44,11 +50,6 @@ export default function ToolCard({ v, narrow, profiles, top }) {
           <label className="field"><span>必填参数（逗号分隔）</span>
             <input value={form.requiredText}
               onChange={e => v.setToolForm({ ...form, requiredText: e.target.value })} /></label>
-          {!form.isNew ? (
-            <div className="card-foot del-bottom-wrap" style={{ display: 'flex' }}>
-              <button className="btn danger del-bottom" onClick={v.deletePlugin}>删除插件</button>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -58,18 +59,32 @@ export default function ToolCard({ v, narrow, profiles, top }) {
             <span className="item-title">说明</span>
             <span className="item-desc">{cfg.description || '（空）'}</span>
           </div>
-          <div className="set-section">来源</div>
+
+          <div className="set-section">来源与运行</div>
           <div className="item static">
-            <span className="item-title">{cfg.source === 'plugin' ? '外置插件' : '内置工具'}</span>
-            <span className="item-desc">{cfg.source === 'plugin' ? '清单 + 脚本，改完即生效' : 'Go 内置，改需重编译'}</span>
+            <span className="item-title">{isPlugin ? '外置插件' : '内置工具'}</span>
+            <span className="item-desc">{isPlugin ? '清单 + 脚本，改完即生效' : 'Go 内置，改需重编译'}</span>
           </div>
-          {cfg.source === 'plugin' ? (
+          {/* 超时和进程两种来源都列 —— 内置以前完全不显示，
+              想确认"这个工具能跑多久"只能去翻源码 */}
+          <div className="field"><span>超时</span>
+            <div className="tool-meta">
+              {isPlugin
+                ? (cfg.timeout_ms ? cfg.timeout_ms + ' ms' : '清单未指定（按默认 20s）')
+                : '由实现决定（bash 180s、recall 300ms，其余跟随会话）'}
+            </div>
+          </div>
+          <div className="field"><span>进程</span>
+            <div className="tool-meta">{cfg.persistent ? '常驻（JSON-RPC over stdio）' : '一次性'}</div>
+          </div>
+          {isPlugin ? (
             <>
+              <div className="field"><span>命令</span>
+                <div className="tool-meta tool-cmd">{(cfg.command || []).join(' ') || '（未读到命令）'}</div>
+              </div>
               <div className="field"><span>清单</span>
-                <div className="tool-meta">{cfg.path}</div></div>
-              <div className="field"><span>超时</span>
-                <div className="tool-meta">{cfg.timeout_ms ? cfg.timeout_ms + ' ms' : '默认（20s）'}
-                  {cfg.persistent ? ' · 常驻进程（JSON-RPC over stdio）' : ' · 一次性进程'}</div></div>
+                <div className="tool-meta tool-cmd">{cfg.path}</div>
+              </div>
             </>
           ) : null}
 
@@ -84,6 +99,14 @@ export default function ToolCard({ v, narrow, profiles, top }) {
             })()}
           </div>
           <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
+
+          {isPlugin ? (
+            <div className="set-foot-actions">
+              <button className="btn" onClick={v.editPlugin}>编辑插件定义</button>
+              <span style={{ flex: 1 }} />
+              <button className="btn danger" onClick={v.deletePlugin}>删除插件</button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </Card>

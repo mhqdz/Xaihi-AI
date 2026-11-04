@@ -299,15 +299,24 @@ export function useSettings({ refresh }) {
     setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
     setToolCfg(null); setToolForm(null)   // 2 级详情同一时刻只能有一张
   }
+  // 点工具只打开"详情卡"（内置和外置同一套）。以前外置直接跳进编辑表单，
+  // 而列表接口当时不返回 command —— 于是给你一张命令为空的表单，
+  // 一保存就被"名字与命令必填"拦下。信息先看，要改再点编辑。
   const pickTool = (t) => {
-    setEditP(null); setToolEdit(null); setEditField(null)
+    setEditP(null); setToolEdit(null); setEditField(null); setToolForm(null)
     setToolCfg({ ...t, enabled: t.enabled !== false, subtools: t.subtools || [] })
-    setToolForm(t.source === 'plugin' ? {
+  }
+
+  // 从详情卡进入插件定义编辑（只有外置有）
+  const editPlugin = () => {
+    const t = toolCfg
+    if (!t) return
+    setToolForm({
       isNew: false, name: t.name, description: t.description || '',
       command: (t.command || []).join('\n'), timeoutMs: t.timeout_ms || 20000,
       persistent: !!t.persistent, paramsText: JSON.stringify(t.params || {}, null, 2),
       requiredText: (t.required || []).join(',')
-    } : null)
+    })
   }
   const newPlugin = () => {
     setEditP(null); setToolEdit(null); setEditField(null); setToolCfg(null)
@@ -336,12 +345,24 @@ export function useSettings({ refresh }) {
     const r = await fetch('/api/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) { alert(j.error || '保存失败'); return }
-    setToolForm(null); setToolCfg(null); await refresh(); await reload()
+    // 编辑已有插件：保存后回到详情卡（并换成新数据），别把整层关掉；
+    // 新建则退回列表，让新插件出现在工具列表里
+    setToolForm(null)
+    if (toolForm.isNew) {
+      setToolCfg(null)
+    } else {
+      const list = await api('/api/tools').catch(() => null)
+      const updated = (list || []).find(t => t.name === body.name)
+      setToolCfg(updated ? { ...updated, enabled: true, subtools: [] } : null)
+    }
+    await refresh(); await reload()
   }
   const deletePlugin = async () => {
-    if (!toolForm) return
-    if (!confirm('删除插件 ' + toolForm.name + '？（只删清单，脚本文件保留）')) return
-    const r = await fetch('/api/plugins/' + toolForm.name, { method: 'DELETE' })
+    // 详情卡和编辑表单里都可能点删除：名字优先取表单，其次取详情
+    const name = toolForm ? toolForm.name : toolCfg?.name
+    if (!name) return
+    if (!confirm('删除插件 ' + name + '？（只删清单，脚本文件保留）')) return
+    const r = await fetch('/api/plugins/' + name, { method: 'DELETE' })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) { alert(j.error || '删除失败'); return }
     setToolForm(null); setToolCfg(null); await refresh(); await reload()
@@ -369,6 +390,6 @@ export function useSettings({ refresh }) {
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     openSystemEditor, openToolEditor,
-    savePlugin, deletePlugin, deleteProfile, cleanShots,
+    savePlugin, deletePlugin, deleteProfile, cleanShots, editPlugin,
   }
 }
