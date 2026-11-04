@@ -677,6 +677,84 @@ def deep_links():
         s.close()
 
 
+def task_deeplink():
+    """?task=<id> 直接打开任务详情并滚到步骤。"""
+    print("\n" + "=" * 62)
+    print("第十部分：任务深链")
+    print("=" * 62)
+    import os
+    import sqlite3
+    import dbtool
+
+    db = os.path.expanduser("~/.data/agentd/agentd.db")
+    cid = dbtool.new_conv("cfg-task-dl")
+    tid = None
+    s = Session(1600, 1000)
+    try:
+        req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+        st, d = api("POST", "/api/tasks", {"kind": "smoke", "conv_id": cid, "card": {"goal": "dl"}})
+        tid = d.get("task_id")
+        check("任务建好", st == 200 and tid, f"{st} {d}")
+        for _ in range(30):
+            time.sleep(0.5)
+            st, det = api("GET", f"/api/tasks/{tid}")
+            if ((det or {}).get("task") or {}).get("status") in ("done", "failed", "interrupted"):
+                break
+        s.get(B + f"/?settings=1&task={tid}")
+        time.sleep(2.8)
+        check("?task= 打开了任务详情", s.js("return document.querySelectorAll('.task-step').length > 0"),
+              s.js("return document.querySelectorAll('.task-step').length"))
+        check("深链不把面板弄脏",
+              not s.js("return !!document.querySelector('.col-list .title-actions')"), "")
+    finally:
+        s.close()
+        con = sqlite3.connect(db)
+        if tid:
+            con.execute("delete from outbox where text like ?", ("%%smoke #%d ·%%" % tid,))
+            con.execute("delete from outbox where conv_id = ?", (cid,))
+            con.execute("delete from tasks where id = ?", (tid,))
+        con.commit()
+        con.close()
+        dbtool.drop_conv(cid)
+
+
+def new_plugin_ui():
+    """从界面新建一个插件并保存（之前只用 API 建过探针）。"""
+    print("\n" + "=" * 62)
+    print("第十一部分：界面新建插件")
+    print("=" * 62)
+    s = Session(1600, 1000)
+    try:
+        req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+        s.get(B + "/?settings=1&newplugin=1")
+        time.sleep(2.5)
+        s.js("window.__alerts=[]; window.alert=(m)=>{window.__alerts.push(String(m))}; return 1")
+        check("新建表单打开", s.js("return !!document.querySelector('.plugin-cmd')"), "")
+        fill = s.js("""
+const f=(label)=>{const x=[...document.querySelectorAll('.col-detail .field')]
+  .find(e=>(e.querySelector('span')||{}).textContent?.trim()===label); return x?x.querySelector('input,textarea'):null};
+const set=(el,v)=>{const P=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(P,'value').set.call(el,v);
+  el.dispatchEvent(new Event('input',{bubbles:true}));};
+const n=f('名称'), c=f('命令');
+if(!n||!c) return 'NO_FIELD';
+set(n,'cfg_new_ui'); set(c,['/bin/echo','hi'].join(String.fromCharCode(10)));
+return {name:n.value, cmd:c.value};""")
+        check("能填名称和命令", isinstance(fill, dict) and fill.get("name") == "cfg_new_ui", fill)
+        s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
+        time.sleep(1.8)
+        check("保存无报错", s.js("return window.__alerts.length") == 0, s.js("return window.__alerts"))
+        st, lst = api("GET", "/api/tools")
+        check("新插件出现在工具列表", any(x["name"] == "cfg_new_ui" for x in (lst or [])),
+              [x["name"] for x in (lst or [])][:6])
+        api("DELETE", "/api/plugins/cfg_new_ui")
+        st, lst = api("GET", "/api/tools")
+        check("已清理", not any(x["name"] == "cfg_new_ui" for x in (lst or [])), "")
+    finally:
+        s.close()
+        api("DELETE", "/api/plugins/cfg_new_ui")
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -690,6 +768,8 @@ def main():
         narrow_flow()
         delete_flow()
         deep_links()
+        task_deeplink()
+        new_plugin_ui()
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()
