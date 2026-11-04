@@ -445,6 +445,81 @@ def tool_issue_notice(s):
     check("删掉坏插件后提示消失", s.js("return !document.querySelector('.tool-issue')"), "")
 
 
+def tasks_section(s):
+    """一级卡的任务区：空状态 → 造一条 → 详情 → 清理。"""
+    print("\n" + "=" * 62)
+    print("第六部分：任务区")
+    print("=" * 62)
+    import os
+    import sqlite3
+    import dbtool
+
+    db = os.path.expanduser("~/.data/agentd/agentd.db")
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.5)
+    empty = s.js("""const el=[...document.querySelectorAll('.col-list .set-meta')]
+        .find(e=>/还没有任务|可用配方|未注册配方/.test(e.textContent));
+      return el ? el.textContent.trim() : null;""")
+    check("空状态有说明", empty is not None and ("还没有任务" in empty), empty)
+
+    cid = dbtool.new_conv("cfg-task")
+    tid, child = None, None
+    try:
+        st, d = api("POST", "/api/tasks", {"kind": "smoke", "conv_id": cid, "card": {"goal": "cfg"}})
+        tid = d.get("task_id")
+        check("任务创建成功", st == 200 and tid, f"{st} {d}")
+        # smoke 配方几步、要几秒，等它跑完
+        for _ in range(30):
+            time.sleep(0.5)
+            st, det = api("GET", f"/api/tasks/{tid}")
+            t = (det or {}).get("task") or {}
+            if t.get("status") in ("done", "failed", "interrupted"):
+                child = t.get("child_conv")
+                break
+        # smoke 配方不建子会话，child_conv 是 0 —— 判据应该是"进了终态"
+        check("任务跑完", t.get("status") in ("done", "failed", "interrupted"), t.get("status"))
+
+        s.get(B + "/?settings=1&conv=51")
+        time.sleep(2.5)
+        row = s.js("""const el=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>/^#%d\\b/.test(e.querySelector('.item-title')?.textContent.trim()||''));
+          if(!el) return null;
+          const b=el.getBoundingClientRect();
+          return {text:el.textContent.trim().slice(0,60), h:Math.round(b.height)};""" % tid)
+        check("任务出现在列表里", isinstance(row, dict) and row.get("h", 0) >= 24, row)
+        check("任务行有状态标签", isinstance(row, dict) and "done" in row.get("text", ""), (row or {}).get("text", "")[:40])
+
+        s.js("""const el=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>/^#%d\\b/.test(e.querySelector('.item-title')?.textContent.trim()||''));
+          el&&el.click(); return !!el;""" % tid)
+        time.sleep(1.2)
+        detail = s.js("""const steps=[...document.querySelectorAll('.task-step')];
+          return {n: steps.length, first: steps[0]?.textContent.trim().slice(0,40)||null};""")
+        check("点开能看到步骤", isinstance(detail, dict) and detail.get("n", 0) > 0, detail)
+
+        if child:
+            btn = s.js("""const b=[...document.querySelectorAll('button')].find(x=>/打开子会话/.test(x.textContent));
+              return !!b;""")
+            check("有打开子会话的入口", btn, "")
+    finally:
+        con = sqlite3.connect(db)
+        if tid:
+            # child_conv 对 smoke 配方是 0，但任务回报仍会落进 outbox；
+            # 按文本兜底，避免留下指向不存在会话的孤儿行
+            con.execute("delete from outbox where text like ?", ("%%smoke #%d ·%%" % tid,))
+            con.execute("delete from outbox where conv_id in (?, ?)", (child or -1, cid))
+            con.execute("delete from tasks where id = ?", (tid,))
+        con.commit()
+        con.close()
+        if child:
+            dbtool.drop_conv(child)
+        dbtool.drop_conv(cid)
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.0)
+    check("清理后回到空状态", s.js("""return [...document.querySelectorAll('.col-list .set-meta')]
+        .some(e=>/还没有任务/.test(e.textContent));"""), "")
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -454,6 +529,7 @@ def main():
         level1(s)
         plugin_flow(s)
         tool_issue_notice(s)
+        tasks_section(s)
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()
