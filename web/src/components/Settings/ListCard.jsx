@@ -21,6 +21,7 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           <div className="item static">
             <span className="item-title">工具调用轮次上限</span>
             <button type="button" role="switch" aria-checked={!!v.settings.tool_rounds_enabled}
+              aria-label="工具调用轮次上限"
               className={'tg' + (v.settings.tool_rounds_enabled ? ' on' : '')}
               onClick={() => v.setSettings({ ...v.settings, tool_rounds_enabled: !v.settings.tool_rounds_enabled })}><b /></button>
           </div>
@@ -36,6 +37,7 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           <div className="item static">
             <span className="item-title">自动归档</span>
             <button type="button" role="switch" aria-checked={!!v.settings.auto_archive_enabled}
+              aria-label="自动归档"
               className={'tg' + (v.settings.auto_archive_enabled ? ' on' : '')}
               onClick={() => v.setSettings({ ...v.settings, auto_archive_enabled: !v.settings.auto_archive_enabled })}><b /></button>
           </div>
@@ -63,6 +65,7 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           <div className="item static">
             <span className="item-title">截图清理</span>
             <button type="button" role="switch" aria-checked={!!v.settings.shots_auto_clean}
+              aria-label="截图自动清理"
               className={'tg' + (v.settings.shots_auto_clean ? ' on' : '')}
               onClick={() => v.setSettings({ ...v.settings, shots_auto_clean: !v.settings.shots_auto_clean })}><b /></button>
           </div>
@@ -74,7 +77,7 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           ) : null}
           <div className="item static" style={{ marginTop: '.4rem' }}>
             <span className="item-desc" style={{ margin: 0 }}>{v.shotInfo || '—'}</span>
-            <button className="btn" onClick={v.cleanShots}>立即清理</button>
+            <button type="button" className="btn" onClick={v.cleanShots}>立即清理</button>
           </div>
         </div>
 

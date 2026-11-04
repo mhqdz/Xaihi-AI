@@ -286,12 +286,141 @@ def functional(s):
     check("探针已清理", get_profile(PROBE_NAME) is None, "")
 
 
+def level1(s):
+    """一级卡：常规配置的开关与数字。
+
+    「立即清理」故意不点 —— 它会真的删截图目录里的文件，这里没有东西可恢复。
+    它的存在、尺寸、type 在盘点阶段已经查过。
+    """
+    print("\n" + "=" * 62)
+    print("第三部分：一级卡常规配置")
+    print("=" * 62)
+    orig = api("GET", "/api/settings")[1]
+    print(f"   原值 tool_rounds={orig.get('tool_rounds')} "
+          f"auto_archive={orig.get('auto_archive_enabled')} days={orig.get('auto_archive_days')}")
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.5)
+
+    got = s.js("""const i=[...document.querySelectorAll('.col-list input[type=number]')][0];
+      if(!i) return 'NO_INPUT';
+      const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+      set.call(i,'37'); i.dispatchEvent(new Event('input',{bubbles:true})); return i.value;""")
+    time.sleep(0.3)
+    check("1 级数字可编辑", got == "37", got)
+    check("1 级改动触发脏标记", dirty(s), "")
+
+    st = s.js("""const b=[...document.querySelectorAll('.col-list [role=switch]')][1];
+      if(!b) return 'NO_SWITCH';
+      return {before:b.getAttribute('aria-checked'), label:b.getAttribute('aria-label')};""")
+    s.js("document.querySelectorAll('.col-list [role=switch]')[1].click(); return 1")
+    time.sleep(0.6)
+    st['after'] = s.js("return document.querySelectorAll('.col-list [role=switch]')[1].getAttribute('aria-checked')")
+    check("1 级开关可切换", isinstance(st, dict) and st.get("before") != st.get("after"), st)
+
+    click_save(s)
+    now = api("GET", "/api/settings")[1]
+    check("保存后轮次上限生效", now.get("tool_rounds") == 37, now.get("tool_rounds"))
+    check("保存后归档开关翻转", now.get("auto_archive_enabled") != orig.get("auto_archive_enabled"),
+          f"{orig.get('auto_archive_enabled')} -> {now.get('auto_archive_enabled')}")
+
+    # 运行中提示写的是 localStorage，不是后端
+    r = s.js("""const t=document.querySelector('.ui-quips');
+      if(!t) return 'NO_QUIPS';
+      const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+      set.call(t, ['测试一句','测试两句'].join(String.fromCharCode(10)));
+      t.dispatchEvent(new Event('input',{bubbles:true}));
+      return JSON.parse(localStorage.getItem('ui.quips')||'[]');""")
+    time.sleep(0.3)
+    check("运行中提示写进 localStorage", r == ["测试一句", "测试两句"], r)
+    check("运行中提示不触发后端脏标记", not dirty(s), "它是本机偏好，不该进保存清单")
+
+    api("PUT", "/api/settings", orig)
+    restored = api("GET", "/api/settings")[1]
+    check("设置已还原", restored.get("tool_rounds") == orig.get("tool_rounds")
+          and restored.get("auto_archive_enabled") == orig.get("auto_archive_enabled"),
+          f"{restored.get('tool_rounds')}/{restored.get('auto_archive_enabled')}")
+
+
+def plugin_flow(s):
+    """外置插件：新建 → 详情 → 编辑 → 保存 → 说明编辑 → 删除。"""
+    print("\n" + "=" * 62)
+    print("第四部分：插件表单闭环")
+    print("=" * 62)
+    st, _ = api("POST", "/api/plugins", {"name": "cfg_plugin", "description": "测试插件",
+                                         "command": ["/bin/echo", "{{msg}}"], "timeoutMs": 5000,
+                                         "params": {"msg": {"type": "string"}},
+                                         "required": ["msg"]})
+    check("探针插件建好", st == 200, st)
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.5)
+
+    ok = s.js("""const x=[...document.querySelectorAll('.col-list .item')]
+        .find(e=>e.querySelector('.item-title')?.textContent.startsWith('cfg_plugin'));
+      x&&x.click(); return !!x;""")
+    time.sleep(1.2)
+    check("插件详情可打开", ok, "")
+    info = s.js("""return [...document.querySelectorAll('.col-detail .tool-meta')]
+        .map(e=>e.textContent.trim()).slice(0,4);""")
+    print("   详情信息：", info)
+
+    s.js("const b=[...document.querySelectorAll('.set-foot-actions .btn')].find(x=>/编辑插件定义/.test(x.textContent)); b&&b.click(); return !!b")
+    time.sleep(1.0)
+    check("编辑表单打开", s.js("return !!document.querySelector('.plugin-cmd')"), "")
+
+    got = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
+        .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='超时（毫秒）');
+      if(!f) return 'NO_FIELD';
+      const el=f.querySelector('input');
+      const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+      set.call(el,'7000'); el.dispatchEvent(new Event('input',{bubbles:true})); return el.value;""")
+    time.sleep(0.3)
+    check("插件超时可改", got == "7000", got)
+
+    sw_before = s.js("return document.querySelector('.col-detail .switch-row [role=switch]').getAttribute('aria-checked')")
+    # 点整行的空白处（不是那个 38×24 的钮）—— 验证"整行可点"真的成立
+    s.js("document.querySelector('.col-detail .switch-row').click(); return 1")
+    time.sleep(0.6)   # 等 React 重渲染
+    sw_after = s.js("return document.querySelector('.col-detail .switch-row [role=switch]').getAttribute('aria-checked')")
+    check("常驻进程开关可切换（整行可点）", sw_before != sw_after, f"{sw_before} -> {sw_after}")
+    # 再点回来：/bin/echo 撑不起 JSON-RPC 常驻进程，开着保存会让插件加载失败、
+    # 从工具列表里静默消失（见 AUDIT 里记的那条）。这里只验证开关本身。
+    s.js("document.querySelector('.col-detail .switch-row').click(); return 1")
+    time.sleep(0.6)
+    check("开关可切回", s.js("return document.querySelector('.col-detail .switch-row [role=switch]').getAttribute('aria-checked')") == sw_before, "")
+
+    s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
+    time.sleep(1.8)
+    check("保存后回到详情", s.js("return !!document.querySelector('.set-foot-actions')"), "")
+    st, lst = api("GET", "/api/tools")
+    t = next((x for x in (lst or []) if x["name"] == "cfg_plugin"), {})
+    check("插件超时已写入", t.get("timeout_ms") == 7000, t.get("timeout_ms"))
+    check("插件常驻标记已写入", t.get("persistent") is False, t.get("persistent"))
+
+    # 说明（3 级）
+    s.js("const it=[...document.querySelectorAll('.col-detail .item')][0]; it&&it.click(); return !!it")
+    time.sleep(1.0)
+    s.js("""const t=document.querySelector('.col-editor textarea');
+      const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+      set.call(t,'改过的测试插件说明'); t.dispatchEvent(new Event('input',{bubbles:true})); return 1;""")
+    time.sleep(0.3)
+    click_save(s)
+    st, lst = api("GET", "/api/tools")
+    t = next((x for x in (lst or []) if x["name"] == "cfg_plugin"), {})
+    check("工具说明已保存", t.get("description") == "改过的测试插件说明", t.get("description"))
+
+    api("DELETE", "/api/plugins/cfg_plugin")
+    st, lst = api("GET", "/api/tools")
+    check("探针插件已删除", not any(x["name"] == "cfg_plugin" for x in (lst or [])), "")
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
     try:
         inventory(s)
         functional(s)
+        level1(s)
+        plugin_flow(s)
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()
