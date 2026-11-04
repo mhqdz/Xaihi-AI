@@ -80,6 +80,7 @@ export function useSettings({ refresh }) {
   const [toolCfg, setToolCfg] = useState(null)    // 工具卡（只读信息）
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
+  const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
   const [settings, setSettings] = useState(BLANK_SETTINGS)
   const [setSnap, setSetSnap] = useState(() => JSON.stringify(BLANK_SETTINGS))
   const [tasks, setTasks] = useState([])
@@ -97,7 +98,12 @@ export function useSettings({ refresh }) {
     const r = await api('/api/shots/stats').catch(() => null)
     if (r) setShotInfo(`当前 ${r.count} 张，占用 ${r.size_mb.toFixed(1)} MB`)
   }
-  const loadTools = async () => { setToolList((await api('/api/tools').catch(() => [])) || []) }
+  const loadTools = async () => {
+    setToolList((await api('/api/tools').catch(() => [])) || [])
+    // 哪些插件没加载上、为什么。以前只有日志里有，界面上表现为"它不见了"
+    const iss = await api('/api/tools/issues').catch(() => null)
+    setToolIssues((iss && iss.issues) || [])
+  }
   const loadSettings = async () => {
     const s = await api('/api/settings').catch(() => BLANK_SETTINGS)
     setSettings(s); setSetSnap(JSON.stringify(s))
@@ -390,7 +396,7 @@ export function useSettings({ refresh }) {
   return {
     showSet, setShowSet,
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
-    toolList, toolCfg, setToolCfg, toolForm, setToolForm, toolEdit, setToolEdit,
+    toolList, toolIssues, toolCfg, setToolCfg, toolForm, setToolForm, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     models, shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,

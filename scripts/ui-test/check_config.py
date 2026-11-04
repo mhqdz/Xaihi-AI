@@ -413,6 +413,38 @@ def plugin_flow(s):
     check("探针插件已删除", not any(x["name"] == "cfg_plugin" for x in (lst or [])), "")
 
 
+def tool_issue_notice(s):
+    """插件加载失败时，界面要能说出原因，而不是让它凭空消失。"""
+    print("\n" + "=" * 62)
+    print("第五部分：插件加载失败的提示")
+    print("=" * 62)
+    import os
+    path = os.path.expanduser("~/.data/agentd/tools.d/zz_probe_bad.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"name": "zz_probe_bad", "description": "故意坏的常驻插件",
+                   "command": ["/bin/echo", "x"], "persistent": True, "timeoutMs": 3000}, f)
+    try:
+        s.get(B + "/?settings=1&conv=51")
+        time.sleep(2.5)
+        r = s.js("""const el=document.querySelector('.tool-issue');
+          if(!el) return null;
+          const b=el.getBoundingClientRect();
+          return {text:el.textContent.trim(), w:Math.round(b.width), h:Math.round(b.height)};""")
+        check("加载失败有可见提示", isinstance(r, dict) and r.get("h", 0) > 0, r)
+        check("提示里带上了文件名与原因",
+              isinstance(r, dict) and "zz_probe_bad.json" in r.get("text", "")
+              and "常驻插件启动失败" in r.get("text", ""), (r or {}).get("text", "")[:60])
+        st, d = api("GET", "/api/tools/issues")
+        check("issues 端点也报了", st == 200 and len(d.get("issues") or []) >= 1, d)
+        check("坏插件确实不在列表里",
+              not any(x["name"] == "zz_probe_bad" for x in (api("GET", "/api/tools")[1] or [])), "")
+    finally:
+        os.remove(path)
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.0)
+    check("删掉坏插件后提示消失", s.js("return !document.querySelector('.tool-issue')"), "")
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -421,6 +453,7 @@ def main():
         functional(s)
         level1(s)
         plugin_flow(s)
+        tool_issue_notice(s)
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()

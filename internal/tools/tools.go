@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unicode/utf8"
 
@@ -41,6 +42,22 @@ type Spec struct {
 	Params      map[string]any // JSON Schema properties
 	Required    []string
 	Run         func(ctx context.Context, args map[string]any, env *Env) (any, error)
+}
+
+// 最近一次 Registry() 里插件加载失败的说明。
+// 以前这些只有 logx.Warn 一行日志：你在界面上给插件打开了「常驻进程」，
+// 保存成功，然后它从工具列表里消失了 —— 没有任何提示。
+var lastWarns atomic.Value
+
+// LoadWarnings 返回最近一次加载时被跳过的插件及原因。
+func LoadWarnings() []string {
+	if v := lastWarns.Load(); v != nil {
+		if ws, ok := v.([]string); ok && ws != nil {
+			return ws
+		}
+	}
+	// 返回空切片而不是 nil：JSON 里是 [] 而不是 null，调用方不用做两种判断
+	return []string{}
 }
 
 func Registry() map[string]*Spec {
@@ -88,7 +105,10 @@ func Registry() map[string]*Spec {
 	}
 	// 外置插件：~/.data/agentd/tools.d/*.json（同名以内置为准）
 	{
-		if plugs, warns := LoadPlugins(config.DataPath("tools.d")); len(plugs) > 0 || len(warns) > 0 {
+		plugs, warns := LoadPlugins(config.DataPath("tools.d"))
+		// 无条件存：否则删掉坏插件后，上一次的警告会一直挂在界面上
+		lastWarns.Store(warns)
+		if len(plugs) > 0 || len(warns) > 0 {
 			for name, sp := range plugs {
 				if _, exists := m[name]; exists {
 					continue

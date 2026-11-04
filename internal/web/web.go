@@ -296,6 +296,16 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/apply", s.handleApply)
+	// 插件加载失败的说明单独一个只读端点：/api/tools 的响应是数组，
+	// 加字段会破坏调用方；这里给界面一个"为什么某个插件不见了"的答案
+	mux.HandleFunc("/api/tools/issues", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, 405, map[string]string{"error": "GET only"})
+			return
+		}
+		tools.Registry() // 刷新一次，保证读到当前目录的状态
+		writeJSON(w, 200, map[string]any{"issues": tools.LoadWarnings()})
+	})
 	mux.HandleFunc("/api/profiles", s.handleProfiles)
 	mux.HandleFunc("/api/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/", s.handleStatic)

@@ -1081,6 +1081,13 @@ pre.out{display:block;margin:.25rem 0 0;max-width:100%;max-height:11rem;overflow
 /* 只读元信息行（清单路径、超时） */
 .tool-meta{padding:.3rem .45rem;background:var(--c1);border:1px solid var(--line);
   color:var(--c6);font-size:.7rem;overflow-wrap:anywhere}
+/* 插件加载失败提示：放在工具配置区顶部，界面上"东西不见了"时能指出原因 */
+.tool-issue{margin:.45rem 0 .1rem;padding:.45rem .55rem;background:var(--c1);
+  border:1px solid var(--c4);border-left:3px solid var(--c5)}
+.tool-issue-t{font-size:.64rem;letter-spacing:.1em;color:var(--c6);margin-bottom:.25rem}
+.tool-issue-r{font-size:.64rem;line-height:1.5;color:var(--c6);overflow-wrap:anywhere}
+.tool-issue-r + .tool-issue-r{margin-top:.15rem}
+
 /* 命令和清单路径用等宽体：它们是路径，逐字符对照才有意义 */
 .tool-cmd{font-family:var(--ef-font-mono);font-size:.66rem;line-height:1.45}
 /* 工具详情卡底部的操作（编辑定义 / 删除）：和上面的信息块留出间距，

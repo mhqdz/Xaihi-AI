@@ -94,6 +94,13 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
         </div>
 
         <div className="set-section">工具配置</div>
+        {/* 加载失败被跳过的插件：不给提示的话，界面上只表现为"它不见了" */}
+        {(v.toolIssues || []).length ? (
+          <div className="tool-issue">
+            <div className="tool-issue-t">以下插件没有加载成功</div>
+            {v.toolIssues.map((m, i) => <div key={i} className="tool-issue-r">{m}</div>)}
+          </div>
+        ) : null}
         <div className="set-card">
           {[...v.toolList].sort((a, b) => {
             const g = (x) => (x.source === 'plugin' ? 1 : 0)   // 内置 0，外置 1
