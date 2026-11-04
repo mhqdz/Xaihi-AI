@@ -212,39 +212,47 @@ export function useSettings({ refresh }) {
   }
 
   // 把清单真正写进后端。一项失败就停在那儿并保留清单，不假装成功。
+  // 把清单一次提交：POST /api/apply，后端按 kind 分发。
+  // 以前是前端循环发请求（profile 一个、工具一个、配置再一个），
+  // 中途失败就停在半路、前面几条已生效。现在只有一次往返，
+  // 而且后端会先全量校验再写，失败时告诉你是第几项、什么原因。
   const commitSheet = async () => {
     const list = sheet || []
+    if (!list.length) return
     setCommitting(true)
-    for (const c of list) {
-      let resp
-      try {
-        if (c.kind === 'profile') {
-          const { _new, ...body } = c.next
-          resp = await fetch('/api/profiles', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body, tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
-              keep_messages: body.keep_messages || 16 })
-          })
-        } else if (c.kind === 'tool') {
-          resp = await fetch('/api/tools/' + c.name, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description: c.next.description })
-          })
-        } else {
-          resp = await fetch('/api/settings', {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c.next)
-          })
+    const changes = list.map(c => {
+      if (c.kind === 'profile') {
+        const { _new, ...body } = c.next
+        return {
+          kind: 'profile', name: c.next.name,
+          data: {
+            ...body,
+            tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
+            keep_messages: body.keep_messages || 16
+          }
         }
-      } catch (e) {
-        setCommitting(false); alert('保存失败（' + c.title + '）：' + e.message); return
       }
-      if (!resp.ok) {
-        let msg = 'HTTP ' + resp.status
-        try { msg = (await resp.json()).error || msg } catch (e) {}
-        setCommitting(false); alert('保存失败（' + c.title + '）：' + msg); return
-      }
+      if (c.kind === 'tool') return { kind: 'tool', name: c.name, data: { description: c.next.description } }
+      return { kind: 'settings', data: c.next }
+    })
+    let resp
+    try {
+      resp = await fetch('/api/apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes })
+      })
+    } catch (e) {
+      setCommitting(false); alert('保存失败：' + e.message); return
     }
-    // 全部成功才清状态
+    const j = await resp.json().catch(() => ({}))
+    if (!resp.ok) {
+      // 后端给了 index 就指出具体是哪一条，别让人对着一句"保存失败"猜
+      const which = typeof j.index === 'number' && list[j.index] ? '（' + list[j.index].title + '）' : ''
+      setCommitting(false)
+      alert('保存失败' + which + '：' + (j.error || ('HTTP ' + resp.status)))
+      return
+    }
+    // 成功才清状态
     setDrafts({})
     if (editP) { setEditSnap(snapOf(editP)) }
     setEditOriginal(editField ? (editP?.[editField] || '') : (toolEdit?.description || ''))

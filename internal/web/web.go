@@ -289,31 +289,13 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		sp, ok := tools.Registry()[name]
-		if !ok {
-			writeJSON(w, 404, map[string]string{"error": "没有这个工具"})
-			return
-		}
-		logx.Info("tool.save name=%s chars=%d source=%s", name, len([]rune(body.Description)), sp.Source)
-		if sp.Source == "plugin" {
-			// 插件：说明写回清单（避免被 tools.json 覆盖成第二份真源）
-			b, _ := os.ReadFile(sp.Path)
-			var m tools.PluginDraft
-			_ = json.Unmarshal(b, &m)
-			m.Name, m.Description = name, body.Description
-			if err := tools.SavePlugin(m); err != nil {
-				writeJSON(w, 400, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, 200, map[string]any{"ok": true})
-			return
-		}
-		if err := tools.SaveOverride(name, body.Description); err != nil {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
+		if code, err := saveToolDescription(name, body.Description); err != nil {
+			writeJSON(w, code, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
+	mux.HandleFunc("/api/apply", s.handleApply)
 	mux.HandleFunc("/api/profiles", s.handleProfiles)
 	mux.HandleFunc("/api/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/", s.handleStatic)
@@ -968,6 +950,31 @@ const placeholder = `<!doctype html><meta charset="utf-8"><title>agentd</title>
 <ul><li>GET /api/health</li><li>GET /api/convs</li><li>POST /api/chat</li></ul>`
 
 // GET/POST /api/profiles  ·  PUT/DELETE /api/profiles/<name>
+// saveToolDescription：把工具说明写回它真正的来源。
+// 插件写清单（否则会被 tools.json 覆盖，变成两份真源打架），内置写 tools.json 覆盖。
+// 单独抽出来是因为批量提交也要走同一条路 —— 两处各写一套迟早会分叉。
+func saveToolDescription(name, desc string) (int, error) {
+	sp, ok := tools.Registry()[name]
+	if !ok {
+		return 404, fmt.Errorf("没有这个工具")
+	}
+	logx.Info("tool.save name=%s chars=%d source=%s", name, len([]rune(desc)), sp.Source)
+	if sp.Source == "plugin" {
+		b, _ := os.ReadFile(sp.Path)
+		var m tools.PluginDraft
+		_ = json.Unmarshal(b, &m)
+		m.Name, m.Description = name, desc
+		if err := tools.SavePlugin(m); err != nil {
+			return 400, err
+		}
+		return 200, nil
+	}
+	if err := tools.SaveOverride(name, desc); err != nil {
+		return 500, err
+	}
+	return 200, nil
+}
+
 func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

@@ -64,6 +64,34 @@
 | POST / PUT | `/api/profiles` | 新建或更新（`api_key` 为空则回落全局配置）。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
 | DELETE | `/api/profiles/{name}` | 删除（内置也可删） |
 
+### 批量提交：`POST /api/apply`
+
+一次提交多处改动，后端按 `kind` 分发。前端把改过的东西攒成一张表单发过来，
+不用自己知道"这个字段该打到哪个端点"。
+
+```json
+{"changes":[
+  {"kind":"profile","data":{ /* 与 POST /api/profiles 的 body 相同 */ }},
+  {"kind":"tool","name":"kb_get","data":{"description":"…"}},
+  {"kind":"settings","data":{ /* 与 PUT /api/settings 的 body 相同 */ }}
+]}
+```
+
+返回：
+
+| 情况 | 状态码 | body |
+|---|---|---|
+| 全部成功 | 200 | `{ok:true, applied:N}` |
+| 某一项校验失败 | 400 | `{error, index, kind, name, applied:0}` |
+| 写入时 IO 失败 | 500 | `{error, index, …, applied:N}` |
+
+**分两阶段**：先把每一项解析并校验完（一个问题都不写盘），全部通过才开始写。
+所以「第 2 项字段非法」不会让第 1 项白写进去 —— `applied` 始终准确反映真实落了
+几条。`index` 从 0 开始，前端据此指出是哪一条出错。
+
+上限 200 项；超过返回 400。和其它写接口一样要求
+`Content-Type: application/json`（缺了返回 415）。
+
 profile 里与上下文/生成相关的字段：
 
 | 字段 | 默认 | 说明 |
