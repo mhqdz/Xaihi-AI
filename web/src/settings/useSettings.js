@@ -167,17 +167,16 @@ export function useSettings({ refresh }) {
   const [sheet, setSheet] = useState(null)
   const [committing, setCommitting] = useState(false)
 
-  // 取消：只回滚当前层
+  // 取消：放弃**所有**攒着没存的改动。
+  //
+  // 这个按钮只出现在一级卡标题栏和窄屏底部操作条上，都是"整批"的位置；
+  // 它旁边的保存弹的是全部改动清单，所以取消也必须是全部，否则
+  // 点了取消、操作条上还挂着草稿（原来只回滚当前层，草稿没清）。
   const cancel = () => {
-    if (editorDirty) {
-      if (editField) setEditP({ ...editP, [editField]: editOriginal })
-      else setToolEdit({ ...toolEdit, description: editOriginal })
-    } else if (formDirty) {
-      setEditP(JSON.parse(editSnap || '{}'))
-      setDrafts(d => { const n = { ...d }; delete n[editP?.name]; return n })
-    } else {
-      setSettings(JSON.parse(setSnap || '{}'))
-    }
+    setDrafts({})
+    setEditField(null); setToolEdit(null)
+    if (editP) setEditP(JSON.parse(editSnap || '{}'))
+    setSettings(JSON.parse(setSnap || '{}'))
   }
 
   // 把所有"攒着没存"的改动收集成一份清单：当前打开的 profile、草稿里的其它 profile、

@@ -520,6 +520,85 @@ def tasks_section(s):
         .some(e=>/还没有任务/.test(e.textContent));"""), "")
 
 
+def narrow_flow():
+    """窄屏（900px）：卡片层叠、返回箭头、删除按钮换位、底部操作条。
+
+    1600 宽下这些分支根本不会执行 —— 窄屏只显示最上面那张卡，
+    删除从标题栏挪到底部，保存/取消也从一级卡挪到底部固定条。
+    """
+    print("\n" + "=" * 62)
+    print("第七部分：窄屏层叠")
+    print("=" * 62)
+    s = Session(900, 1000)
+    try:
+        req("POST", f"/session/{s.id}/window/rect", {"width": 900, "height": 1000})
+        s.get(B + "/?settings=1&conv=51")
+        time.sleep(2.5)
+
+        def visible():
+            return s.js("""return [...document.querySelectorAll('.set-cols .card')]
+                .filter(c=>getComputedStyle(c).display!=='none').map(c=>c.className.trim());""")
+
+        v1 = visible()
+        check("1 级只显示一张卡", len(v1) == 1 and "col-list" in v1[0], v1)
+        check("1 级有返回箭头", s.js("""const b=document.querySelector('.col-list .back');
+            return !!b && getComputedStyle(b).display!=='none';"""), "")
+
+        open_profile(s, "180-low")
+        v2 = visible()
+        check("2 级只显示详情卡", len(v2) == 1 and "col-detail" in v2[0], v2)
+        dele = s.js("""const t=document.querySelector('.col-detail .del-top');
+          const b=document.querySelector('.col-detail .del-bottom');
+          const wrap=document.querySelector('.col-detail .del-bottom-wrap');
+          const inf=el=>el?{d:getComputedStyle(el).display,h:Math.round(el.getBoundingClientRect().height)}:null;
+          return {top:inf(t), bottom:inf(b), wrap:inf(wrap)};""")
+        check("窄屏删除按钮在底部", isinstance(dele, dict)
+              and dele.get("top", {}).get("d") == "none"
+              and dele.get("bottom", {}).get("h", 0) >= 24, dele)
+
+        s.js("const it=[...document.querySelectorAll('.col-detail .item')].find(e=>/system/.test(e.textContent)); it&&it.click(); return !!it")
+        time.sleep(1.0)
+        v3 = visible()
+        check("3 级只显示编辑卡", len(v3) == 1 and "col-editor" in v3[0], v3)
+        foot = s.js("""const f=document.querySelector('.set-col-foot');
+          return f? f.textContent.trim() : null;""")
+        check("3 级有字数统计", isinstance(foot, str) and "字" in foot, foot)
+
+        s.js("const b=document.querySelector('.col-editor .back'); b&&b.click(); return !!b")
+        time.sleep(0.8)
+        check("返回后回到 2 级", "col-detail" in (visible() or [""])[0], visible())
+        s.js("const b=document.querySelector('.col-detail .back'); b&&b.click(); return !!b")
+        time.sleep(0.8)
+        check("再返回回到 1 级", "col-list" in (visible() or [""])[0], visible())
+
+        # 底部操作条：不脏时不存在，脏了才出现
+        check("不脏时没有底部操作条", not s.js("return !!document.querySelector('.set-actions')"), "")
+        open_profile(s, "180-low")
+        s.js(SET_FIELD, "压缩阈值 (%)", "66")
+        time.sleep(0.5)
+        bar = s.js("""const b=document.querySelector('.set-actions');
+          if(!b) return null;
+          return {h:Math.round(b.getBoundingClientRect().height),
+                  btns:[...b.querySelectorAll('.btn')].map(x=>x.textContent.trim())};""")
+        check("脏了出现底部操作条", isinstance(bar, dict) and bar["h"] >= 24, bar)
+        check("操作条有取消和保存", isinstance(bar, dict) and bar["btns"] == ["取消", "保存"], (bar or {}).get("btns"))
+
+        # Esc 在窄屏下退出详情卡（改动转成草稿，不丢），面板不关
+        s.js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})); return 1")
+        time.sleep(0.5)
+        check("Esc 不关面板", s.js("return !!document.querySelector('.set-cols')"), "")
+        check("Esc 退回列表且草稿仍在", s.js("""const cards=[...document.querySelectorAll('.set-cols .card')]
+            .filter(c=>getComputedStyle(c).display!=='none').map(c=>c.className.trim());
+          return cards.length===1 && cards[0].includes('col-list')
+            && !!document.querySelector('.set-actions');"""), "")
+
+        s.js("const b=document.querySelector('.set-actions .btn'); b&&b.click(); return !!b")
+        time.sleep(0.7)
+        check("取消后操作条消失", not s.js("return !!document.querySelector('.set-actions')"), "")
+    finally:
+        s.close()
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -530,6 +609,7 @@ def main():
         plugin_flow(s)
         tool_issue_notice(s)
         tasks_section(s)
+        narrow_flow()
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()
