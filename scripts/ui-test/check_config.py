@@ -599,6 +599,84 @@ def narrow_flow():
         s.close()
 
 
+def delete_flow():
+    """模型删除：宽屏在标题栏，窄屏在卡片底部。都用探针 profile。"""
+    print("\n" + "=" * 62)
+    print("第八部分：删除模型的两种位置")
+    print("=" * 62)
+    for width, where, sel in ((1600, "标题栏", ".del-top"), (900, "卡片底部", ".del-bottom")):
+        api("DELETE", "/api/profiles/del_probe")
+        api("POST", "/api/profiles", {"name": "del_probe", "base_url": "http://127.0.0.1:18320/180/v1",
+                                      "model": "m", "system": "x"})
+        s = Session(width, 1000)
+        try:
+            req("POST", f"/session/{s.id}/window/rect", {"width": width, "height": 1000})
+            s.get(B + "/?settings=1&conv=51")
+            time.sleep(2.5)
+            s.js("window.__confirm=0; window.confirm=(m)=>{window.__confirm++; return true}; return 1")
+            ok = open_profile(s, "del_probe")
+            check(f"{where}：探针详情打开", ok, "")
+            btn = s.js("""const b=document.querySelector('.col-detail %s');
+              if(!b) return null;
+              const r=b.getBoundingClientRect();
+              const cs=getComputedStyle(b);
+              return {h:Math.round(r.height), visible: cs.display!=='none' && r.height>0, text:b.textContent.trim()};""" % sel)
+            check(f"{where}：删除按钮可见且够大", isinstance(btn, dict) and btn.get("visible")
+                  and btn.get("h", 0) >= 24, btn)
+            s.js("const b=document.querySelector('.col-detail %s'); b&&b.click(); return !!b" % sel)
+            time.sleep(1.5)
+            check(f"{where}：点完 confirm 一次", s.js("return window.__confirm") == 1, s.js("return window.__confirm"))
+            check(f"{where}：profile 已删除（服务端）", get_profile("del_probe") is None, "")
+            check(f"{where}：详情卡已关闭", not s.js("return !!document.querySelector('.col-detail')"), "")
+        finally:
+            s.close()
+            api("DELETE", "/api/profiles/del_probe")
+
+
+def deep_links():
+    """深链：?profile= / &field= / ?tool= / &tooledit= / ?newplugin= / ?task="""
+    print("\n" + "=" * 62)
+    print("第九部分：深链")
+    print("=" * 62)
+    s = Session(1600, 1000)
+    try:
+        req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+
+        def go(q):
+            s.get(B + "/?settings=1&" + q)
+            time.sleep(2.2)
+
+        go("profile=180-low")
+        check("?profile= 打开模型详情", s.js("""const t=document.querySelector('.col-detail .ef-label-t');
+            return !!t && /180-low/.test(t.textContent);"""), "")
+
+        go("profile=180-low&field=system")
+        check("&field= 直接打开 3 级", s.js("return !!document.querySelector('.col-editor textarea')"), "")
+        check("&field= 打开时不是脏的", not s.js("return !!document.querySelector('.title-actions')"), "")
+
+        go("tool=kb_get")
+        check("?tool= 打开工具详情", s.js("""const t=document.querySelector('.col-detail .ef-label-t');
+            return !!t && /kb_get/.test(t.textContent);"""), "")
+        check("?tool= 显示命令", s.js("""const m=[...document.querySelectorAll('.col-detail .tool-meta')]
+            .map(e=>e.textContent.trim());
+          return m.some(x=>x.includes('kb_get'));"""), "")
+
+        go("tool=kb_get&tooledit=1")
+        check("&tooledit= 打开工具说明编辑", s.js("""const t=document.querySelector('.col-editor .ef-label-t');
+            return !!t && /kb_get/.test(t.textContent);"""), "")
+
+        go("newplugin=1")
+        check("?newplugin= 打开新建插件表单", s.js("return !!document.querySelector('.plugin-cmd')"), "")
+        check("新建时名称可编辑", s.js("const i=document.querySelector('.col-detail input'); return !!i && !i.disabled"), "")
+
+        # 深链不应该把面板弄脏。注意只看一级卡：插件表单的标题栏本来就有
+        # 它自己的取消/保存按钮（那不是"未保存"标记，是表单的正常动作）
+        check("深链打开后一级卡没有未保存标记",
+              not s.js("return !!document.querySelector('.col-list .title-actions')"), "")
+    finally:
+        s.close()
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -610,6 +688,8 @@ def main():
         tool_issue_notice(s)
         tasks_section(s)
         narrow_flow()
+        delete_flow()
+        deep_links()
     finally:
         api("DELETE", "/api/profiles/" + PROBE_NAME)
         s.close()
