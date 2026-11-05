@@ -16,6 +16,7 @@ export default function ModelForm({ v, narrow, top }) {
   return (
     <Card kind="col-detail" top={top}
       title={isNew ? '新建模型' : ('模型详情 · ' + editP.name)}
+      dirty={v.formDirty}
       onClose={() => v.closeOne()}
       actions={!isNew
         ? <button className="btn danger del-top" onClick={v.deleteProfile}>删除</button>

@@ -7,6 +7,16 @@ const api = (p, opt) => fetch(p, opt).then(r => r.json())
 // 快照去掉内部标记 _new，避免"一打开就算脏"✗
 export const snapOf = (p) => { if (!p) return ''; const { _new, ...rest } = p; return JSON.stringify(rest) }
 
+// 工具表单里"用户能改的内容"。isNew / source / path / originalName / oldName
+// 是元数据，改它们不算用户改动。
+const TOOL_FIELDS = ['name', 'description', 'command', 'timeoutMs', 'persistent', 'paramsText', 'requiredText']
+export const toolSnap = (f) => {
+  if (!f) return ''
+  const o = {}
+  for (const k of TOOL_FIELDS) o[k] = f[k] === undefined ? '' : String(f[k])
+  return JSON.stringify(o)
+}
+
 const BLANK_SETTINGS = { tool_rounds_enabled: true, tool_rounds: 8 }
 const NEW_PROFILE = {
   _new: true, name: '', base_url: 'http://127.0.0.1:18320/180/v1', api_key: '',
@@ -80,6 +90,7 @@ export function useSettings({ refresh }) {
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
+  const [toolSnapShot, setToolSnapShot] = useState('')  // 工具表单打开时的快照
   const [settings, setSettings] = useState(BLANK_SETTINGS)
   const [setSnap, setSetSnap] = useState(() => JSON.stringify(BLANK_SETTINGS))
   const [tasks, setTasks] = useState([])
@@ -159,6 +170,8 @@ export function useSettings({ refresh }) {
   // 目的——改完 A 想再看 B、回头一起保存；退出层级不等于放弃改动。
   const [drafts, setDrafts] = useState({})
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
+  // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
+  const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnapShot
   const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
@@ -322,7 +335,7 @@ export function useSettings({ refresh }) {
     const isPlugin = t.source === 'plugin'
     // 原名取自清单路径的文件名 —— 改过名之后它会和显示名分叉
     const orig = (t.path || '').split('/').pop().replace(/\.json$/, '')
-    setToolForm({
+    const form = {
       isNew: false, source: t.source || 'builtin', path: t.path || '',
       name: t.name, originalName: orig || t.name, oldName: t.name,
       description: t.description || '',
@@ -331,13 +344,15 @@ export function useSettings({ refresh }) {
       persistent: !!t.persistent,
       paramsText: JSON.stringify(t.params || {}, null, 2),
       requiredText: (t.required || []).join(',')
-    })
+    }
+    setToolForm(form); setToolSnapShot(toolSnap(form))
   }
   const newPlugin = () => {
     setEditP(null); setToolEdit(null); setEditField(null)
-    setToolForm({ ...NEW_PLUGIN, source: 'plugin' })
+    const form = { ...NEW_PLUGIN, source: 'plugin' }
+    setToolForm(form); setToolSnapShot(toolSnap(form))
   }
-  const closeToolForm = () => setToolForm(null)
+  const closeToolForm = () => { setToolForm(null); setToolSnapShot('') }
   const pickTask = async (t) => {
     const d = await api('/api/tasks/' + t.id).catch(() => null)
     setTaskDetail(prev => (prev && prev.task && prev.task.id === t.id) ? null : d)
@@ -364,7 +379,7 @@ export function useSettings({ refresh }) {
     // 编辑已有插件：保存后还停在这张卡上（换成服务端的新数据，回到未修改态）；
     // 新建则退回列表，让新插件出现在工具列表里
     if (toolForm.isNew) {
-      setToolForm(null)
+      setToolForm(null); setToolSnapShot('')
     } else {
       const list = await api('/api/tools').catch(() => null)
       const updated = (list || []).find(t => t.name === body.name)
@@ -398,7 +413,7 @@ export function useSettings({ refresh }) {
   return {
     showSet, setShowSet,
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
-    toolList, toolIssues, toolForm, setToolForm, toolEdit, setToolEdit,
+    toolList, toolIssues, toolForm, setToolForm, toolFormDirty, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     models, shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,

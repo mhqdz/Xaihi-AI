@@ -21,6 +21,7 @@ export default function ToolCard({ v, narrow, profiles, top }) {
   return (
     <Card kind="col-detail" top={top}
       title={form.isNew ? 'new plugin' : ('tool · ' + form.name)}
+      dirty={v.toolFormDirty}
       onClose={() => v.closeToolForm()}
       actions={editable ? (
         <span className="card-actions title-actions">

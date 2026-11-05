@@ -9,7 +9,7 @@ export default function EditorCard({ v, narrow, top }) {
     <Card kind="col-editor" top={top}
       title={isTool ? ('tool · ' + v.toolEdit.name) : 'system'}
       onClose={() => v.closeOne()}
->
+      dirty={v.editorDirty}>
       <textarea className="set-area" aria-label={isTool ? '工具说明' : 'system 提示词'} value={value}
         placeholder={isTool ? '工具说明（模型会看到这段文字）…' : '这里写完整的 system 提示…'}
         onChange={e => {

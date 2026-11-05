@@ -194,6 +194,12 @@ body{background:var(--paper);color:var(--ink);
   display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid var(--line);
   box-shadow:0 6px 18px rgba(58,65,66,.08)}
 /* 标题栏统一高度（含带按钮的那一层），保证所有卡片标题栏等高 */
+/* 未保存标记：标题后一个小圆点，所有层级共用同一个信号。
+   "保存"是动作（统一在一级卡 / 窄屏操作条），"改没改"是状态 ——
+   状态应该就在你正在改的那张卡上，不该让人跑到最右边去找按钮。 */
+.dirty-dot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
+  background:var(--ink2);margin-left:-.15rem}
+
 .card-hd{flex:0 0 auto;display:flex;align-items:center;gap:.6rem;box-sizing:border-box;
   height:36px;min-height:36px;padding:0 .85rem;
   border-bottom:1px solid var(--line);font-size:.66rem;letter-spacing:.18em;color:var(--ink3)}

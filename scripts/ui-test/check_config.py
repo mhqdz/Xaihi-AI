@@ -805,6 +805,55 @@ return {name:n.value, cmd:c.value};""")
         api("DELETE", "/api/plugins/cfg_new_ui")
 
 
+def dirty_dot():
+    """未保存标记：标题后的小圆点。
+
+    保存统一在一级卡（窄屏是底部操作条），二三级上没有保存按钮 ——
+    但"改没改"是状态、不是动作，应该在正在改的那张卡上就能看到。
+    """
+    print("\n" + "=" * 62)
+    print("第十二部分：未保存标记")
+    print("=" * 62)
+
+    # 自己开一个会话：跑到这里时 main 的那个可能已经因为累计耗时超时了
+    s = Session(1600, 1000)
+    req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+
+    def dots():
+        return s.js("""return [...document.querySelectorAll('.card')]
+            .filter(c=>c.querySelector('.dirty-dot'))
+            .map(c=>c.className.trim());""")
+
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.5)
+    check("刚打开时没有圆点", not dots(), dots())
+
+    open_profile(s, "180-low")
+    check("打开模型、没改 → 没有圆点", not dots(), dots())
+
+    s.js("const it=[...document.querySelectorAll('.col-detail .item')].find(e=>/system/.test(e.textContent)); it&&it.click(); return !!it")
+    time.sleep(1.0)
+    check("打开 3 级、没改 → 没有圆点", not dots(), dots())
+
+    s.js("""const ta=document.querySelector('.col-editor textarea');
+      const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+      set.call(ta, ta.value + ' '); ta.dispatchEvent(new Event('input',{bubbles:true})); return 1;""")
+    time.sleep(0.5)
+    d3 = dots()
+    check("改了 3 级 → 3 级有圆点", any("col-editor" in c for c in d3), d3)
+    # system 也是 profile 的字段，所以二级卡同时亮 —— 这是实话，不是重复
+    check("改了 3 级 → 2 级也有圆点（system 属于 profile）", any("col-detail" in c for c in d3), d3)
+
+    s.js("const b=document.querySelector('.col-editor .back'); b&&b.click(); return 1")
+    time.sleep(0.7)
+    check("退回 2 级后只剩 2 级的圆点",
+          dots() and all("col-detail" in c for c in dots()), dots())
+
+    click_save(s)
+    check("保存后圆点消失", not dots(), dots())
+    s.close()
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -818,6 +867,7 @@ def main():
         narrow_flow()
         delete_flow()
         deep_links()
+        dirty_dot()
         task_deeplink()
         new_plugin_ui()
     finally:
