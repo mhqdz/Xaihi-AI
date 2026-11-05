@@ -55,14 +55,37 @@
 
 截图：`GET /api/shots/stats` → `{count,size_mb}`；`POST /api/shots/cleanup {"days":7}` → `{removed,freed_kb,days}`。
 
-## 模型与 profile
+## 模型与 profile（三层）
+
+数据分三层引用：**接口 → 模型 → 配置**。
+
+| 层 | 文件 | 管什么 |
+|---|---|---|
+| 接口 | `endpoints.json` | 接哪儿：地址、凭据、协议 |
+| 模型 | `models.json` | 是什么：上游 id、窗口、输出上限、模态 |
+| 配置 | `profiles.json` | 怎么用：引用模型、提示词、工具、默认思考强度 |
+
+拆开的理由：`180-low / 180-medium / 180-think` 是同一个模型的三套用法，
+两层结构下每套都要重写一遍上游 id 和窗口。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/models?base_url=&api_key=` | 代理上游 `/v1/models`：`{"models":["…"]}`；非 200 时返回 `{"error":"接口返回 N（检查地址或 API Key）"}` |
-| GET | `/api/profiles` | profile 数组 |
-| POST / PUT | `/api/profiles` | 新建或更新（`api_key` 为空则回落全局配置）。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
+| GET | `/api/endpoints` | 接口数组 |
+| POST | `/api/endpoints` | 新建或覆盖（同名即覆盖） |
+| DELETE | `/api/endpoints/{name}` | 被模型引用时 400 |
+| GET | `/api/endpoints/{name}/models` | 问一次上游 `/models` |
+| GET | `/api/sources` | 来源模板（`sources.json`，加一条就多一个服务商） |
+| PUT | `/api/sources` | 整份覆盖 |
+| GET | `/api/models` | 模型数组 |
+| POST | `/api/models` | `{endpoint, id, context_window?, max_tokens?, input?}`，唯一键 `<endpoint>/<id>` |
+| DELETE | `/api/models/{name}` | 被配置引用时 400 |
+| GET | `/api/discover/{endpoint}` | `{models:[{id, registered}]}`，`registered` = 已登记 |
+| GET | `/api/profiles` | 配置数组，附带 `model_id` / `input` / `resolved_context_window` |
+| POST / PUT | `/api/profiles` | 新建或更新。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
 | DELETE | `/api/profiles/{name}` | 删除（内置也可删） |
+
+**思考强度**：`/api/chat` 请求体可带 `reasoning_effort`，临时覆盖该配置的默认值。
+不落盘 —— 配置里存的是默认值，界面改的只对这次请求生效。
 
 ### 批量提交：`POST /api/apply`
 
