@@ -81,9 +81,13 @@ func main() {
 		if v := os.Getenv("AGENTD_ADDR"); v != "" {
 			addr = v
 		}
-		// 把老 profile 里各自存的地址抽成共享接口（可重复执行，已迁移就是空操作）
+		// 三层迁移，顺序不能反：先把地址抽成接口，再把模型抽成接口下的条目。
+		// 两个都可重复执行，已迁移就是空操作。
 		if created, changed := config.MigrateEndpoints(); created > 0 {
-			logx.Info("接口迁移：新建 %d 个，改了 %d 个模型", created, changed)
+			logx.Info("接口迁移：新建 %d 个，改了 %d 个配置", created, changed)
+		}
+		if created, changed := config.MigrateModels(); created > 0 {
+			logx.Info("模型迁移：新建 %d 个，改了 %d 个配置", created, changed)
 		}
 		s := web.New(cfg, a, st)
 		if err := s.InitHandoff(cfg.DataDir); err != nil {

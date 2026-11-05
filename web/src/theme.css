@@ -194,6 +194,11 @@ body{background:var(--paper);color:var(--ink);
   display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid var(--line);
   box-shadow:0 6px 18px rgba(58,65,66,.08)}
 /* 标题栏统一高度（含带按钮的那一层），保证所有卡片标题栏等高 */
+/* 模型能力的旁注：只收文字的模型在 composer 右下角标一下，
+   免得贴了图才发现上游不认 */
+.no-vision{font-size:.62rem;letter-spacing:.1em;color:var(--c5);
+  border:1px solid var(--c3);border-radius:2px;padding:0 .25rem;margin-left:.35rem}
+
 /* 未保存标记：标题后一个小圆点，所有层级共用同一个信号。
    "保存"是动作（统一在一级卡 / 窄屏操作条），"改没改"是状态 ——
    状态应该就在你正在改的那张卡上，不该让人跑到最右边去找按钮。 */

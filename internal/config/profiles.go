@@ -113,17 +113,63 @@ func RenameToolInProfiles(oldName, newName string) (int, error) {
 	return n, writeProfiles(list)
 }
 
-// Resolve：这个 profile 实际要连的地址/凭据/协议。
-//
-// 地址归接口管（Endpoint），profile 只声明"用哪个接口"。
-// 老数据还没迁移时回落到 BaseURL，保证迁移前后都能跑。
-func (p Profile) Resolve() (baseURL, apiKey, provider string) {
-	if p.Endpoint != "" {
-		if e, ok := GetEndpoint(p.Endpoint); ok {
-			return e.BaseURL, e.APIKey, e.Provider
+// ModelsMigrated：profile.model 已经指向 models.json 里的条目了吗。
+// 直接查表而不是靠字符串形态判断 —— 模型 id 本身也可能带斜杠。
+func (p Profile) ModelsMigrated() bool {
+	if p.Model == "" {
+		return false
+	}
+	_, ok := GetModel(p.Model)
+	return ok
+}
+
+// Resolved：这个 profile 实际要用的东西，把三层拼起来。
+type Resolved struct {
+	BaseURL       string
+	APIKey        string
+	Provider      string
+	ModelID       string // 发给上游的模型名
+	ContextWindow int
+	MaxTokens     int
+	Input         []string // 模态；空按纯文本
+}
+
+func (r Resolved) SupportsImage() bool {
+	for _, x := range r.Input {
+		if x == "image" {
+			return true
 		}
 	}
-	return p.BaseURL, p.APIKey, p.Provider
+	return false
+}
+
+// Resolve：把 profile 引用的模型和接口拼成实际请求参数。
+//
+// 三层各管一段：profile 说"用哪个模型、怎么用"，model 说"它是什么"，
+// endpoint 说"接哪儿"。老数据（还没迁移）逐级回落，保证迁移前后都能跑。
+func (p Profile) Resolve() Resolved {
+	r := Resolved{ModelID: p.Model, ContextWindow: p.ContextWindow, MaxTokens: p.MaxTokensOut}
+	if m, ok := GetModel(p.Model); ok {
+		r.ModelID = m.ID
+		if r.ContextWindow == 0 {
+			r.ContextWindow = m.ContextWindow
+		}
+		if r.MaxTokens == 0 {
+			r.MaxTokens = m.MaxTokens
+		}
+		r.Input = m.Input
+		if p.Endpoint == "" {
+			p.Endpoint = m.Endpoint
+		}
+	}
+	if p.Endpoint != "" {
+		if e, ok := GetEndpoint(p.Endpoint); ok {
+			r.BaseURL, r.APIKey, r.Provider = e.BaseURL, e.APIKey, e.Provider
+			return r
+		}
+	}
+	r.BaseURL, r.APIKey, r.Provider = p.BaseURL, p.APIKey, p.Provider
+	return r
 }
 
 func writeProfiles(list []Profile) error {
@@ -158,9 +204,12 @@ func ValidateProfile(p Profile) error {
 	if p.Name == "" || p.Model == "" {
 		return fmt.Errorf("名称和模型都不能为空")
 	}
-	// 地址不再由模型自己带：要么引用一个接口，要么（老数据）还留着 base_url
+	// 地址从哪来：优先看引用的模型（模型挂在某个接口下），其次自己写接口，
+	// 最后是还没迁移的老数据带着 base_url。
 	if p.Endpoint == "" && p.BaseURL == "" {
-		return fmt.Errorf("要选一个接口")
+		if m, ok := GetModel(p.Model); !ok || m.Endpoint == "" {
+			return fmt.Errorf("要选一个模型（或接口）")
+		}
 	}
 	if p.ReasoningEffort != "" && p.ReasoningEffort != "none" && p.ReasoningEffort != "low" &&
 		p.ReasoningEffort != "medium" && p.ReasoningEffort != "high" {

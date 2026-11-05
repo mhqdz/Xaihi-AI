@@ -98,6 +98,9 @@ export function useSettings({ refresh }) {
   const [sources, setSources] = useState([])         // 来源模板（sources.json）
   const [editE, setEditE] = useState(null)           // 正在编辑的接口（2 级）
   const [endpointModels, setEndpointModels] = useState({})  // 接口名 -> 模型列表
+  const [models, setModels] = useState([])           // 模型层（属于某个接口）
+  const [editM, setEditM] = useState(null)           // 正在编辑的模型（2 级）
+  const [discovered, setDiscovered] = useState({})   // 接口名 -> [{id, registered}]
   const [toolSnapShot, setToolSnapShot] = useState(null)  // 工具表单打开时的快照（对象，用于 diff）
   const [pendingNewPlugin, setPendingNewPlugin] = useState(false)
   const [settings, setSettings] = useState(BLANK_SETTINGS)
@@ -107,7 +110,6 @@ export function useSettings({ refresh }) {
   const [taskActive, setTaskActive] = useState(0)
   const [taskDetail, setTaskDetail] = useState(null)
   const [shotInfo, setShotInfo] = useState('')
-  const [models] = useState({ loading: false, list: [], err: '' })
 
   const loadTasks = async () => {
     const r = await api('/api/tasks').catch(() => null)
@@ -120,6 +122,7 @@ export function useSettings({ refresh }) {
   const loadEndpoints = async () => {
     setEndpoints((await api('/api/endpoints').catch(() => [])) || [])
     setSources((await api('/api/sources').catch(() => [])) || [])
+    setModels((await api('/api/models').catch(() => [])) || [])
   }
   const loadTools = async () => {
     setToolList((await api('/api/tools').catch(() => [])) || [])
@@ -407,6 +410,55 @@ export function useSettings({ refresh }) {
     return r.models || []
   }
 
+  // —— 模型层（属于某接口；配置再引用它）——
+  const pickModel = (m) => {
+    setEditP(null); setEditE(null); setToolForm(null); setToolEdit(null); setEditField(null)
+    setEditM({ ...m, input: m.input && m.input.length ? m.input : ['text'] })
+  }
+  const newModel = () => {
+    setEditP(null); setEditE(null); setToolForm(null); setToolEdit(null); setEditField(null)
+    setEditM({ name: '', endpoint: (endpoints[0] || {}).name || '', id: '',
+      context_window: '', max_tokens: '', input: ['text'], _new: true })
+  }
+  const closeModel = () => setEditM(null)
+  const saveModel = async () => {
+    if (!editM) return
+    const body = { endpoint: editM.endpoint, id: editM.id.trim(),
+      context_window: Number(editM.context_window) || 0,
+      max_tokens: Number(editM.max_tokens) || 0, input: editM.input }
+    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) { alert(j.error || '保存失败'); return }
+    await loadEndpoints()
+    const list = await api('/api/models').catch(() => [])
+    const me = (list || []).find(x => x.name === j.name)
+    setEditM(me ? { ...me, input: me.input && me.input.length ? me.input : ['text'] } : null)
+  }
+  const deleteModel = async () => {
+    if (!editM) return
+    if (!confirm('删除模型 ' + editM.id + '？')) return
+    const r = await fetch('/api/models/' + encodeURIComponent(editM.name), { method: 'DELETE' })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) { alert(j.error || '删除失败'); return }
+    setEditM(null); await loadEndpoints()
+  }
+  // 让某个接口去上游问一次有哪些模型（"发现"）
+  const discoverModels = async (endpointName) => {
+    const r = await api('/api/discover/' + encodeURIComponent(endpointName)).catch(() => null)
+    if (!r) return []
+    if (r.error) { alert(r.error); return [] }
+    setDiscovered(d => ({ ...d, [endpointName]: r.models || [] }))
+    return r.models || []
+  }
+  // 把一个发现的模型登记进来
+  const registerModel = async (endpointName, id) => {
+    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: endpointName, id, input: ['text'] }) })
+    if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || '登记失败'); return }
+    await loadEndpoints(); await discoverModels(endpointName)
+  }
+
   // 点工具直接打开**可编辑表单**（和模型配置一样，没有独立的只读态）。
   //
   // 内置工具也走同一张表单，只是 editable 为 false —— 命令、超时、常驻这些
@@ -483,6 +535,8 @@ export function useSettings({ refresh }) {
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     endpoints, sources, editE, setEditE, endpointModels,
     pickEndpoint, newEndpoint, closeEndpoint, saveEndpoint, deleteEndpoint, fetchEndpointModels,
+    models, editM, setEditM, discovered,
+    pickModel, newModel, closeModel, saveModel, deleteModel, discoverModels, registerModel,
     openSystemEditor, openToolEditor,
     deletePlugin, deleteProfile, cleanShots,
   }

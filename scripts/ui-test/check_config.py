@@ -214,20 +214,19 @@ def functional(s):
     print("第二部分：逐字段功能")
     print("=" * 62)
     api("DELETE", "/api/profiles/" + PROBE_NAME)
-    # 地址和凭据现在归接口管：探针 profile 只引用一个已有接口
-    st, eps = api("GET", "/api/endpoints")
-    ep0 = (eps or [{}])[0].get("name", "")
-    api("POST", "/api/profiles", {"name": PROBE_NAME, "endpoint": ep0,
-                                  "model": "probe-model", "system": "probe-system",
-                                  "reasoning_effort": "high", "context_window": 0,
+    # 三层：探针 profile 引用一个已登记的模型（模型自己知道接口和上游 id）
+    st, mdl = api("GET", "/api/models")
+    models = mdl or []
+    m0 = models[0]["name"] if models else ""
+    api("POST", "/api/profiles", {"name": PROBE_NAME, "model": m0,
+                                  "system": "probe-system",
+                                  "reasoning_effort": "high",
                                   "max_prompt_tokens": 0, "compact_pct": 0, "tools": []})
     s.get(B + "/?settings=1&conv=51")
     time.sleep(2.5)
     check("探针 profile 打开", open_profile(s, PROBE_NAME), "")
 
     cases = [
-        ("模型名", "probe-model-2"),
-        ("窗口大小 (tokens)", "4096"),
         ("输入上限 (tokens)", "3000"),
         ("压缩阈值 (%)", "70"),
     ]
@@ -237,12 +236,12 @@ def functional(s):
         check(f"字段「{label}」可编辑", str(got) == val, f"控件值={got}")
         check(f"字段「{label}」触发脏标记", dirty(s), "")
 
-    # 接口下拉：换成另一个已有的接口
-    other = next((e.get("name") for e in (eps or []) if e.get("name") != ep0), "")
-    got = s.js(SET_FIELD, "接口", other); time.sleep(0.25)
-    check("下拉「接口」可选", got == other and other != "", got)
-    got = s.js(SET_FIELD, "思考强度", "low"); time.sleep(0.25)
-    check("下拉「思考强度」可选", got == "low", got)
+    # 模型下拉：换成另一个已登记的模型
+    other = next((m["name"] for m in models if m["name"] != m0), "")
+    got = s.js(SET_FIELD, "模型", other); time.sleep(0.25)
+    check("下拉「模型」可选", got == other and other != "", got)
+    got = s.js(SET_FIELD, "默认思考强度", "medium"); time.sleep(0.25)
+    check("下拉「默认思考强度」可选", got == "medium", got)
 
     r = s.js("""const c=[...document.querySelectorAll('.col-detail .choice')];
       const box=[...c].find(e=>e.textContent.trim()==='bash');
@@ -266,13 +265,12 @@ def functional(s):
 
     click_save(s)
     p = get_profile(PROBE_NAME) or {}
-    check("保存后接口引用生效", p.get("endpoint") == other, p.get("endpoint"))
-    check("模型里不再存地址（归接口管）", not p.get("base_url"), p.get("base_url"))
-    check("保存后模型名生效", p.get("model") == "probe-model-2", p.get("model"))
-    check("保存后 context_window 生效", p.get("context_window") == 4096, p.get("context_window"))
+    check("保存后模型引用生效", p.get("model") == other, p.get("model"))
+    check("配置里不再存上游模型名（归模型层）", p.get("model") != "probe-model", p.get("model"))
+    check("配置里不再存窗口（归模型层）", not p.get("context_window"), p.get("context_window"))
     check("保存后 max_prompt_tokens 生效", p.get("max_prompt_tokens") == 3000, p.get("max_prompt_tokens"))
     check("保存后 compact_pct 生效", p.get("compact_pct") == 70, p.get("compact_pct"))
-    check("保存后 reasoning_effort 生效", p.get("reasoning_effort") == "low", p.get("reasoning_effort"))
+    check("保存后默认思考强度生效", p.get("reasoning_effort") == "medium", p.get("reasoning_effort"))
     check("保存后 system 生效", p.get("system") == "probe-system-v2", p.get("system"))
     check("保存后 tools 生效", "bash" in (p.get("tools") or []), p.get("tools"))
     check("保存后脏标记清空", not dirty(s), "")
@@ -925,6 +923,94 @@ def endpoint_flow():
         s.close()
 
 
+def three_layers():
+    """三层：接口（接哪儿）→ 模型（是什么）→ 配置（怎么用）。"""
+    print("\n" + "=" * 62)
+    print("第十四部分：三层结构与会话级思考强度")
+    print("=" * 62)
+    s = Session(1600, 1000)
+    req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+    try:
+        s.get(B + "/?settings=1&conv=51")
+        time.sleep(2.5)
+        secs = s.js("return [...document.querySelectorAll('.col-list .set-section')].map(e=>e.textContent.trim())")
+        check("一级卡按三层分组", secs[:4] == ["常规配置", "接口", "模型", "模型配置"], secs)
+
+        st, mdl = api("GET", "/api/models")
+        check("模型层非空", len(mdl or []) > 0, len(mdl or []))
+        check("每个模型都归属一个接口", all(m.get("endpoint") for m in (mdl or [])), "")
+        m0 = mdl[0]
+        check("模型的唯一键是 接口/id", m0["name"] == m0["endpoint"] + "/" + m0["id"], m0["name"])
+
+        # 同一模型可以被多个配置共用 —— 这正是拆层要解决的重复配置
+        st, profs = api("GET", "/api/profiles")
+        names = [p.get("model") for p in (profs or [])]
+        shared = [m for m in set(names) if names.count(m) > 1]
+        check("存在多个配置共用一个模型", len(shared) > 0, shared[:2])
+
+        # 配置里不再存上游 id / 窗口
+        check("配置不再存上游模型名", all("/" in (p.get("model") or "") for p in (profs or [])),
+              [p["name"] for p in (profs or []) if "/" not in (p.get("model") or "")])
+        check("配置不再存窗口", all(not p.get("context_window") for p in (profs or [])), "")
+
+        # 模型卡
+        ok = s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>e.querySelector('.item-title')?.textContent.trim()===%s);
+          x&&x.click(); return !!x;""" % json.dumps(m0["id"]))
+        time.sleep(1.2)
+        check("点模型打开模型卡", ok, "")
+        fields = s.js("""return [...document.querySelectorAll('.col-detail .field')]
+            .map(f=>f.querySelector('span')?.textContent.trim());""")
+        check("模型卡只有「模型事实」", fields == ["接口", "模型 id", "窗口大小 (tokens)", "输出上限 (tokens)"], fields)
+        check("模型卡有图像开关",
+              s.js("""return [...document.querySelectorAll('.col-detail .switch-row')]
+                  .some(e=>/能接收图像/.test(e.textContent));"""), "")
+
+        # 配置卡的模型下拉
+        s.js("const b=document.querySelector('.col-detail .back')||document.querySelector('.card-back'); b&&b.click(); return 1")
+        time.sleep(0.8)
+        s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>e.querySelector('.item-title')?.textContent.trim()==='180-low'); x&&x.click(); return !!x;""")
+        time.sleep(1.2)
+        sel = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
+            .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='模型');
+          const sel=f?.querySelector('select'); return sel? {v:sel.value, n:sel.options.length}:null;""")
+        check("配置卡用模型下拉", bool(sel) and sel["n"] == len(mdl) + 1, sel)
+
+        # 会话级思考强度：临时覆盖，不落盘
+        st, profiles = api("GET", "/api/profiles")
+        before = next(p for p in profiles if p["name"] == "180-low")
+        s.get(B + "/?conv=51")
+        time.sleep(2.5)
+        picks = s.js("return [...document.querySelectorAll('.composer .pick select')].length")
+        check("composer 有两个选择器（配置 + 强度）", picks == 2, picks)
+        opts = s.js("""const sel=[...document.querySelectorAll('.composer .pick select')][1];
+          return [...sel.options].map(o=>o.value);""")
+        check("强度选择器含「默认」与各档位", opts[0] == "" and "high" in opts and "none" in opts, opts)
+        # 比的是"当前选中的那个配置"的默认值 —— composer 从 localStorage 恢复配置，
+        # 不一定是上面查的 180-low
+        cur_name = s.js("return [...document.querySelectorAll('.composer .pick select')][0].value")
+        cur_prof = next((p for p in profiles if p["name"] == cur_name), {})
+        label = s.js("return [...document.querySelectorAll('.composer .pick select')][1].options[0].textContent")
+        check("默认档显示当前配置的默认值",
+              (cur_prof.get("reasoning_effort") or "none") in label, f"{cur_name}: {label}")
+        # 改一下，确认没写回配置
+        s.js("""const sel=[...document.querySelectorAll('.composer .pick select')][1];
+          sel.value='high'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 1;""")
+        time.sleep(0.5)
+        st, after = api("GET", "/api/profiles")
+        same = next(p for p in after if p["name"] == "180-low")
+        check("会话里改强度不写回配置", same.get("reasoning_effort") == before.get("reasoning_effort"),
+              f"{before.get('reasoning_effort')} → {same.get('reasoning_effort')}")
+
+        # 多模态提示
+        hint = s.js("const n=document.querySelector('.composer .no-vision'); return n? n.textContent.trim():null;")
+        has_text_only = any(not (m.get("input") or []).count("image") for m in (mdl or []))
+        check("纯文字模型在 composer 上有标记", (hint == "文字") == has_text_only, hint)
+    finally:
+        s.close()
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -940,6 +1026,7 @@ def main():
         deep_links()
         dirty_dot()
         endpoint_flow()
+        three_layers()
         task_deeplink()
         new_plugin_ui()
     finally:

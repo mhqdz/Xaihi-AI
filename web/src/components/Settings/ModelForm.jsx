@@ -24,37 +24,21 @@ export default function ModelForm({ v, narrow, top }) {
       <div className="card-bd">
         <Section>接入</Section>
         <Field label="名称"><input value={editP.name || ''} onChange={e => set('name', e.target.value)} /></Field>
-        <Field label="接口" hint="地址和凭据归「接口」管，这里只挑用哪个；没有就先在一级卡建一个">
-          <select value={editP.endpoint || ''} onChange={e => set('endpoint', e.target.value)}>
+        <Field label="模型" hint="模型本身（窗口、模态、上游 id）在「模型」那层维护，这里只挑用哪个">
+          <select value={editP.model || ''} onChange={e => set('model', e.target.value)}>
             <option value="">（未选择）</option>
-            {(v.endpoints || []).map(ep => (
-              <option key={ep.name} value={ep.name}>{ep.name} · {ep.base_url}</option>
+            {(v.models || []).map(m => (
+              <option key={m.name} value={m.name}>{m.id} · {m.endpoint}</option>
             ))}
           </select>
         </Field>
 
-        <Section>模型</Section>
-        <Field label="模型名" hint={v.models.err ? '匹配模型列表失败：' + v.models.err : '取自上游 /models；取不到可手填'}>
-          {v.models.loading ? <span className="item-desc">正在匹配模型…</span>
-            : v.models.list.length ? (
-              <select value={editP.model || ''} onChange={e => set('model', e.target.value)}>
-                {v.models.list.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            ) : <input value={editP.model || ''} placeholder="没取到模型列表，可手填"
-              onChange={e => set('model', e.target.value)} />}
-        </Field>
-        <Field label="思考强度" hint="none 表示不传该字段；其余直接透传给上游">
+        <Section>运行</Section>
+        <Field label="默认思考强度" hint="这里存的是默认值；会话里可以临时改，不落盘">
           <select value={editP.reasoning_effort || 'none'}
             onChange={e => set('reasoning_effort', e.target.value)}>
             {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
           </select>
-        </Field>
-
-        <Section>上下文</Section>
-        <Field label="窗口大小 (tokens)" hint="留空则自动读上游 meta.n_ctx">
-          <input type="number" min="0" max="2000000" placeholder="自动（如 131072）"
-            value={editP.context_window || ''}
-            onChange={e => set('context_window', Number(e.target.value) || 0)} />
         </Field>
         <Field label="输入上限 (tokens)" hint="单次请求的实际预算，留空按 105000">
           <input type="number" min="0" max="1000000" placeholder="105000"

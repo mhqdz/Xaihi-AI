@@ -179,49 +179,6 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, 405, map[string]string{"error": "GET/PUT only"})
 		}
 	})
-	mux.HandleFunc("/api/models", func(w http.ResponseWriter, r *http.Request) {
-		base := strings.TrimRight(r.URL.Query().Get("base_url"), "/")
-		key := r.URL.Query().Get("api_key")
-		if base == "" {
-			writeJSON(w, 400, map[string]string{"error": "需要 base_url"})
-			return
-		}
-		req, err := http.NewRequest("GET", base+"/models", nil)
-		if err != nil {
-			writeJSON(w, 400, map[string]string{"error": err.Error()})
-			return
-		}
-		if key != "" {
-			req.Header.Set("Authorization", "Bearer "+key)
-		}
-		req.Close = true
-		cl := &http.Client{Timeout: 8 * time.Second, Transport: &http.Transport{DisableKeepAlives: true, DisableCompression: true}}
-		resp, err := cl.Do(req)
-		if err != nil {
-			writeJSON(w, 502, map[string]string{"error": "连不上：" + err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			writeJSON(w, 502, map[string]string{"error": fmt.Sprintf("接口返回 %d（检查地址或 API Key）", resp.StatusCode)})
-			return
-		}
-		var out struct {
-			Data []struct {
-				ID string `json:"id"`
-			} `json:"data"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			writeJSON(w, 502, map[string]string{"error": "返回格式不是 OpenAI /v1/models"})
-			return
-		}
-		ids := make([]string, 0, len(out.Data))
-		for _, d := range out.Data {
-			ids = append(ids, d.ID)
-		}
-		sort.Strings(ids)
-		writeJSON(w, 200, map[string]any{"models": ids})
-	})
 	mux.HandleFunc("/api/plugins", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodPut {
 			writeJSON(w, 405, map[string]string{"error": "POST/PUT only"})
@@ -306,6 +263,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/endpoints", s.handleEndpoints)
 	mux.HandleFunc("/api/endpoints/", s.handleEndpointItem)
 	mux.HandleFunc("/api/sources", s.handleSources)
+	mux.HandleFunc("/api/models", s.handleModels)
+	mux.HandleFunc("/api/models/", s.handleModelItem)
+	mux.HandleFunc("/api/discover/", s.handleEndpointDiscover)
 	// 插件加载失败的说明单独一个只读端点：/api/tools 的响应是数组，
 	// 加字段会破坏调用方；这里给界面一个"为什么某个插件不见了"的答案
 	mux.HandleFunc("/api/tools/issues", func(w http.ResponseWriter, r *http.Request) {
@@ -742,6 +702,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		ConvID  string `json:"conv_id"`
 		Text    string `json:"text"`
 		Profile string `json:"profile"`
+		// ReasoningEffort：本次请求临时覆盖 profile 的默认思考强度。
+		// 不落盘 —— profile 里存的是"默认值"，界面上改的只是这一轮/这个会话。
+		ReasoningEffort string `json:"reasoning_effort"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Text) == "" {
 		writeJSON(w, 400, map[string]string{"error": "需要 text"})
@@ -810,6 +773,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ag.FailTask = func(reason, evidence string) (string, error) { return "（父会话无 handoff_fail）", nil }
 	if in.Profile != "" {
 		if prof, ok := config.GetProfile(in.Profile); ok {
+			if e := strings.TrimSpace(in.ReasoningEffort); e != "" {
+				prof.ReasoningEffort = e
+			}
 			ag = agent.New(s.cfg, s.st, prof)
 			if s.ho != nil && strings.TrimSpace(in.ConvID) != "" {
 				if pid, err := strconv.ParseInt(in.ConvID, 10, 64); err == nil {
@@ -998,8 +964,24 @@ func saveToolDescription(name, desc string) (int, error) {
 func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		// 附带解析后的模型信息：前端要知道当前配置用的是哪个上游模型、
+		// 能不能吃图（决定要不要提示）、实际窗口多大。
+		// 不塞进 Profile 本体，避免把"三层拼起来的结果"也存进配置文件。
 		list := config.LoadProfiles()
-		writeJSON(w, 200, list)
+		type view struct {
+			config.Profile
+			ModelID     string   `json:"model_id"`
+			Input       []string `json:"input"`
+			ResolvedCtx int      `json:"resolved_context_window"`
+			ResolvedOut int      `json:"resolved_max_tokens"`
+		}
+		out := make([]view, 0, len(list))
+		for _, p := range list {
+			r := p.Resolve()
+			out = append(out, view{Profile: p, ModelID: r.ModelID, Input: r.Input,
+				ResolvedCtx: r.ContextWindow, ResolvedOut: r.MaxTokens})
+		}
+		writeJSON(w, 200, out)
 	case http.MethodPost, http.MethodPut:
 		var p config.Profile
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {

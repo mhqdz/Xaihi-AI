@@ -34,8 +34,6 @@ CASES = [
     ("/api/context", "POST", 400),
     ("/api/settings", "GET", 200),
     ("/api/settings", "DELETE", 405),
-    ("/api/models", "GET", 400),
-    ("/api/models", "DELETE", 400),
     ("/api/tools", "GET", 200),
     ("/api/tools", "DELETE", 405),
     ("/api/profiles", "GET", 200),

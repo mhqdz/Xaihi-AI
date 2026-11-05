@@ -54,7 +54,7 @@ func (a *Agent) maxTokensOut() int {
 // reasoningBudget：单轮思考 token 预算（默认 4096）—— 引擎默认是"不限"，会跑飞
 // reasoningEffort：openai 兼容的云端不认本地扩展时按需省略（provider=openai 仍发标准 effort）
 func (a *Agent) reasoningEffort() string {
-	if _, _, prov := a.profile.Resolve(); prov == "openai" {
+	if a.profile.Resolve().Provider == "openai" {
 		switch a.profile.ReasoningEffort {
 		case "", "none":
 			return ""
@@ -65,7 +65,7 @@ func (a *Agent) reasoningEffort() string {
 
 // reasoningBudgetParam：Strata 扩展字段，只有本地/未知 provider 才发
 func (a *Agent) reasoningBudgetParam() int {
-	if _, _, prov := a.profile.Resolve(); prov == "openai" {
+	if a.profile.Resolve().Provider == "openai" {
 		return 0
 	}
 	return a.reasoningBudget()
@@ -87,17 +87,17 @@ func (a *Agent) ContextWindow() int {
 	if a.profile.ContextWindow > 0 {
 		return a.profile.ContextWindow
 	}
-	// 地址/密钥归接口管；profile 只挑模型。没配接口时回落到全局
-	pbase, pkey, _ := a.profile.Resolve()
+	// 三层拼起来：接口给地址、模型给 id 和窗口、profile 只给运行参数
+	r := a.profile.Resolve()
 	base, key, model := a.cfg.BaseURL, a.cfg.APIKey, a.cfg.Model
-	if pbase != "" {
-		base = pbase
+	if r.BaseURL != "" {
+		base = r.BaseURL
 	}
-	if a.profile.Model != "" {
-		model = a.profile.Model
+	if r.ModelID != "" {
+		model = r.ModelID
 	}
-	if pkey != "" {
-		key = pkey
+	if r.APIKey != "" {
+		key = r.APIKey
 	}
 	if n := llm.ContextWindow(base, key, model); n > 0 {
 		return n
@@ -268,7 +268,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		if a.OnStage != nil {
 			a.OnStage("generating")
 		}
-		err := a.llm.StreamWithTools(ctx, llm.ChatRequest{Model: a.profile.Model, Messages: msgs, Tools: specs, MaxTokens: a.maxTokensOut(), ReasoningEffort: a.reasoningEffort(), ReasoningBudget: a.reasoningBudgetParam()},
+		err := a.llm.StreamWithTools(ctx, llm.ChatRequest{Model: a.ModelID(), Messages: msgs, Tools: specs, MaxTokens: a.maxTokensOut(), ReasoningEffort: a.reasoningEffort(), ReasoningBudget: a.reasoningBudgetParam()},
 			func(ch llm.Chunk) error {
 				if ch.Done {
 					return nil
@@ -599,7 +599,8 @@ func (a *Agent) maybeSummarize(ctx context.Context, c *store.Conversation, keep 
 			sumProfile = p
 		}
 	}
-	sumBase, sumKey, _ := sumProfile.Resolve()
+	sr := sumProfile.Resolve()
+	sumBase, sumKey := sr.BaseURL, sr.APIKey
 	if sumKey == "" {
 		sumKey = a.cfg.APIKey
 	}
@@ -607,20 +608,20 @@ func (a *Agent) maybeSummarize(ctx context.Context, c *store.Conversation, keep 
 		sumBase = a.cfg.BaseURL
 	}
 	sc := llm.New(sumBase, sumKey)
-	out, err := sc.Chat(ctx, llm.ChatRequest{Model: sumProfile.Model, ReasoningEffort: sumProfile.ReasoningEffort,
+	out, err := sc.Chat(ctx, llm.ChatRequest{Model: sr.ModelID, ReasoningEffort: sumProfile.ReasoningEffort,
 		Messages: []llm.Message{{Role: "user", Content: prompt}}})
 	if err != nil || strings.TrimSpace(out) == "" {
 		return err
 	}
 	c.Summary = strings.TrimSpace(out)
 	c.SummaryUpto = c.Messages[cut-1].Seq
-	c.SummaryModel = sumProfile.Model
+	c.SummaryModel = sr.ModelID
 	c.SummaryAt = time.Now()
 	// KV：先只放"生成者"，其余由后续从摘要里抽（下一轮做）
 	if c.KV == nil {
 		c.KV = map[string]string{}
 	}
-	c.KV["summary_generated_by"] = sumProfile.Model + " @ " + c.SummaryAt.Format("2006-01-02 15:04")
+	c.KV["summary_generated_by"] = sr.ModelID + " @ " + c.SummaryAt.Format("2006-01-02 15:04")
 	return a.st.Save(c)
 }
 

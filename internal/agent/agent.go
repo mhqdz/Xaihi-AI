@@ -40,8 +40,9 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	if profile.Model == "" {
 		profile.Model = cfg.Model
 	}
-	// 地址和密钥来自 profile 引用的接口（老数据没迁移时 Resolve 会回落）
-	base, key, _ := profile.Resolve()
+	// 地址和密钥来自 profile 引用的接口（老数据没迁移时 Resolve 会逐级回落）
+	r := profile.Resolve()
+	base, key := r.BaseURL, r.APIKey
 	if base == "" {
 		base = cfg.BaseURL
 	}
@@ -52,6 +53,9 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 }
 
 func (a *Agent) Profile() config.Profile { return a.profile }
+
+// ModelID 是发给上游的模型名（profile.model 现在是复合键，不能直接发）
+func (a *Agent) ModelID() string { return a.profile.Resolve().ModelID }
 
 func NewID() string {
 	b := make([]byte, 6)
@@ -96,7 +100,7 @@ func (a *Agent) Send(ctx context.Context, c *store.Conversation, text string,
 	}
 
 	var content, reasoning strings.Builder
-	err := a.llm.Stream(ctx, llm.ChatRequest{Model: a.profile.Model, Messages: msgs, ReasoningEffort: a.profile.ReasoningEffort}, func(ch llm.Chunk) error {
+	err := a.llm.Stream(ctx, llm.ChatRequest{Model: a.ModelID(), Messages: msgs, ReasoningEffort: a.profile.ReasoningEffort}, func(ch llm.Chunk) error {
 		if ch.Done {
 			return nil
 		}

@@ -201,6 +201,9 @@ export default function App() {
   const [archived, setArchived] = useState([])
   const [profiles, setProfiles] = useState([])
   const [profile, setProfile] = useState(localStorage.getItem('profile') || '180-think')
+  // 会话级思考强度：'' = 用配置里的默认值；其余临时覆盖，不落盘。
+  // 存 localStorage 只是为了刷新后不丢，它不是配置的一部分。
+  const [effort, setEffort] = useState(localStorage.getItem('effort') || '')
   const [tab, setTab] = useState('live')
   // 窄屏默认收起左栏（它是浮层，展开会盖住正文）；宽屏沿用上次状态
   const [sideOpen, setSideOpen] = useState(() => {
@@ -603,6 +606,7 @@ export default function App() {
     return () => window.removeEventListener('resize', on)
   }, [])
   useEffect(() => { localStorage.setItem('profile', profile) }, [profile])
+  useEffect(() => { localStorage.setItem('effort', effort) }, [effort])
   // 中止的转圈：busy 落定就收起（正常 1s 内），15s 兜底防止后端卡住时一直转
   useEffect(() => { if (!busy) setStopping(false) }, [busy])
   useEffect(() => {
@@ -826,7 +830,8 @@ export default function App() {
     try {
       const resp = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conv_id: cur || '', text: t, profile }),
+        body: JSON.stringify({ conv_id: cur || '', text: t, profile,
+          reasoning_effort: effort }),
         signal: ac.signal,
       })
       setSending(false)                     // 后端已开始响应：按钮回到"中止/插话"
@@ -1174,7 +1179,20 @@ export default function App() {
                 </select>
                 <span className="caret">▾</span>
               </label>
-              <span className="model" style={{ marginLeft: 'auto' }} title={cur ? cur.model : ''}>{cur && cur.model ? cur.model : (profile === '9-exec' ? 'Qwen3.5-9B-int4-ov' : 'qwen3.8-flash-next-iq3_xxs')}</span>
+              <span className="eb" style={{ display: 'inline', letterSpacing: '.14em', marginLeft: '.6rem' }}>EFFORT</span>
+              <label className="pick">
+                <select value={effort} onChange={e => setEffort(e.target.value)}
+                  title="本轮临时生效，不改配置里的默认值">
+                  <option value="">默认（{cur && cur.reasoning_effort ? cur.reasoning_effort : 'none'}）</option>
+                  {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
+                </select>
+                <span className="caret">▾</span>
+              </label>
+              <span className="model" style={{ marginLeft: 'auto' }}
+                title={cur && cur.model_id ? cur.model_id : ''}>
+                {cur && cur.model_id ? cur.model_id : (profile === '9-exec' ? 'Qwen3.5-9B-int4-ov' : 'qwen3.8-flash-next-iq3_xxs')}
+                {cur && cur.input && !cur.input.includes('image') ? <span className="no-vision" title="这个模型只收文字，图像输入会被拦下">　文字</span> : null}
+              </span>
             </div>
             <i className="resizer" onMouseDown={startResize} title="拖动调整输入框高度" />
             <textarea value={text} style={{ height: inputH + 'px' }} onChange={e => setText(e.target.value)}
