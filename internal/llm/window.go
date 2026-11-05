@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -97,4 +99,49 @@ func fetchWindow(baseURL, apiKey, model string) int {
 		}
 	}
 	return 0
+}
+
+// ListModels：拉某个接口的可用模型名。
+//
+// 设置面板用它做"选接口 → 自动匹配可用模型"：接口配置好之后，
+// 模型选项里才能看到这个接口下有哪些模型，不必手打模型名。
+// 和 fetchWindow 走同一个 /models，只是这里要的是列表本身。
+func ListModels(baseURL, apiKey string) ([]string, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		return nil, fmt.Errorf("接口地址为空")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(baseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Close = true
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("上游返回 %d", resp.StatusCode)
+	}
+	var out struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(out.Data))
+	for _, d := range out.Data {
+		if d.ID != "" {
+			names = append(names, d.ID)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }

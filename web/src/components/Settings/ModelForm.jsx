@@ -24,17 +24,12 @@ export default function ModelForm({ v, narrow, top }) {
       <div className="card-bd">
         <Section>接入</Section>
         <Field label="名称"><input value={editP.name || ''} onChange={e => set('name', e.target.value)} /></Field>
-        <Field label="接口地址" hint="填到 /v1 为止，不带 /chat/completions">
-          <input value={editP.base_url || ''} placeholder="http://127.0.0.1:18320/180/v1"
-            onChange={e => set('base_url', e.target.value)} />
-        </Field>
-        <Field label="API Key" hint="留空则回落全局配置里的 key">
-          <input type="password" value={editP.api_key || ''} onChange={e => set('api_key', e.target.value)} />
-        </Field>
-        <Field label="服务商" hint="云端 OpenAI 兼容接口选 openai（不发本地扩展字段），自建保持自动">
-          <select value={editP.provider || ''} onChange={e => set('provider', e.target.value)}>
-            <option value="">自动（本地 / Strata / llama.cpp）</option>
-            <option value="openai">openai（云端兼容接口）</option>
+        <Field label="接口" hint="地址和凭据归「接口」管，这里只挑用哪个；没有就先在一级卡建一个">
+          <select value={editP.endpoint || ''} onChange={e => set('endpoint', e.target.value)}>
+            <option value="">（未选择）</option>
+            {(v.endpoints || []).map(ep => (
+              <option key={ep.name} value={ep.name}>{ep.name} · {ep.base_url}</option>
+            ))}
           </select>
         </Field>
 

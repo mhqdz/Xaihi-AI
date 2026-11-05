@@ -13,7 +13,8 @@ import (
 // Profile = 模型 + 思考强度 + 提示词 + 工具集。前端通过 CRUD 管理，解码/校验都在 Go。
 type Profile struct {
 	Name            string   `json:"name"`
-	BaseURL         string   `json:"base_url"`
+	Endpoint        string   `json:"endpoint,omitempty"` // 引用 endpoints.json 里的接口名
+	BaseURL         string   `json:"base_url,omitempty"` // 迁移前的老字段；迁移后留空
 	Model           string   `json:"model"`
 	APIKey          string   `json:"api_key,omitempty"`          // 空=用全局 cfg.APIKey；云端填自己的 key
 	Provider        string   `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
@@ -112,6 +113,19 @@ func RenameToolInProfiles(oldName, newName string) (int, error) {
 	return n, writeProfiles(list)
 }
 
+// Resolve：这个 profile 实际要连的地址/凭据/协议。
+//
+// 地址归接口管（Endpoint），profile 只声明"用哪个接口"。
+// 老数据还没迁移时回落到 BaseURL，保证迁移前后都能跑。
+func (p Profile) Resolve() (baseURL, apiKey, provider string) {
+	if p.Endpoint != "" {
+		if e, ok := GetEndpoint(p.Endpoint); ok {
+			return e.BaseURL, e.APIKey, e.Provider
+		}
+	}
+	return p.BaseURL, p.APIKey, p.Provider
+}
+
 func writeProfiles(list []Profile) error {
 	p := profilesPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -141,8 +155,12 @@ func writeProfiles(list []Profile) error {
 }
 
 func ValidateProfile(p Profile) error {
-	if p.Name == "" || p.BaseURL == "" || p.Model == "" {
-		return fmt.Errorf("name / base_url / model 都不能为空")
+	if p.Name == "" || p.Model == "" {
+		return fmt.Errorf("名称和模型都不能为空")
+	}
+	// 地址不再由模型自己带：要么引用一个接口，要么（老数据）还留着 base_url
+	if p.Endpoint == "" && p.BaseURL == "" {
+		return fmt.Errorf("要选一个接口")
 	}
 	if p.ReasoningEffort != "" && p.ReasoningEffort != "none" && p.ReasoningEffort != "low" &&
 		p.ReasoningEffort != "medium" && p.ReasoningEffort != "high" {

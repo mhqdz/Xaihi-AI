@@ -40,14 +40,15 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	if profile.Model == "" {
 		profile.Model = cfg.Model
 	}
-	if profile.BaseURL == "" {
-		profile.BaseURL = cfg.BaseURL
+	// 地址和密钥来自 profile 引用的接口（老数据没迁移时 Resolve 会回落）
+	base, key, _ := profile.Resolve()
+	if base == "" {
+		base = cfg.BaseURL
 	}
-	key := profile.APIKey
 	if key == "" {
 		key = cfg.APIKey
 	}
-	return &Agent{cfg: cfg, llm: llm.New(profile.BaseURL, key), st: st, profile: profile}
+	return &Agent{cfg: cfg, llm: llm.New(base, key), st: st, profile: profile}
 }
 
 func (a *Agent) Profile() config.Profile { return a.profile }

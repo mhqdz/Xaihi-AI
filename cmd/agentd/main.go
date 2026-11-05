@@ -81,6 +81,10 @@ func main() {
 		if v := os.Getenv("AGENTD_ADDR"); v != "" {
 			addr = v
 		}
+		// 把老 profile 里各自存的地址抽成共享接口（可重复执行，已迁移就是空操作）
+		if created, changed := config.MigrateEndpoints(); created > 0 {
+			logx.Info("接口迁移：新建 %d 个，改了 %d 个模型", created, changed)
+		}
 		s := web.New(cfg, a, st)
 		if err := s.InitHandoff(cfg.DataDir); err != nil {
 			logx.Warn("handoff 初始化失败: %v", err)

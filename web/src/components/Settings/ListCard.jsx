@@ -81,6 +81,20 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           </div>
         </div>
 
+        {/* 接口：地址和凭据归这里管，模型只挑用哪个。关系同"工具 → 模型" */}
+        <div className="set-section">接口</div>
+        <div className="set-card">
+          {!v.endpoints || v.endpoints.length === 0 ? (
+            <div className="set-meta">还没有接口。先建一个，模型才有地方连</div>
+          ) : v.endpoints.map(e => (
+            <div className="item col" key={e.name} onClick={() => v.pickEndpoint(e)}>
+              <b className="item-title">{e.name}</b>
+              <span className="item-desc">{e.base_url}</span>
+            </div>
+          ))}
+          <div className="item item-new" onClick={v.newEndpoint}>＋ 新建接口</div>
+        </div>
+
         <div className="set-section">模型配置</div>
         <div className="set-card">
           {profiles.map(pr => (

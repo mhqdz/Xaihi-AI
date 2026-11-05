@@ -214,7 +214,10 @@ def functional(s):
     print("第二部分：逐字段功能")
     print("=" * 62)
     api("DELETE", "/api/profiles/" + PROBE_NAME)
-    api("POST", "/api/profiles", {"name": PROBE_NAME, "base_url": "http://127.0.0.1:18320/180/v1",
+    # 地址和凭据现在归接口管：探针 profile 只引用一个已有接口
+    st, eps = api("GET", "/api/endpoints")
+    ep0 = (eps or [{}])[0].get("name", "")
+    api("POST", "/api/profiles", {"name": PROBE_NAME, "endpoint": ep0,
                                   "model": "probe-model", "system": "probe-system",
                                   "reasoning_effort": "high", "context_window": 0,
                                   "max_prompt_tokens": 0, "compact_pct": 0, "tools": []})
@@ -223,8 +226,7 @@ def functional(s):
     check("探针 profile 打开", open_profile(s, PROBE_NAME), "")
 
     cases = [
-        ("接口地址", "http://127.0.0.1:18320/180/v2"),
-        ("API Key", "sk-probe-123"),
+        ("模型名", "probe-model-2"),
         ("窗口大小 (tokens)", "4096"),
         ("输入上限 (tokens)", "3000"),
         ("压缩阈值 (%)", "70"),
@@ -235,8 +237,10 @@ def functional(s):
         check(f"字段「{label}」可编辑", str(got) == val, f"控件值={got}")
         check(f"字段「{label}」触发脏标记", dirty(s), "")
 
-    got = s.js(SET_FIELD, "服务商", "openai"); time.sleep(0.25)
-    check("下拉「服务商」可选", got == "openai", got)
+    # 接口下拉：换成另一个已有的接口
+    other = next((e.get("name") for e in (eps or []) if e.get("name") != ep0), "")
+    got = s.js(SET_FIELD, "接口", other); time.sleep(0.25)
+    check("下拉「接口」可选", got == other and other != "", got)
     got = s.js(SET_FIELD, "思考强度", "low"); time.sleep(0.25)
     check("下拉「思考强度」可选", got == "low", got)
 
@@ -262,12 +266,12 @@ def functional(s):
 
     click_save(s)
     p = get_profile(PROBE_NAME) or {}
-    check("保存后 base_url 生效", p.get("base_url") == "http://127.0.0.1:18320/180/v2", p.get("base_url"))
-    check("保存后 api_key 生效", p.get("api_key") == "sk-probe-123", p.get("api_key"))
+    check("保存后接口引用生效", p.get("endpoint") == other, p.get("endpoint"))
+    check("模型里不再存地址（归接口管）", not p.get("base_url"), p.get("base_url"))
+    check("保存后模型名生效", p.get("model") == "probe-model-2", p.get("model"))
     check("保存后 context_window 生效", p.get("context_window") == 4096, p.get("context_window"))
     check("保存后 max_prompt_tokens 生效", p.get("max_prompt_tokens") == 3000, p.get("max_prompt_tokens"))
     check("保存后 compact_pct 生效", p.get("compact_pct") == 70, p.get("compact_pct"))
-    check("保存后 provider 生效", p.get("provider") == "openai", p.get("provider"))
     check("保存后 reasoning_effort 生效", p.get("reasoning_effort") == "low", p.get("reasoning_effort"))
     check("保存后 system 生效", p.get("system") == "probe-system-v2", p.get("system"))
     check("保存后 tools 生效", "bash" in (p.get("tools") or []), p.get("tools"))
@@ -851,6 +855,76 @@ def dirty_dot():
     s.close()
 
 
+def endpoint_flow():
+    """接口：地址和凭据从模型里拆出来，独立注册。"""
+    print("\n" + "=" * 62)
+    print("第十三部分：接口")
+    print("=" * 62)
+    s = Session(1600, 1000)
+    req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+    try:
+        s.get(B + "/?settings=1&conv=51")
+        time.sleep(2.5)
+        s.js("window.__alerts=[]; window.alert=(m)=>{window.__alerts.push(String(m))}; window.confirm=()=>true; return 1")
+
+        secs = s.js("return [...document.querySelectorAll('.col-list .set-section')].map(e=>e.textContent.trim())")
+        check("一级卡有「接口」分组", "接口" in secs, secs)
+
+        st, eps = api("GET", "/api/endpoints")
+        check("接口列表非空", len(eps or []) > 0, len(eps or []))
+        ep = (eps or [])[0]
+
+        # 模型里不再存地址
+        st, profs = api("GET", "/api/profiles")
+        check("模型都引用了接口", all(p.get("endpoint") for p in (profs or [])),
+              [p["name"] for p in (profs or []) if not p.get("endpoint")])
+        check("模型里没有残留的 base_url", all(not p.get("base_url") for p in (profs or [])), "")
+
+        ok = s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>e.querySelector('.item-title')?.textContent.trim()===%s);
+          x&&x.click(); return !!x;""" % json.dumps(ep["name"]))
+        time.sleep(1.2)
+        check("点接口打开接口卡", ok, "")
+        fields = s.js("""return [...document.querySelectorAll('.col-detail .field')]
+            .map(f=>f.querySelector('span')?.textContent.trim());""")
+        check("接口卡有来源/名称/地址/密钥/协议", fields == ["来源模板", "名称", "接口地址", "API Key", "协议"], fields)
+
+        # 拉模型列表
+        s.js("const b=[...document.querySelectorAll('.col-detail .btn')].find(x=>/拉取列表/.test(x.textContent)); b&&b.click(); return !!b")
+        time.sleep(2.5)
+        got = s.js("const m=document.querySelector('.col-detail .tool-cmd'); return m? m.textContent.trim() : null;")
+        check("拉取列表能返回模型", isinstance(got, str) and len(got) > 0, (got or "")[:40])
+        check("拉取没有报错", s.js("return window.__alerts.length") == 0, s.js("return window.__alerts"))
+
+        # 新建接口 + 选来源预填
+        s.js("const b=[...document.querySelectorAll('.col-detail .back')][0]||document.querySelector('.card-back'); b&&b.click(); return 1")
+        time.sleep(0.8)
+        s.js("const b=[...document.querySelectorAll('.item-new')].find(x=>/新建接口/.test(x.textContent)); b&&b.click(); return !!b")
+        time.sleep(1.0)
+        check("新建接口卡打开", s.js("""const t=document.querySelector('.col-detail .ef-label-t');
+            return !!t && /新建接口/.test(t.textContent);"""), "")
+        s.js("""const sel=[...document.querySelectorAll('.col-detail .field select')][0];
+          sel.value='deepseek'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 1;""")
+        time.sleep(0.6)
+        pre = s.js("""const g=(l)=>{const f=[...document.querySelectorAll('.col-detail .field')]
+            .find(x=>(x.querySelector('span')||{}).textContent?.trim()===l); return f? f.querySelector('input,select'):null};
+          const a=g('接口地址'), p=g('协议'); return {url:a?a.value:'', prov:p?p.value:''};""")
+        check("选来源会预填地址", pre.get("url") == "https://api.deepseek.com/v1", pre)
+        check("选来源会预填协议", pre.get("prov") == "openai", pre)
+
+        # 撞名要拒绝（服务端）
+        st, _ = api("POST", "/api/endpoints", {"name": ep["name"], "base_url": "http://x/v1"})
+        check("同名接口是覆盖而不是新增", st == 200, st)
+        api("POST", "/api/endpoints", {"name": ep["name"], "base_url": ep["base_url"],
+                                       "api_key": ep.get("api_key", ""), "provider": ep.get("provider", ""),
+                                       "source": ep.get("source", "")})
+        # 被引用的接口不能删
+        st, d = api("DELETE", "/api/endpoints/" + ep["name"])
+        check("被模型引用的接口不能删", st == 400 and "还有模型在用" in (d.get("error") or ""), f"{st} {d.get('error')}")
+    finally:
+        s.close()
+
+
 def main():
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
@@ -865,6 +939,7 @@ def main():
         delete_flow()
         deep_links()
         dirty_dot()
+        endpoint_flow()
         task_deeplink()
         new_plugin_ui()
     finally:

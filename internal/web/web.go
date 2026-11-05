@@ -303,6 +303,9 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/apply", s.handleApply)
+	mux.HandleFunc("/api/endpoints", s.handleEndpoints)
+	mux.HandleFunc("/api/endpoints/", s.handleEndpointItem)
+	mux.HandleFunc("/api/sources", s.handleSources)
 	// 插件加载失败的说明单独一个只读端点：/api/tools 的响应是数组，
 	// 加字段会破坏调用方；这里给界面一个"为什么某个插件不见了"的答案
 	mux.HandleFunc("/api/tools/issues", func(w http.ResponseWriter, r *http.Request) {

@@ -54,7 +54,7 @@ func (a *Agent) maxTokensOut() int {
 // reasoningBudget：单轮思考 token 预算（默认 4096）—— 引擎默认是"不限"，会跑飞
 // reasoningEffort：openai 兼容的云端不认本地扩展时按需省略（provider=openai 仍发标准 effort）
 func (a *Agent) reasoningEffort() string {
-	if a.profile.Provider == "openai" {
+	if _, _, prov := a.profile.Resolve(); prov == "openai" {
 		switch a.profile.ReasoningEffort {
 		case "", "none":
 			return ""
@@ -65,7 +65,7 @@ func (a *Agent) reasoningEffort() string {
 
 // reasoningBudgetParam：Strata 扩展字段，只有本地/未知 provider 才发
 func (a *Agent) reasoningBudgetParam() int {
-	if a.profile.Provider == "openai" {
+	if _, _, prov := a.profile.Resolve(); prov == "openai" {
 		return 0
 	}
 	return a.reasoningBudget()
@@ -87,15 +87,17 @@ func (a *Agent) ContextWindow() int {
 	if a.profile.ContextWindow > 0 {
 		return a.profile.ContextWindow
 	}
+	// 地址/密钥归接口管；profile 只挑模型。没配接口时回落到全局
+	pbase, pkey, _ := a.profile.Resolve()
 	base, key, model := a.cfg.BaseURL, a.cfg.APIKey, a.cfg.Model
-	if a.profile.BaseURL != "" {
-		base = a.profile.BaseURL
+	if pbase != "" {
+		base = pbase
 	}
 	if a.profile.Model != "" {
 		model = a.profile.Model
 	}
-	if a.profile.APIKey != "" {
-		key = a.profile.APIKey
+	if pkey != "" {
+		key = pkey
 	}
 	if n := llm.ContextWindow(base, key, model); n > 0 {
 		return n
@@ -597,11 +599,14 @@ func (a *Agent) maybeSummarize(ctx context.Context, c *store.Conversation, keep 
 			sumProfile = p
 		}
 	}
-	sumKey := sumProfile.APIKey
+	sumBase, sumKey, _ := sumProfile.Resolve()
 	if sumKey == "" {
 		sumKey = a.cfg.APIKey
 	}
-	sc := llm.New(sumProfile.BaseURL, sumKey)
+	if sumBase == "" {
+		sumBase = a.cfg.BaseURL
+	}
+	sc := llm.New(sumBase, sumKey)
 	out, err := sc.Chat(ctx, llm.ChatRequest{Model: sumProfile.Model, ReasoningEffort: sumProfile.ReasoningEffort,
 		Messages: []llm.Message{{Role: "user", Content: prompt}}})
 	if err != nil || strings.TrimSpace(out) == "" {

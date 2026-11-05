@@ -94,6 +94,10 @@ export function useSettings({ refresh }) {
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
+  const [endpoints, setEndpoints] = useState([])     // 接口列表（地址 + 凭据）
+  const [sources, setSources] = useState([])         // 来源模板（sources.json）
+  const [editE, setEditE] = useState(null)           // 正在编辑的接口（2 级）
+  const [endpointModels, setEndpointModels] = useState({})  // 接口名 -> 模型列表
   const [toolSnapShot, setToolSnapShot] = useState(null)  // 工具表单打开时的快照（对象，用于 diff）
   const [pendingNewPlugin, setPendingNewPlugin] = useState(false)
   const [settings, setSettings] = useState(BLANK_SETTINGS)
@@ -113,6 +117,10 @@ export function useSettings({ refresh }) {
     const r = await api('/api/shots/stats').catch(() => null)
     if (r) setShotInfo(`当前 ${r.count} 张，占用 ${r.size_mb.toFixed(1)} MB`)
   }
+  const loadEndpoints = async () => {
+    setEndpoints((await api('/api/endpoints').catch(() => [])) || [])
+    setSources((await api('/api/sources').catch(() => [])) || [])
+  }
   const loadTools = async () => {
     setToolList((await api('/api/tools').catch(() => [])) || [])
     // 哪些插件没加载上、为什么。以前只有日志里有，界面上表现为"它不见了"
@@ -124,7 +132,7 @@ export function useSettings({ refresh }) {
     setSettings(s); setSetSnap(JSON.stringify(s))
   }
   // 工具/配置重新拉一遍（改完插件、工具说明后）
-  const reload = async () => { await Promise.all([loadTools(), loadSettings()]) }
+  const reload = async () => { await Promise.all([loadTools(), loadSettings(), loadEndpoints()]) }
 
   // 挂载：载入 + 处理深链
   useEffect(() => {
@@ -359,6 +367,46 @@ export function useSettings({ refresh }) {
     setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
     setToolForm(null)   // 2 级详情同一时刻只能有一张
   }
+  // —— 接口（地址 + 凭据）——
+  const pickEndpoint = (e) => {
+    setEditP(null); setToolForm(null); setToolEdit(null); setEditField(null)
+    setEditE({ ...e })
+  }
+  const newEndpoint = () => {
+    setEditP(null); setToolForm(null); setToolEdit(null); setEditField(null)
+    setEditE({ name: '', base_url: '', api_key: '', provider: '', source: '', _new: true })
+  }
+  const closeEndpoint = () => setEditE(null)
+  const saveEndpoint = async () => {
+    if (!editE) return
+    const r = await fetch('/api/endpoints', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editE.name.trim(), base_url: editE.base_url.trim(),
+        api_key: editE.api_key || '', provider: editE.provider || '', source: editE.source || '' }) })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) { alert(j.error || '保存失败'); return }
+    await loadEndpoints(); await refresh()
+    // 保存后回到新数据，别把整层关掉
+    const list = await api('/api/endpoints').catch(() => [])
+    const me = (list || []).find(x => x.name === editE.name.trim())
+    setEditE(me ? { ...me } : null)
+  }
+  const deleteEndpoint = async () => {
+    if (!editE) return
+    if (!confirm('删除接口 ' + editE.name + '？')) return
+    const r = await fetch('/api/endpoints/' + encodeURIComponent(editE.name), { method: 'DELETE' })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) { alert(j.error || '删除失败'); return }
+    setEditE(null); await loadEndpoints(); await refresh()
+  }
+  // 拉某个接口下的模型列表（"选来源 → 自动匹配可用模型"）
+  const fetchEndpointModels = async (name) => {
+    const r = await api('/api/endpoints/' + encodeURIComponent(name) + '/models').catch(() => null)
+    if (!r) return []
+    if (r.error) { alert(r.error); return [] }
+    setEndpointModels(m => ({ ...m, [name]: r.models || [] }))
+    return r.models || []
+  }
+
   // 点工具直接打开**可编辑表单**（和模型配置一样，没有独立的只读态）。
   //
   // 内置工具也走同一张表单，只是 editable 为 false —— 命令、超时、常驻这些
@@ -433,6 +481,8 @@ export function useSettings({ refresh }) {
     drafts, draftsDirty, sheet, setSheet, committing, commitSheet, discardAll, pendingChanges,
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
+    endpoints, sources, editE, setEditE, endpointModels,
+    pickEndpoint, newEndpoint, closeEndpoint, saveEndpoint, deleteEndpoint, fetchEndpointModels,
     openSystemEditor, openToolEditor,
     deletePlugin, deleteProfile, cleanShots,
   }

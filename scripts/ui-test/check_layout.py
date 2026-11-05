@@ -25,15 +25,16 @@ open_settings(s)
 base = s.js(CARDS)
 check("宽屏初始只有列表卡", len(base) == 1 and base[0]['cls'] == 'card col-list', str(base))
 
-s.js("[...document.querySelectorAll('.col-list .item.col')][0].click(); return 1"); time.sleep(0.6)
+# 按名字找模型：「接口」分组的条目也是 .item.col，取第一个会点到接口卡
+s.js("[...document.querySelectorAll('.col-list .item.col')].find(e=>/180-low/.test(e.textContent)).click(); return 1"); time.sleep(1.0)
 model2 = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(0.6)
+s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
 model3 = s.js(CARDS)
 
 open_settings(s)
-s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(0.6)
+s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(1.0)
 tool2 = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(0.6)
+s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
 tool3 = s.js(CARDS)
 
 def geom(c): return [c['x'], c['y'], c['w'], c['h']]
@@ -53,14 +54,15 @@ s = Session(900, 1000)
 req("POST", f"/session/{s.id}/window/rect", {"width": 900, "height": 1000})
 open_settings(s)
 states = {'初始': s.js(CARDS)}
-s.js("[...document.querySelectorAll('.col-list .item.col')][0].click(); return 1"); time.sleep(0.6)
+# 按名字找模型：「接口」分组的条目也是 .item.col，取第一个会点到接口卡
+s.js("[...document.querySelectorAll('.col-list .item.col')].find(e=>/180-low/.test(e.textContent)).click(); return 1"); time.sleep(1.0)
 states['模型2'] = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(0.6)
+s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
 states['模型3'] = s.js(CARDS)
 open_settings(s)
-s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(0.6)
+s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(1.0)
 states['工具2'] = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(0.6)
+s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
 states['工具3'] = s.js(CARDS)
 
 for k, v in states.items():
