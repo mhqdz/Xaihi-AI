@@ -27,8 +27,8 @@ export default function ToolCard({ v, narrow, profiles, top }) {
       {form ? (
         <div className="card-bd">
           <Section>基本信息</Section>
-          <Field label="名称" hint={form.isNew ? '小写字母开头，可用 a-z 0-9 _' : '创建后不可改名（要改就新建一个）'}>
-            <input value={form.name} disabled={!form.isNew}
+          <Field label="名称" hint="小写字母开头，可用 a-z 0-9 _；改名后所有 profile 里的引用会自动跟着换">
+            <input value={form.name}
               onChange={e => v.setToolForm({ ...form, name: e.target.value })} />
           </Field>
           <Field label="说明" hint="模型看到的描述；也可以之后在详情卡点「说明」改">

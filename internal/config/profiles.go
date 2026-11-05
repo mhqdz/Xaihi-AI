@@ -88,6 +88,30 @@ func GetProfile(name string) (Profile, bool) {
 }
 
 // writeProfiles：flock 串行化多进程写，原子替换。
+// RenameToolInProfiles：工具改名后，把各 profile 的 tools 列表里的旧名换成新名。
+//
+// 不做这一步的话，改完名字那个工具会从所有模型的可用列表里消失 ——
+// 用户看到的是"改个名字把插件弄没了"。返回被改动的引用条数。
+func RenameToolInProfiles(oldName, newName string) (int, error) {
+	if oldName == "" || newName == "" || oldName == newName {
+		return 0, nil
+	}
+	list := append([]Profile{}, LoadProfiles()...)
+	n := 0
+	for i := range list {
+		for j, t := range list[i].Tools {
+			if t == oldName {
+				list[i].Tools[j] = newName
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return n, writeProfiles(list)
+}
+
 func writeProfiles(list []Profile) error {
 	p := profilesPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

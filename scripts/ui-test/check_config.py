@@ -342,7 +342,9 @@ def level1(s):
 
 
 def plugin_flow(s):
-    """外置插件：新建 → 详情 → 编辑 → 保存 → 说明编辑 → 删除。"""
+    """外置插件：新建 → 详情 → 编辑 → 保存 → 改名 → 说明编辑 → 删除。"""
+    import glob
+    import os
     print("\n" + "=" * 62)
     print("第四部分：插件表单闭环")
     print("=" * 62)
@@ -408,9 +410,56 @@ def plugin_flow(s):
     t = next((x for x in (lst or []) if x["name"] == "cfg_plugin"), {})
     check("工具说明已保存", t.get("description") == "改过的测试插件说明", t.get("description"))
 
-    api("DELETE", "/api/plugins/cfg_plugin")
+    # 改名：内容里的 name 换了，文件名不动，profile 里的引用要跟着换
+    st, _ = api("POST", "/api/profiles", {"name": "rename_probe",
+                                          "base_url": "http://127.0.0.1:18320/180/v1",
+                                          "model": "m", "tools": ["cfg_plugin"]})
+    check("探针 profile 引用插件", st == 200, st)
+    s.get(B + "/?settings=1&conv=51")
+    time.sleep(2.5)
+    s.js("window.__alerts2=[]; window.alert=(m)=>{window.__alerts2.push(String(m))}; return 1")
+    s.js("""const x=[...document.querySelectorAll('.col-list .item')]
+        .find(e=>e.querySelector('.item-title')?.textContent.startsWith('cfg_plugin'));
+      x&&x.click(); return !!x;""")
+    time.sleep(1.0)
+    s.js("const b=[...document.querySelectorAll('.set-foot-actions .btn')].find(x=>/编辑插件定义/.test(x.textContent)); b&&b.click(); return !!b")
+    time.sleep(1.0)
+    got = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
+        .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='名称');
+      const el=f.querySelector('input');
+      if(el.disabled) return 'DISABLED';
+      const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+      set.call(el,'cfg_plugin2'); el.dispatchEvent(new Event('input',{bubbles:true}));
+      return el.value;""")
+    check("名称可以改（不再禁用）", got == "cfg_plugin2", got)
+    s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
+    time.sleep(1.8)
+    names = [x["name"] for x in (api("GET", "/api/tools")[1] or [])]
+    check("改名后新名字在列表里", "cfg_plugin2" in names, [n for n in names if n.startswith("cfg")])
+    check("旧名字不在了", "cfg_plugin" not in names, "")
+    st, lst = api("GET", "/api/profiles")
+    tools_of = next((p["tools"] for p in (lst or []) if p["name"] == "rename_probe"), [])
+    check("profile 里的引用跟着换了", "cfg_plugin2" in tools_of, tools_of)
+    # 文件名必须跟着改：只改内容、文件名不动的话，新建一个与旧文件名同名的
+    # 插件会把它覆盖掉（工具凭空消失）
+    files = sorted(os.path.basename(p) for p in glob.glob(os.path.join(
+        os.path.expanduser("~/.data/agentd/tools.d"), "cfg_plugin*.json")))
+    check("文件名跟着改成新名字", files == ["cfg_plugin2.json"], files)
+    # 撞名要拒绝，而不是覆盖。必须撞一个**确实存在**的插件：
+    # 改成空闲名字是合法操作（那是普通改名），不是撞名。
+    api("POST", "/api/plugins", {"name": "cfg_neighbor", "description": "邻居",
+                                 "command": ["/bin/echo", "n"]})
+    st, d2 = api("POST", "/api/plugins", {"name": "cfg_neighbor", "originalName": "cfg_plugin2",
+                                          "oldName": "cfg_plugin2", "description": "抢占",
+                                          "command": ["/bin/echo", "y"]})
+    check("改名撞到已存在的名字被拒绝", st == 400, f"{st} {d2.get('error')}")
+    check("被拒绝后原插件还在",
+          any(x["name"] == "cfg_plugin2" for x in (api("GET", "/api/tools")[1] or [])), "")
+    api("DELETE", "/api/plugins/cfg_neighbor")
+    api("DELETE", "/api/profiles/rename_probe")
+    api("DELETE", "/api/plugins/cfg_plugin2")
     st, lst = api("GET", "/api/tools")
-    check("探针插件已删除", not any(x["name"] == "cfg_plugin" for x in (lst or [])), "")
+    check("探针插件已删除", not any(x["name"].startswith("cfg_plugin") for x in (lst or [])), "")
 
 
 def tool_issue_notice(s):

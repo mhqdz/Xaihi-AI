@@ -236,6 +236,13 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
+		if orig := strings.TrimSpace(d.OldName); orig != "" && orig != d.Name {
+			if n, err := config.RenameToolInProfiles(orig, d.Name); err != nil {
+				logx.Warn("plugin.rename sync profiles: %v", err)
+			} else if n > 0 {
+				logx.Info("plugin.rename %s -> %s, updated %d profile tools", orig, d.Name, n)
+			}
+		}
 		logx.Info("plugin.save name=%s persistent=%v cmd=%v", d.Name, d.Persistent, d.Command)
 		writeJSON(w, 200, map[string]any{"ok": true, "name": d.Name})
 	})

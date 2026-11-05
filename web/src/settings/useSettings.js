@@ -324,8 +324,10 @@ export function useSettings({ refresh }) {
   const editPlugin = () => {
     const t = toolCfg
     if (!t) return
+    // 原名取自清单路径的文件名 —— 它不是 t.name：改名后文件名会保持不变
+    const orig = (t.path || '').split('/').pop().replace(/\.json$/, '')
     setToolForm({
-      isNew: false, name: t.name, description: t.description || '',
+      isNew: false, name: t.name, originalName: orig || t.name, oldName: t.name, description: t.description || '',
       command: (t.command || []).join('\n'), timeoutMs: t.timeout_ms || 20000,
       persistent: !!t.persistent, paramsText: JSON.stringify(t.params || {}, null, 2),
       requiredText: (t.required || []).join(',')
@@ -350,7 +352,8 @@ export function useSettings({ refresh }) {
     let params = null
     try { params = toolForm.paramsText.trim() ? JSON.parse(toolForm.paramsText) : null } catch { alert('参数不是合法 JSON'); return }
     const body = {
-      name: toolForm.name.trim(), description: toolForm.description || '',
+      name: toolForm.name.trim(), originalName: toolForm.originalName || '', oldName: toolForm.oldName || '',
+      description: toolForm.description || '',
       command: toolForm.command.split('\n').map(x => x.trim()).filter(Boolean),
       timeoutMs: Number(toolForm.timeoutMs) || 20000, persistent: !!toolForm.persistent,
       params, required: (toolForm.requiredText || '').split(',').map(x => x.trim()).filter(Boolean)

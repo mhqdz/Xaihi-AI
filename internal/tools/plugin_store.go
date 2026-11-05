@@ -17,7 +17,15 @@ func PluginDir() string {
 
 // PluginDraft：前端提交的插件定义（与清单文件字段对齐）
 type PluginDraft struct {
-	Name        string            `json:"name"`
+	Name string `json:"name"`
+	// OriginalName：这次保存前它叫什么（旧文件名去掉 .json）。
+	// 非空且与 Name 不同就是改名：写到 <name>.json，再把旧文件删掉。
+	OriginalName string `json:"originalName,omitempty"`
+	// OldName：改名前它在工具列表里叫什么。和 OriginalName 不是一回事 ——
+	// 改过一次名之后，文件名（OriginalName）和显示名（OldName）就已经分叉了：
+	// 文件还叫最初的 rn_a.json，列表里显示的可能是 rn_b，这次改成 rn_c。
+	OldName string `json:"oldName,omitempty"`
+
 	Description string            `json:"description"`
 	Command     []string          `json:"command"`
 	TimeoutMs   int               `json:"timeoutMs"`
@@ -58,7 +66,31 @@ func SavePlugin(d PluginDraft) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return config.WriteFileAtomic(filepath.Join(dir, name+".json"), append(b, '\n'), 0o644)
+	target := filepath.Join(dir, name+".json")
+	orig := strings.TrimSpace(d.OriginalName)
+	oldPath := ""
+	if orig != "" && orig != name {
+		oldPath = filepath.Join(dir, orig+".json")
+		// 新名字的文件已经存在、又不是自己 → 那个名字被别的插件占着
+		if oldPath != target {
+			if _, err := os.Stat(target); err == nil {
+				return fmt.Errorf("%s.json 已存在，换一个名字", name)
+			}
+		}
+	}
+	// 先写新文件，成功后再删旧的：写失败时旧文件还在，不会两个都丢。
+	// 文件名必须跟着 name 走 —— 它就是这个插件的身份。
+	// 曾经试过"只改内容、文件名不动"，结果新建一个与旧文件名同名的插件时
+	// 会把改名后的那个直接覆盖掉（工具凭空消失）。
+	if err := config.WriteFileAtomic(target, append(b, '\n'), 0o644); err != nil {
+		return err
+	}
+	if oldPath != "" && oldPath != target {
+		if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("写入成功，但旧文件 %s 删不掉：%w", filepath.Base(oldPath), err)
+		}
+	}
+	return nil
 }
 
 // DeletePlugin：删除一份清单（内置工具不可删）
