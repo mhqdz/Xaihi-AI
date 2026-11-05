@@ -390,8 +390,7 @@ def plugin_flow(s):
     time.sleep(0.6)
     check("开关可切回", s.js("return document.querySelector('.col-detail .switch-row [role=switch]').getAttribute('aria-checked')") == sw_before, "")
 
-    s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
-    time.sleep(1.8)
+    click_save(s)   # 插件表单没有自己的保存按钮，走一级卡的统一保存
     # 没有"详情态"了：保存后仍停在表单里，只是变成未修改状态
     check("保存后仍停在工具表单", s.js("return !!document.querySelector('.col-detail .plugin-cmd')"), "")
     check("保存后名称是新的", s.js("const i=document.querySelector('.col-detail input'); return i? i.value : ''") == "cfg_plugin", "")
@@ -434,8 +433,7 @@ def plugin_flow(s):
       set.call(el,'cfg_plugin2'); el.dispatchEvent(new Event('input',{bubbles:true}));
       return el.value;""")
     check("名称可以改（不再禁用）", got == "cfg_plugin2", got)
-    s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
-    time.sleep(1.8)
+    click_save(s)   # 插件表单没有自己的保存按钮，走一级卡的统一保存
     names = [x["name"] for x in (api("GET", "/api/tools")[1] or [])]
     check("改名后新名字在列表里", "cfg_plugin2" in names, [n for n in names if n.startswith("cfg")])
     check("旧名字不在了", "cfg_plugin" not in names, "")
@@ -791,8 +789,7 @@ if(!n||!c) return 'NO_FIELD';
 set(n,'cfg_new_ui'); set(c,['/bin/echo','hi'].join(String.fromCharCode(10)));
 return {name:n.value, cmd:c.value};""")
         check("能填名称和命令", isinstance(fill, dict) and fill.get("name") == "cfg_new_ui", fill)
-        s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
-        time.sleep(1.8)
+        click_save(s)   # 插件表单没有自己的保存按钮，走一级卡的统一保存
         check("保存无报错", s.js("return window.__alerts.length") == 0, s.js("return window.__alerts"))
         st, lst = api("GET", "/api/tools")
         check("新插件出现在工具列表", any(x["name"] == "cfg_new_ui" for x in (lst or [])),

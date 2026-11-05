@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"agentd/internal/config"
 	"agentd/internal/logx"
@@ -98,6 +99,27 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 			ops = append(ops, op{"tool", name, func() error {
 				_, err := saveToolDescription(name, desc)
 				return err
+			}})
+		case "plugin":
+			// 整份插件定义（新建 / 改命令 / 改名 / 改参数）。校验在 SavePlugin 里，
+			// 这里只做解析 —— 保证它和"单发 POST /api/plugins"走同一条路。
+			var d tools.PluginDraft
+			if err := json.Unmarshal(c.Data, &d); err != nil {
+				reject(i, c, "plugin 解析失败："+err.Error())
+				return
+			}
+			saved := d
+			ops = append(ops, op{"plugin", d.Name, func() error {
+				if err := tools.SavePlugin(saved); err != nil {
+					return err
+				}
+				// 和单发 POST /api/plugins 一致：改名后把各 profile 的引用换过来
+				if orig := strings.TrimSpace(saved.OldName); orig != "" && orig != saved.Name {
+					if _, err := config.RenameToolInProfiles(orig, saved.Name); err != nil {
+						logx.Warn("plugin.rename sync profiles: %v", err)
+					}
+				}
+				return nil
 			}})
 		case "settings":
 			var st config.Settings

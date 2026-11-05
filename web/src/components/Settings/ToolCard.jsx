@@ -22,13 +22,7 @@ export default function ToolCard({ v, narrow, profiles, top }) {
     <Card kind="col-detail" top={top}
       title={form.isNew ? 'new plugin' : ('tool · ' + form.name)}
       dirty={v.toolFormDirty}
-      onClose={() => v.closeToolForm()}
-      actions={editable ? (
-        <span className="card-actions title-actions">
-          <button className="btn" onClick={v.closeToolForm}>取消</button>
-          <button className="btn save" onClick={v.savePlugin}>保存</button>
-        </span>
-      ) : null}>
+      onClose={() => v.closeToolForm()}>
 
       <div className="card-bd">
         {/* 这里不套 Section：「说明」两个字既是分组名又是条目名，会连着出现两遍 */}

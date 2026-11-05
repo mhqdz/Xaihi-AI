@@ -34,6 +34,10 @@ const FIELD_LABELS = {
   reasoning_effort: '思考强度', tools: '可用工具', system: 'system 提示',
   keep_messages: '保留消息数', context_window: '上下文窗口', compact_pct: '压缩阈值'
 }
+const TOOL_LABELS = {
+  name: '名称', description: '说明', command: '命令', timeoutMs: '超时(ms)',
+  persistent: '常驻进程', paramsText: 'JSON Schema', requiredText: '必填参数'
+}
 const SETTING_LABELS = {
   tool_rounds_enabled: '工具轮次上限开关', tool_rounds: '工具轮次上限',
   auto_archive_enabled: '自动归档开关', auto_archive_days: '自动归档天数',
@@ -90,7 +94,8 @@ export function useSettings({ refresh }) {
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
-  const [toolSnapShot, setToolSnapShot] = useState('')  // 工具表单打开时的快照
+  const [toolSnapShot, setToolSnapShot] = useState(null)  // 工具表单打开时的快照（对象，用于 diff）
+  const [pendingNewPlugin, setPendingNewPlugin] = useState(false)
   const [settings, setSettings] = useState(BLANK_SETTINGS)
   const [setSnap, setSetSnap] = useState(() => JSON.stringify(BLANK_SETTINGS))
   const [tasks, setTasks] = useState([])
@@ -154,7 +159,11 @@ export function useSettings({ refresh }) {
         if (t) pickTool(t)
         if (t && q.get('tooledit')) { setEditOriginal(t.description || ''); setToolEdit({ name: t.name, description: t.description }) }
       }
-      if (q.get('newplugin')) { setEditP(null); setToolForm({ ...NEW_PLUGIN, source: 'plugin' }) }
+      if (q.get('newplugin')) {
+        // 不在这里直接调 newPlugin：它定义在下面（TDZ）。
+        // 用一个标记，等挂载后的 effect 统一处理
+        setPendingNewPlugin(true)
+      }
     })()
   }, [])
 
@@ -171,8 +180,8 @@ export function useSettings({ refresh }) {
   const [drafts, setDrafts] = useState({})
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
   // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
-  const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnapShot
-  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty
+  const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnap(toolSnapShot)
+  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
   const [nudge, setNudge] = useState(0)
@@ -187,7 +196,7 @@ export function useSettings({ refresh }) {
   // 点了取消、操作条上还挂着草稿（原来只回滚当前层，草稿没清）。
   const cancel = () => {
     setDrafts({})
-    setEditField(null); setToolEdit(null)
+    setEditField(null); setToolEdit(null); setToolForm(null); setToolSnapShot(null)
     if (editP) setEditP(JSON.parse(editSnap || '{}'))
     setSettings(JSON.parse(setSnap || '{}'))
   }
@@ -207,6 +216,15 @@ export function useSettings({ refresh }) {
       out.push({ kind: 'profile', title: '模型 · ' + name, name,
         base: JSON.parse(d.base || '{}'), next: d.data,
         rows: diffFields(JSON.parse(d.base || '{}'), d.data, FIELD_LABELS) })
+    }
+    // 插件定义（整份表单）：和上面 profile 一样，攒着一起提交
+    if (toolForm && toolFormDirty) {
+      const base = toolSnapShot || {}
+      out.push({
+        kind: 'plugin', title: (toolForm.isNew ? '新插件 · ' : '插件 · ') + (toolForm.name || '（未命名）'),
+        name: toolForm.name, next: toolForm,
+        rows: diffFields(base, toolForm, TOOL_LABELS)
+      })
     }
     if (toolEdit && editorDirty && !editField) {
       out.push({ kind: 'tool', title: '工具说明 · ' + toolEdit.name, name: toolEdit.name,
@@ -251,6 +269,21 @@ export function useSettings({ refresh }) {
         }
       }
       if (c.kind === 'tool') return { kind: 'tool', name: c.name, data: { description: c.next.description } }
+      if (c.kind === 'plugin') {
+        const f = c.next
+        let params = null
+        try { params = f.paramsText.trim() ? JSON.parse(f.paramsText) : null } catch (e) { params = null }
+        return {
+          kind: 'plugin',
+          data: {
+            name: (f.name || '').trim(), originalName: f.originalName || '', oldName: f.oldName || '',
+            description: f.description || '',
+            command: (f.command || '').split('\n').map(x => x.trim()).filter(Boolean),
+            timeoutMs: Number(f.timeoutMs) || 20000, persistent: !!f.persistent,
+            params, required: (f.requiredText || '').split(',').map(x => x.trim()).filter(Boolean)
+          }
+        }
+      }
       return { kind: 'settings', data: c.next }
     })
     let resp
@@ -275,6 +308,7 @@ export function useSettings({ refresh }) {
     if (editP) { setEditSnap(snapOf(editP)) }
     setEditOriginal(editField ? (editP?.[editField] || '') : (toolEdit?.description || ''))
     setSetSnap(JSON.stringify(settings))
+    if (toolForm) setToolSnapShot(toolForm)
     setSheet(null); setCommitting(false)
     await reload(); await refresh()
   }
@@ -345,14 +379,20 @@ export function useSettings({ refresh }) {
       paramsText: JSON.stringify(t.params || {}, null, 2),
       requiredText: (t.required || []).join(',')
     }
-    setToolForm(form); setToolSnapShot(toolSnap(form))
+    setToolForm(form); setToolSnapShot(form)
   }
   const newPlugin = () => {
     setEditP(null); setToolEdit(null); setEditField(null)
     const form = { ...NEW_PLUGIN, source: 'plugin' }
-    setToolForm(form); setToolSnapShot(toolSnap(form))
+    setToolForm(form); setToolSnapShot(form)
   }
-  const closeToolForm = () => { setToolForm(null); setToolSnapShot('') }
+  const closeToolForm = () => { setToolForm(null); setToolSnapShot(null) }
+  // 深链 ?newplugin 的处理：等 newPlugin 定义好再执行，避免 TDZ 和漏设快照
+  useEffect(() => {
+    if (!pendingNewPlugin) return
+    setPendingNewPlugin(false)
+    newPlugin()
+  }, [pendingNewPlugin])
   const pickTask = async (t) => {
     const d = await api('/api/tasks/' + t.id).catch(() => null)
     setTaskDetail(prev => (prev && prev.task && prev.task.id === t.id) ? null : d)
@@ -361,33 +401,6 @@ export function useSettings({ refresh }) {
   const openToolEditor = (name, desc) => { setEditOriginal(desc || ''); setToolEdit({ name, description: desc }); setEditField(null) }
 
   // —— 插件/模型的写操作 ——
-  const savePlugin = async () => {
-    if (!toolForm) return
-    if (!toolForm.name || !toolForm.command.trim()) { alert('名字与命令必填'); return }
-    let params = null
-    try { params = toolForm.paramsText.trim() ? JSON.parse(toolForm.paramsText) : null } catch { alert('参数不是合法 JSON'); return }
-    const body = {
-      name: toolForm.name.trim(), originalName: toolForm.originalName || '', oldName: toolForm.oldName || '',
-      description: toolForm.description || '',
-      command: toolForm.command.split('\n').map(x => x.trim()).filter(Boolean),
-      timeoutMs: Number(toolForm.timeoutMs) || 20000, persistent: !!toolForm.persistent,
-      params, required: (toolForm.requiredText || '').split(',').map(x => x.trim()).filter(Boolean)
-    }
-    const r = await fetch('/api/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) { alert(j.error || '保存失败'); return }
-    // 编辑已有插件：保存后还停在这张卡上（换成服务端的新数据，回到未修改态）；
-    // 新建则退回列表，让新插件出现在工具列表里
-    if (toolForm.isNew) {
-      setToolForm(null); setToolSnapShot('')
-    } else {
-      const list = await api('/api/tools').catch(() => null)
-      const updated = (list || []).find(t => t.name === body.name)
-      if (updated) pickTool(updated)
-      else setToolForm(null)
-    }
-    await refresh(); await reload()
-  }
   const deletePlugin = async () => {
     // 详情卡和编辑表单里都可能点删除：名字优先取表单，其次取详情
     const name = toolForm?.name
@@ -421,6 +434,6 @@ export function useSettings({ refresh }) {
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     openSystemEditor, openToolEditor,
-    savePlugin, deletePlugin, deleteProfile, cleanShots,
+    deletePlugin, deleteProfile, cleanShots,
   }
 }
