@@ -41,12 +41,12 @@ export function InfoField({ label, value, mono }) {
 
 // 开关行。整行可点：那个 38×24 的钮在窄屏上并不好按，
 // 而这一行的语义就是"切换它"，点哪儿都算同一件事。
-export function SwitchRow({ label, hint, checked, onChange }) {
-  const flip = () => onChange(!checked)
+export function SwitchRow({ label, hint, checked, onChange, disabled }) {
+  const flip = () => { if (!disabled) onChange(!checked) }
   return (
-    <div className="item static switch-row" onClick={flip}>
+    <div className={'item static switch-row' + (disabled ? ' ro' : '')} onClick={flip}>
       <span className="item-title">{label}</span>
-      <button type="button" role="switch" aria-checked={checked}
+      <button type="button" role="switch" aria-checked={checked} disabled={disabled}
         className={'tg' + (checked ? ' on' : '')}
         onClick={e => { e.stopPropagation(); flip() }}><b /></button>
       {hint ? <div className="set-meta">{hint}</div> : null}

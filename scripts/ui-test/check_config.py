@@ -392,7 +392,9 @@ def plugin_flow(s):
 
     s.js("const b=[...document.querySelectorAll('.col-detail .title-actions .btn')].find(x=>/保存/.test(x.textContent)); b&&b.click(); return !!b")
     time.sleep(1.8)
-    check("保存后回到详情", s.js("return !!document.querySelector('.set-foot-actions')"), "")
+    # 没有"详情态"了：保存后仍停在表单里，只是变成未修改状态
+    check("保存后仍停在工具表单", s.js("return !!document.querySelector('.col-detail .plugin-cmd')"), "")
+    check("保存后名称是新的", s.js("const i=document.querySelector('.col-detail input'); return i? i.value : ''") == "cfg_plugin", "")
     st, lst = api("GET", "/api/tools")
     t = next((x for x in (lst or []) if x["name"] == "cfg_plugin"), {})
     check("插件超时已写入", t.get("timeout_ms") == 7000, t.get("timeout_ms"))
@@ -706,9 +708,8 @@ def deep_links():
         go("tool=kb_get")
         check("?tool= 打开工具详情", s.js("""const t=document.querySelector('.col-detail .ef-label-t');
             return !!t && /kb_get/.test(t.textContent);"""), "")
-        check("?tool= 显示命令", s.js("""const m=[...document.querySelectorAll('.col-detail .tool-meta')]
-            .map(e=>e.textContent.trim());
-          return m.some(x=>x.includes('kb_get'));"""), "")
+        check("?tool= 回显命令", s.js("""const t=document.querySelector('.col-detail .plugin-cmd');
+          return !!t && t.value.includes('kb_get');"""), "")
 
         go("tool=kb_get&tooledit=1")
         check("&tooledit= 打开工具说明编辑", s.js("""const t=document.querySelector('.col-editor .ef-label-t');

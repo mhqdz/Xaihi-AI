@@ -11,7 +11,7 @@ export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) 
   // 层级：3 级编辑器 / 2 级详情（模型或工具，二者互斥）/ 1 级列表
   // 列宽按"实际渲染几张卡"算，同一时刻最多三张
   const editing = !!(v.editField || v.toolEdit)
-  const detail = !!(v.toolCfg || v.toolForm || v.editP)
+  const detail = !!(v.toolForm || v.editP)
   const cols = editing && detail ? ' three' : (editing || detail) ? ' two' : ''
   // 只有一张"最上层"卡（窄屏只显示它）
   const top = editing ? 'editor' : detail ? 'detail' : 'list'
@@ -22,7 +22,7 @@ export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) 
       <div className={'set-cols' + cols} role="dialog" aria-modal="true" aria-label="设置"
         onClick={e => { if (e.target === e.currentTarget) v.closeOne() }}>
         {editing ? <EditorCard v={v} narrow={narrow} top={top === 'editor'} /> : null}
-        {(v.toolCfg || v.toolForm) ? <ToolCard v={v} narrow={narrow} profiles={profiles} top={top === 'detail'} /> : null}
+        {v.toolForm ? <ToolCard v={v} narrow={narrow} profiles={profiles} top={top === 'detail'} /> : null}
         {v.editP ? <ModelForm v={v} narrow={narrow} top={top === 'detail'} /> : null}
         <ListCard v={v} narrow={narrow} profiles={profiles} uiCfg={uiCfg} openConv={openConv} top={top === 'list'} />
       </div>

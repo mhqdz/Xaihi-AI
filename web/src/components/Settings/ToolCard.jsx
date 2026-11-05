@@ -1,123 +1,104 @@
 import React from 'react'
 import Card from './Card'
-import { Section, Field, SwitchRow } from './form'
+import { Section, Field, InfoField, SwitchRow } from './form'
 
-// 工具详情 / 插件表单卡（第二级）
+// 工具卡（第二级：详细配置）
 //
-// 内置工具和外置插件走同一个详情模板：来源、超时、进程、启用情况都在固定位置，
-// 外置多出命令和清单，以及底部的编辑入口。
-// 以前外置工具点开是直接进编辑表单（没有详情这一层），而列表接口当时又不返回
-// command —— 于是给出一张"命令为空"的表单，一保存就被校验拦下。
+// 和模型配置一样，点开就是**可编辑的表单**，没有"详情态 ↔ 编辑态"的切换。
+// 内置工具也走同一张表单：命令、超时、常驻、参数这些由程序决定，
+// 用 .ro 修饰类灰掉（同一个输入框，只是不能点）；
+// 说明两边都能改 —— 它是长文本，点那一行进 3 级卡编辑。
+//
+// 这样两种工具的字段顺序、间距、标签位置完全一致，
+// 差别只剩"哪些格子能点"，而不是两套长得不一样的界面。
 export default function ToolCard({ v, narrow, profiles, top }) {
-  const cfg = v.toolCfg
   const form = v.toolForm
-  if (!cfg && !form) return null
-  const isPlugin = cfg?.source === 'plugin'
+  if (!form) return null
+  const editable = form.isNew || form.source === 'plugin'
+  const ro = editable ? '' : ' ro'
+  const set = (k, val) => v.setToolForm({ ...form, [k]: val })
+
   return (
     <Card kind="col-detail" top={top}
-      title={form ? (form.isNew ? 'new plugin' : 'tool · ' + form.name) : ('tool · ' + cfg.name)}
-      onClose={() => (form ? v.closeToolForm() : v.closeOne())}
-      actions={form ? (
+      title={form.isNew ? 'new plugin' : ('tool · ' + form.name)}
+      onClose={() => v.closeToolForm()}
+      actions={editable ? (
         <span className="card-actions title-actions">
           <button className="btn" onClick={v.closeToolForm}>取消</button>
           <button className="btn save" onClick={v.savePlugin}>保存</button>
         </span>
       ) : null}>
 
-      {form ? (
-        <div className="card-bd">
-          <Section>基本信息</Section>
-          <Field label="名称" hint="小写字母开头，可用 a-z 0-9 _；改名后所有 profile 里的引用会自动跟着换">
-            <input value={form.name}
-              onChange={e => v.setToolForm({ ...form, name: e.target.value })} />
-          </Field>
-          <Field label="说明" hint="模型看到的描述；也可以之后在详情卡点「说明」改">
-            <input value={form.description}
-              onChange={e => v.setToolForm({ ...form, description: e.target.value })} />
-          </Field>
-
-          <Section>执行</Section>
-          <Field label="命令" hint="每行一个参数，直接 exec 不走 shell">
-            <textarea className="plugin-cmd" value={form.command}
-              placeholder={'~/Workspace/agentd/scripts/tools/kb_get\n{{id}}'}
-              onChange={e => v.setToolForm({ ...form, command: e.target.value })} />
-          </Field>
-          <Field label="超时（毫秒）">
-            <input type="number" min="1000" value={form.timeoutMs}
-              onChange={e => v.setToolForm({ ...form, timeoutMs: e.target.value })} />
-          </Field>
-          <SwitchRow label="常驻进程" hint="开启后按 JSON-RPC over stdio 长连接，适合每次启动都很慢的脚本"
-            checked={!!form.persistent}
-            onChange={x => v.setToolForm({ ...form, persistent: x })} />
-
-          <Section>参数</Section>
-          <Field label="JSON Schema properties">
-            <textarea className="plugin-json" value={form.paramsText}
-              onChange={e => v.setToolForm({ ...form, paramsText: e.target.value })} />
-          </Field>
-          <Field label="必填参数" hint="逗号分隔，必须出现在上面的 properties 里">
-            <input value={form.requiredText}
-              onChange={e => v.setToolForm({ ...form, requiredText: e.target.value })} />
-          </Field>
+      <div className="card-bd">
+        {/* 这里不套 Section：「说明」两个字既是分组名又是条目名，会连着出现两遍 */}
+        <div className="item" onClick={() => v.openToolEditor(form.name, form.description)}>
+          <span className="item-title">说明</span>
+          <span className="item-desc">{form.description || '（空）'}</span>
         </div>
-      ) : null}
 
-      {!form ? (
-        <div className="card-bd">
-          <div className="item" onClick={() => v.openToolEditor(cfg.name, cfg.description)}>
-            <span className="item-title">说明</span>
-            <span className="item-desc">{cfg.description || '（空）'}</span>
-          </div>
+        <Section>来源与运行</Section>
+        <InfoField label="来源"
+          value={editable
+            ? '外置插件 · 清单 + 脚本，改完即生效'
+            : '内置工具 · Go 内置，改需重编译'} />
+        <Field label="名称" hint={editable ? '小写字母开头，可用 a-z 0-9 _；改名后所有 profile 里的引用会自动跟着换' : '内置工具的名称由程序决定'}>
+          <input className={ro} value={form.name} disabled={!editable}
+            onChange={e => set('name', e.target.value)} />
+        </Field>
+        <Field label="命令" hint={editable ? '每行一个参数，直接 exec 不走 shell' : '内置工具的命令写在 Go 代码里'}>
+          <textarea className={'plugin-cmd' + ro} value={form.command} disabled={!editable}
+            placeholder={editable ? '~/Workspace/agentd/scripts/tools/kb_get\n{{id}}' : '（内置实现，没有命令行）'}
+            onChange={e => set('command', e.target.value)} />
+        </Field>
+        <Field label="超时（毫秒）" hint={editable ? '留空按 20000' : '由实现决定（bash 180s、recall 300ms，其余跟随会话）'}>
+          <input className={ro} type="number" min="0" value={form.timeoutMs} disabled={!editable}
+            placeholder={editable ? '20000' : '由实现决定'}
+            onChange={e => set('timeoutMs', e.target.value)} />
+        </Field>
+        <SwitchRow label="常驻进程" disabled={!editable}
+          hint={editable
+            ? '开启后按 JSON-RPC over stdio 长连接，适合每次启动都很慢的脚本'
+            : '内置工具都是一次性进程'}
+          checked={!!form.persistent}
+          onChange={x => { if (editable) set('persistent', x) }} />
 
-          <div className="set-section">来源与运行</div>
-          <div className="item static">
-            <span className="item-title">{isPlugin ? '外置插件' : '内置工具'}</span>
-            <span className="item-desc">{isPlugin ? '清单 + 脚本，改完即生效' : 'Go 内置，改需重编译'}</span>
-          </div>
-          {/* 超时和进程两种来源都列 —— 内置以前完全不显示，
-              想确认"这个工具能跑多久"只能去翻源码 */}
-          <div className="field"><span>超时</span>
-            <div className="tool-meta">
-              {isPlugin
-                ? (cfg.timeout_ms ? cfg.timeout_ms + ' ms' : '清单未指定（按默认 20s）')
-                : '由实现决定（bash 180s、recall 300ms，其余跟随会话）'}
-            </div>
-          </div>
-          <div className="field"><span>进程</span>
-            <div className="tool-meta">{cfg.persistent ? '常驻（JSON-RPC over stdio）' : '一次性'}</div>
-          </div>
-          {isPlugin ? (
-            <>
-              <div className="field"><span>命令</span>
-                <div className="tool-meta tool-cmd">{(cfg.command || []).join(' ') || '（未读到命令）'}</div>
-              </div>
-              <div className="field"><span>清单</span>
-                <div className="tool-meta tool-cmd">{cfg.path}</div>
-              </div>
-            </>
-          ) : null}
+        {editable ? (
+          <>
+            <Section>参数</Section>
+            <Field label="JSON Schema properties">
+              <textarea className="plugin-json" value={form.paramsText}
+                onChange={e => set('paramsText', e.target.value)} />
+            </Field>
+            <Field label="必填参数" hint="逗号分隔，必须出现在上面的 properties 里">
+              <input value={form.requiredText}
+                onChange={e => set('requiredText', e.target.value)} />
+            </Field>
+          </>
+        ) : null}
 
-          <div className="set-section">启用情况</div>
-          <div className="item static">
-            <span className="item-title">由 profile 决定</span>
-          </div>
-          <div className="set-meta">
-            {(() => {
-              const on = (profiles || []).filter(pr => (pr.tools || []).includes(cfg.name)).map(pr => pr.name)
-              return on.length ? '在 ' + on.join('、') + ' 中启用' : '当前没有任何 profile 启用它'
-            })()}
-          </div>
-          <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
+        <Section>清单</Section>
+        <InfoField label="文件" mono
+          value={form.path || '（内置，没有清单文件）'} />
 
-          {isPlugin ? (
-            <div className="set-foot-actions">
-              <button className="btn" onClick={v.editPlugin}>编辑插件定义</button>
-              <span style={{ flex: 1 }} />
-              <button className="btn danger" onClick={v.deletePlugin}>删除插件</button>
-            </div>
-          ) : null}
+        <Section>启用情况</Section>
+        <div className="item static">
+          <span className="item-title">由 profile 决定</span>
         </div>
-      ) : null}
+        <div className="set-meta">
+          {(() => {
+            const on = (profiles || []).filter(pr => (pr.tools || []).includes(form.name)).map(pr => pr.name)
+            return on.length ? '在 ' + on.join('、') + ' 中启用' : '当前没有任何 profile 启用它'
+          })()}
+        </div>
+        <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
+
+        {editable && !form.isNew ? (
+          <div className="set-foot-actions">
+            <span style={{ flex: 1 }} />
+            <button className="btn danger" onClick={v.deletePlugin}>删除插件</button>
+          </div>
+        ) : null}
+      </div>
     </Card>
   )
 }

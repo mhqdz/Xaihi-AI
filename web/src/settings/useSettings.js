@@ -77,7 +77,6 @@ export function useSettings({ refresh }) {
   const [editOriginal, setEditOriginal] = useState('')
   const [editSnap, setEditSnap] = useState('')
   const [toolList, setToolList] = useState([])
-  const [toolCfg, setToolCfg] = useState(null)    // 工具卡（只读信息）
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
@@ -140,10 +139,11 @@ export function useSettings({ refresh }) {
       const tl = q.get('tool')                    // ?tool=kb_search 直接打开工具卡
       if (tl) {
         const t = (await api('/api/tools').catch(() => []))?.find(x => x.name === tl)
-        if (t) { setEditP(null); setToolCfg({ ...t, enabled: true, subtools: [] }) }   // 2 级详情只能有一张
+        // 2 级同一时刻只能有一张：打开工具前先把模型详情清掉
+        if (t) pickTool(t)
         if (t && q.get('tooledit')) { setEditOriginal(t.description || ''); setToolEdit({ name: t.name, description: t.description }) }
       }
-      if (q.get('newplugin')) { setEditP(null); setToolForm({ ...NEW_PLUGIN }) }
+      if (q.get('newplugin')) { setEditP(null); setToolForm({ ...NEW_PLUGIN, source: 'plugin' }) }
     })()
   }, [])
 
@@ -306,38 +306,38 @@ export function useSettings({ refresh }) {
       const v = { ...pr, tools: (pr.tools || []).join(',') }
       setEditP(v); setEditSnap(snapOf(v))
     }
-    setEditField(null); setToolEdit(null); setToolCfg(null)
+    setEditField(null); setToolEdit(null); setToolForm(null)
   }
   const newProfile = () => {
     setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
-    setToolCfg(null); setToolForm(null)   // 2 级详情同一时刻只能有一张
+    setToolForm(null)   // 2 级详情同一时刻只能有一张
   }
-  // 点工具只打开"详情卡"（内置和外置同一套）。以前外置直接跳进编辑表单，
-  // 而列表接口当时不返回 command —— 于是给你一张命令为空的表单，
-  // 一保存就被"名字与命令必填"拦下。信息先看，要改再点编辑。
+  // 点工具直接打开**可编辑表单**（和模型配置一样，没有独立的只读态）。
+  //
+  // 内置工具也走同一张表单，只是 editable 为 false —— 命令、超时、常驻这些
+  // 由程序决定，用 .ro 灰掉；说明两边都能改（点它进 3 级长文本）。
+  // 这样两种工具的布局、字段顺序、间距完全一致，差别只剩"哪些格子能点"。
   const pickTool = (t) => {
-    setEditP(null); setToolEdit(null); setEditField(null); setToolForm(null)
-    setToolCfg({ ...t, enabled: t.enabled !== false, subtools: t.subtools || [] })
-  }
-
-  // 从详情卡进入插件定义编辑（只有外置有）
-  const editPlugin = () => {
-    const t = toolCfg
-    if (!t) return
-    // 原名取自清单路径的文件名 —— 它不是 t.name：改名后文件名会保持不变
+    setEditP(null); setToolEdit(null); setEditField(null)
+    const isPlugin = t.source === 'plugin'
+    // 原名取自清单路径的文件名 —— 改过名之后它会和显示名分叉
     const orig = (t.path || '').split('/').pop().replace(/\.json$/, '')
     setToolForm({
-      isNew: false, name: t.name, originalName: orig || t.name, oldName: t.name, description: t.description || '',
-      command: (t.command || []).join('\n'), timeoutMs: t.timeout_ms || 20000,
-      persistent: !!t.persistent, paramsText: JSON.stringify(t.params || {}, null, 2),
+      isNew: false, source: t.source || 'builtin', path: t.path || '',
+      name: t.name, originalName: orig || t.name, oldName: t.name,
+      description: t.description || '',
+      command: (t.command || []).join('\n'),
+      timeoutMs: t.timeout_ms ? String(t.timeout_ms) : '',
+      persistent: !!t.persistent,
+      paramsText: JSON.stringify(t.params || {}, null, 2),
       requiredText: (t.required || []).join(',')
     })
   }
   const newPlugin = () => {
-    setEditP(null); setToolEdit(null); setEditField(null); setToolCfg(null)
-    setToolForm({ ...NEW_PLUGIN })
+    setEditP(null); setToolEdit(null); setEditField(null)
+    setToolForm({ ...NEW_PLUGIN, source: 'plugin' })
   }
-  const closeToolForm = () => { setToolForm(null); setToolCfg(null) }
+  const closeToolForm = () => setToolForm(null)
   const pickTask = async (t) => {
     const d = await api('/api/tasks/' + t.id).catch(() => null)
     setTaskDetail(prev => (prev && prev.task && prev.task.id === t.id) ? null : d)
@@ -361,27 +361,27 @@ export function useSettings({ refresh }) {
     const r = await fetch('/api/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) { alert(j.error || '保存失败'); return }
-    // 编辑已有插件：保存后回到详情卡（并换成新数据），别把整层关掉；
+    // 编辑已有插件：保存后还停在这张卡上（换成服务端的新数据，回到未修改态）；
     // 新建则退回列表，让新插件出现在工具列表里
-    setToolForm(null)
     if (toolForm.isNew) {
-      setToolCfg(null)
+      setToolForm(null)
     } else {
       const list = await api('/api/tools').catch(() => null)
       const updated = (list || []).find(t => t.name === body.name)
-      setToolCfg(updated ? { ...updated, enabled: true, subtools: [] } : null)
+      if (updated) pickTool(updated)
+      else setToolForm(null)
     }
     await refresh(); await reload()
   }
   const deletePlugin = async () => {
     // 详情卡和编辑表单里都可能点删除：名字优先取表单，其次取详情
-    const name = toolForm ? toolForm.name : toolCfg?.name
+    const name = toolForm?.name
     if (!name) return
     if (!confirm('删除插件 ' + name + '？（只删清单，脚本文件保留）')) return
     const r = await fetch('/api/plugins/' + name, { method: 'DELETE' })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) { alert(j.error || '删除失败'); return }
-    setToolForm(null); setToolCfg(null); await refresh(); await reload()
+    setToolForm(null); await refresh(); await reload()
   }
   const deleteProfile = async () => {
     if (!editP || !confirm('删除 ' + editP.name + '？')) return
@@ -398,7 +398,7 @@ export function useSettings({ refresh }) {
   return {
     showSet, setShowSet,
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
-    toolList, toolIssues, toolCfg, setToolCfg, toolForm, setToolForm, toolEdit, setToolEdit,
+    toolList, toolIssues, toolForm, setToolForm, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     models, shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,
@@ -406,6 +406,6 @@ export function useSettings({ refresh }) {
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     openSystemEditor, openToolEditor,
-    savePlugin, deletePlugin, deleteProfile, cleanShots, editPlugin,
+    savePlugin, deletePlugin, deleteProfile, cleanShots,
   }
 }

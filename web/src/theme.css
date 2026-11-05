@@ -373,6 +373,17 @@ body{background:var(--paper);color:var(--ink);
 .card .field input[type=number]::-webkit-outer-spin-button,
 .card .field input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .card .field input:disabled{background:var(--c1);color:var(--c6);cursor:not-allowed}
+/* 只读字段：和可编辑字段是同一个输入框、同一套尺寸，只加一个 .ro 修饰类。
+   内置工具不能改的那几项走这里 —— 不另做一套"纯文本展示"的结构，
+   否则两种工具的布局会越走越远。
+   注意不用 :disabled 单独控样式：.ro 同时给 input 和 switch-row 用，
+   而且 disabled 的 UA 默认样式在各浏览器里不一致。 */
+.card .field input.ro,.card .field textarea.ro,.card .field select.ro{
+  background:var(--c1);color:var(--c6);border-color:var(--c2);cursor:not-allowed}
+.card .field input.ro:hover,.card .field textarea.ro:hover{border-color:var(--c2)}
+.card .switch-row.ro{cursor:not-allowed}
+.card .switch-row.ro:hover .item-title{color:inherit}
+.card .switch-row.ro .tg{opacity:.45}
 .card .field input:disabled:hover{border-color:var(--line)}
 .card .field input:hover,.card .field select:hover{border-color:var(--sage)}
 .card .field input:focus,.card .field select:focus{outline:none;border-color:var(--ink);
