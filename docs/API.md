@@ -55,62 +55,65 @@
 
 截图：`GET /api/shots/stats` → `{count,size_mb}`；`POST /api/shots/cleanup {"days":7}` → `{removed,freed_kb,days}`。
 
-## 模型与 profile（三层）
+## 接口与配置（两层）
 
-数据分三层引用：**接口 → 模型 → 配置**。
+数据分两层：**接口 → 配置**。
 
 | 层 | 文件 | 管什么 |
 |---|---|---|
 | 接口 | `endpoints.json` | 接哪儿：地址、凭据、协议 |
-| 模型 | `models.json` | 是什么：上游 id、窗口、输出上限、模态 |
-| 配置 | `profiles.json` | 怎么用：引用模型、提示词、工具、默认思考强度 |
+| 配置 | `profiles.json` | 用哪个模型 + 它是什么（窗口/输出上限/模态/档位）+ 怎么用（提示词、工具、思考强度） |
 
-拆开的理由：`180-low / 180-medium / 180-think` 是同一个模型的三套用法，
-两层结构下每套都要重写一遍上游 id 和窗口。
+**为什么模型不是单独一层**：拆过一版三层（接口 → 模型 → 配置），动机是
+`180-low / 180-medium / 180-think` 共用一份模型事实，不用各写一遍窗口。
+但它带来一个必须常驻的"登记"动作，而真正的痛点是这个动作，不是层本身。
+现在模型事实就在配置里（读配置不需要联网，接口挂了也能算出上下文预算），
+代价是同一模型的多套配置各存一份 —— 换模型/刷新上游值时在界面上点一下即可。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/endpoints` | 接口数组 |
 | POST | `/api/endpoints` | 新建或覆盖（同名即覆盖） |
 | POST | `/api/endpoints/probe` | **拿草稿试上游**：`{base_url, api_key?, provider?}` → `{models:[…], count}`；不通时 502 `{error}`。不落盘 |
-| DELETE | `/api/endpoints/{name}` | 还有模型挂在这个接口下、或还有配置在用它时 400 |
-| GET | `/api/endpoints/{name}/models` | 已保存的接口问一次上游（只回 id 列表）。界面不再用它（改用 `probe`），留着给脚本 |
+| DELETE | `/api/endpoints/{name}` | 还有配置在用它时 400（顺手删掉这个接口的能力缓存） |
+| GET | `/api/endpoints/{name}/models` | **强制问一次上游**并刷新能力缓存 → `{models:[…], at, stale:false}`；拉不到时 502 带上一份缓存 `{error, models, at, stale:true}` |
 | GET | `/api/sources` | 来源模板（`sources.json`，加一条就多一个服务商） |
 | PUT | `/api/sources` | 整份覆盖 |
-| GET | `/api/models` | 模型数组 |
-| POST | `/api/models` | `{endpoint, id, context_window?, max_tokens?, input?, effort_levels?}`，唯一键 `<endpoint>/<id>`（由后端算） |
-| DELETE | `/api/models/{name}` | 被配置引用时 400 |
 
-`probe` 与 `/api/apply` 的 `endpoint` 是两条路：前者**只问不写**（新建接口时字段填完就能
-当场验证 key 通不通），后者才落盘。
+配置（`Profile`）里和模型有关的字段：
 
-内置模板（`sources.json` 不存在时用它；文件存在就以文件为准）：
-
-| key | 地址 |
+| 字段 | 说明 |
 |---|---|
-| `local` | `http://127.0.0.1:18320/180/v1` |
-| `deepseek` | `https://api.deepseek.com/v1` |
-| `openai` | `https://api.openai.com/v1` |
-| `opencode` | `https://opencode.ai/zen/go/v1`（OpenCode Zen 的 Go 订阅；`/chat/completions` 与 `/models` 是 OpenAI 兼容，少数模型只走 Anthropic 的 `/messages`，那些在这儿发不出去） |
+| `endpoint` | 引用的接口名（必填，必须存在） |
+| `model` | 发给上游的模型名，**裸 id**（不带接口前缀） |
+| `context_window` | 窗口 tokens，**必填 > 0**；上游没报就自己填 |
+| `max_tokens_out` | 单次回复上限，0 = 8192 |
+| `input` | `["text"]` / `["text","image"]`，**必填**（至少 text） |
+| `effort_levels` | 支持的思考强度标签；空 = 不限制（界面列全部五档） |
+| `auto_caps` | 运行时跟随上游：每轮对话前重新问一次能力，问不到用上面存的值 |
 
-「自己填」不占一个模板项：界面上第一项「（不套模板）」就是它，两件事一个意思。
-`source` 只是"上次选了哪个模板"的记号，手工改过地址就会清掉（不然选择器还写着
-`OpenAI`、下面是别家的地址）。
+**能力为什么必填**：留空不是"以后再拉"，而是"不知道" —— 而"以后再拉"还是同一个
+结果。窗口错了会真的算错压缩预算，模态错了会让界面瞎猜能不能贴图。所以保存时就
+拒掉，让填的人当场决定，而不是运行时退回一个默认值装作知道。
 
-**思考强度不设词表**：`reasoning_effort` 与 `effort_levels` 只校验形状（小写英文，
-可带数字 `_` `-`，≤16 字符）。各家叫法不一样（`minimal` / `xhigh` / `max`），
-agentd 原样转给上游，认不认是上游的事 —— 白名单式的校验只会在遇到新供应商时把人卡住。
+### 能力缓存：`model-cache.json`
+
+不是配置层，是**上次问上游要到的答案**：`{ "<接口>": {"at": …, "models": [...]} }`。
+由 agentd 在拉列表/启动补刷时自动写，没有界面、不给人手改、删掉只会导致重拉。
+用途三个：配置卡里"选模型"时的初始值、离线时的下拉列表、以及"这份数据多旧了"
+（界面上的状态行永远显示 `刚刚 / N 分钟前 / N 天前`）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/profiles` | 配置数组，附带 `model_id` / `input` / `resolved_context_window` / `effort_levels` |
+| POST / PUT | `/api/profiles` | 新建或更新。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
+| DELETE | `/api/profiles/{name}` | 删除（内置也可删） |
 
 **`api_key` 是明文**：`GET /api/endpoints`（以及 `/api/profiles` 里遗留的 key）原样返回
 密钥，只在前端渲染成 `type=password`。这是有意为之 —— 单用户、家庭内网、没有鉴权系统；
 打码只是表演，前端要拿它发请求，能逆向的地方永远在。理由与取舍见
 [`AUDIT.md` 的 R-1](AUDIT.md#r-1-监听-000018400-且无认证)。真要收紧就做鉴权或缩回
 `127.0.0.1`，不要打码。
-| GET | `/api/discover/{endpoint}` | `{models:[{id, registered}]}`，`registered` = 已登记 |
-| GET | `/api/profiles` | 配置数组，附带 `model_id` / `input` / `resolved_context_window` |
-| POST / PUT | `/api/profiles` | 新建或更新。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |
-| DELETE | `/api/profiles/{name}` | 删除（内置也可删） |
-
 **思考强度**：`/api/chat` 请求体可带 `reasoning_effort`，临时覆盖该配置的默认值。
 不落盘 —— 配置里存的是默认值，界面改的只对这次请求生效。
 
@@ -122,7 +125,6 @@ agentd 原样转给上游，认不认是上游的事 —— 白名单式的校�
 ```json
 {"changes":[
   {"kind":"endpoint","data":{ /* 与 POST /api/endpoints 的 body 相同 */ }},
-  {"kind":"model","data":{ /* 与 POST /api/models 的 body 相同 */ }},
   {"kind":"profile","data":{ /* 与 POST /api/profiles 的 body 相同 */ }},
   {"kind":"plugin","name":"新名字","data":{ /* 与 POST /api/plugins 的 body 相同 */ }},
   {"kind":"tool","name":"kb_get","data":{"description":"…"}},
@@ -130,9 +132,9 @@ agentd 原样转给上游，认不认是上游的事 —— 白名单式的校�
 ]}
 ```
 
-三层都给 `kind`：接口和模型以前只能看不能存（改了没有任何地方可落），
-现在它们和配置层走同一条路 —— 界面上三层的保存按钮也只有一级卡那一个。
-注意 `model` 的唯一键由后端算（`<endpoint>/<id>`），请求里带 `name` 不作数。
+接口和配置都给 `kind`：接口卡以前只能看不能存（改了没有任何地方可落），
+现在它和配置走同一条路 —— 界面上两层的保存按钮也只有一级卡那一个。
+写盘顺序按依赖排（接口 → 配置），报错里的"第几项"仍按请求下标。
 
 返回：
 

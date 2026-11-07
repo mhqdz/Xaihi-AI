@@ -64,10 +64,10 @@ save_all()
 check("改回后后端复原", api('/api/settings').get('auto_archive_days') == int(before), str(api('/api/settings')))
 check("保存后回到干净状态（没有保存/取消）", s.js("return document.querySelectorAll('.card-actions .btn').length") == 0)
 
-# ---------- 模型卡：打开 → 改 API Key → 取消 ----------
+# ---------- 接口卡：打开 → 改 API Key → 取消 ----------
 s.js("[...document.querySelectorAll('.col-list .item.col')][0].click(); return 1")
 time.sleep(0.6)
-check("点模型出现详情卡", s.js("return !!document.querySelector('.col-detail')") == True)
+check("点接口出现详情卡", s.js("return !!document.querySelector('.col-detail')") == True)
 check("列表与详情两级", s.js("return [...document.querySelectorAll('.set-cols > .card')].map(e=>e.className.split(' ')[1])") == ['col-detail', 'col-list'])
 key = "[...document.querySelectorAll('.col-detail label.field input')].find(i=>i.type==='password')"
 old = s.js("return " + key + ".value")
@@ -82,7 +82,7 @@ check("取消后 API Key 回滚", s.js("return " + key + ".value") == old)
 s.js("document.querySelector('.col-detail') && [...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1")
 time.sleep(0.6)
 check("点工具出现工具卡", s.js("return !!document.querySelector('.col-detail')") == True)
-check("工具卡与模型卡互斥（只有一张 2 级卡）", s.js("return document.querySelectorAll('.col-detail').length") == 1)
+check("工具卡与接口卡互斥（只有一张 2 级卡）", s.js("return document.querySelectorAll('.col-detail').length") == 1)
 s.js("document.querySelector('.col-detail .item').click(); return 1")   # 说明 → 三级
 time.sleep(0.6)
 check("说明进入三级编辑卡", s.js("return !!document.querySelector('.col-editor')") == True)

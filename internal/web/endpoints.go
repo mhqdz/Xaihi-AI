@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"agentd/internal/config"
 	"agentd/internal/llm"
+	"agentd/internal/logx"
 )
 
 // 接口（endpoint）= 地址 + 凭据 + 协议；模型（profile）只声明用哪个接口。
@@ -79,18 +81,33 @@ func (s *Server) handleEndpointItem(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})
 			return
 		}
+		// 强制问一次上游（这就是"刷新"）：成功写进能力缓存，界面拿到的是带能力的完整列表。
 		found, err := llm.ListModels(e.BaseURL, e.APIKey)
-		if err != nil {
-			writeJSON(w, 502, map[string]any{"error": "取模型列表失败：" + err.Error(), "models": []string{}})
+		if err == nil {
+			var models []config.CachedModel
+			for _, m := range found {
+				models = append(models, config.CachedModel{
+					ID: m.ID, Name: m.Name, ContextWindow: m.ContextWindow,
+					MaxTokens: m.MaxOutput, Input: m.Input, EffortLevels: m.EffortLevels,
+				})
+			}
+			if err := config.SaveModelCache(name, models); err != nil {
+				logx.Warn("写模型能力缓存失败（%s）：%v", name, err)
+			}
+			writeJSON(w, 200, map[string]any{"models": models, "at": time.Now(), "stale": false})
 			return
 		}
-		// 这里只要 id：模型卡里"可用模型"是拿来看通不通、有哪些名字的；
-		// 窗口/模态/强度那些能力走 /api/discover，那边给完整结构。
-		names := make([]string, 0, len(found))
-		for _, m := range found {
-			names = append(names, m.ID)
+		// 拉不到：把上次拿到的给界面看，附上时间与原因 —— 硬失败没意义，
+		// 下拉里还能继续选之前见过的模型
+		if entry, ok := config.ModelCacheEntry(name); ok {
+			writeJSON(w, 502, map[string]any{
+				"error": err.Error(), "models": entry.Models, "at": entry.At, "stale": true,
+			})
+			return
 		}
-		writeJSON(w, 200, map[string]any{"models": names})
+		writeJSON(w, 502, map[string]any{
+			"error": err.Error(), "models": []config.CachedModel{}, "stale": true,
+		})
 		return
 	}
 	name := rest
@@ -131,5 +148,36 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "count": len(list)})
 	default:
 		writeJSON(w, 405, map[string]string{"error": "GET/PUT only"})
+	}
+}
+
+// WarmModelCaches：启动时把过期的模型能力缓存补一次。
+//
+// 为什么要有：能力缓存只在"有人打开下拉 / 点刷新"时才更新，长期不开面板的配置
+// 会一直用一份很旧的数字。这里在启动后台补一次（只补有配置在用的接口、
+// 且只补超过 maxAge 的），不阻塞启动，失败只记日志。
+func (s *Server) WarmModelCaches(maxAge time.Duration) {
+	for _, name := range config.StaleCacheEndpoints(maxAge) {
+		e, ok := config.GetEndpoint(name)
+		if !ok {
+			continue
+		}
+		found, err := llm.ListModels(e.BaseURL, e.APIKey)
+		if err != nil {
+			logx.Info("能力缓存补充失败（%s，下次下拉再试）：%v", name, err)
+			continue
+		}
+		var models []config.CachedModel
+		for _, m := range found {
+			models = append(models, config.CachedModel{
+				ID: m.ID, Name: m.Name, ContextWindow: m.ContextWindow,
+				MaxTokens: m.MaxOutput, Input: m.Input, EffortLevels: m.EffortLevels,
+			})
+		}
+		if err := config.SaveModelCache(name, models); err != nil {
+			logx.Warn("写模型能力缓存失败（%s）：%v", name, err)
+			continue
+		}
+		logx.Info("能力缓存已补充（%s）：%d 个模型", name, len(models))
 	}
 }

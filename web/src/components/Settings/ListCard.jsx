@@ -95,29 +95,15 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           <div className="item item-new" onClick={v.newEndpoint}>＋ 新建接口</div>
         </div>
 
-        {/* 模型：接口下的模型条目，配置引用它 —— 三层里的中间层 */}
-        <div className="set-section">模型</div>
-        <div className="set-card">
-          {!v.models || v.models.length === 0 ? (
-            <div className="set-meta">还没有模型。先建一个，配置才有模型可选</div>
-          ) : v.models.map(m => (
-            <div className="item col" key={m.name} onClick={() => v.pickModel(m)}>
-              <b className="item-title">{m.id}</b>
-              <span className="item-desc">
-                {m.endpoint}{(m.input || []).includes('image') ? ' · 支持图像' : ''}
-              </span>
-            </div>
-          ))}
-          <div className="item item-new" onClick={v.newModel}>＋ 新建模型</div>
-        </div>
-
         <div className="set-section">模型配置</div>
         <div className="set-card">
           {profiles.map(pr => (
             <div className={'item col' + (v.editP && v.editP.name === pr.name ? ' on' : '')} key={pr.name}
               onClick={() => v.openProfile(pr)}>
               <b className="item-title">{pr.name}</b>
-              <span className="item-desc">{pr.model || '（未设置模型）'}</span>
+              <span className="item-desc">
+                {pr.model ? pr.model + (pr.endpoint ? ' · ' + pr.endpoint : '') : '（未设置模型）'}
+              </span>
             </div>
           ))}
           <div className="item item-new" onClick={v.newProfile}>＋ 新建 profile</div>

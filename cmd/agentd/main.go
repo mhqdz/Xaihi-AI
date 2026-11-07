@@ -81,18 +81,22 @@ func main() {
 		if v := os.Getenv("AGENTD_ADDR"); v != "" {
 			addr = v
 		}
-		// 三层迁移，顺序不能反：先把地址抽成接口，再把模型抽成接口下的条目。
+		// 迁移，顺序不能反：先把老 profile 里的地址抽成接口，
+		// 再把三层的模型条目收回两层（裸 id + 能力进 profile）。
 		// 两个都可重复执行，已迁移就是空操作。
 		if created, changed := config.MigrateEndpoints(); created > 0 {
 			logx.Info("接口迁移：新建 %d 个，改了 %d 个配置", created, changed)
 		}
-		if created, changed := config.MigrateModels(); created > 0 {
-			logx.Info("模型迁移：新建 %d 个，改了 %d 个配置", created, changed)
+		if changed, eps := config.MigrateBackLayers(); changed > 0 {
+			logx.Info("回两层迁移：改了 %d 个配置，%d 个接口的能力已归档", changed, eps)
 		}
 		s := web.New(cfg, a, st)
 		if err := s.InitHandoff(cfg.DataDir); err != nil {
 			logx.Warn("handoff 初始化失败: %v", err)
 		}
+		// 能力缓存只在打开下拉/点刷新时更新，长期不开面板的配置会一直用很旧的数字：
+		// 启动后台补一次过期的（不阻塞启动，失败只记日志）
+		go s.WarmModelCaches(24 * time.Hour)
 		srv := &http.Server{Addr: addr, Handler: s.Handler()}
 		fmt.Fprintf(os.Stderr, "agentd %s · model=%s · http://%s\n", version, cfg.Model, addr)
 		// 优雅停机：先把进行中的轮次取消（它们会落库半截内容 + 中断说明），再退出

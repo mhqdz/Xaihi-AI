@@ -12,9 +12,13 @@ import (
 
 // Profile = 模型 + 思考强度 + 提示词 + 工具集。前端通过 CRUD 管理，解码/校验都在 Go。
 type Profile struct {
-	Name            string   `json:"name"`
-	Endpoint        string   `json:"endpoint,omitempty"` // 引用 endpoints.json 里的接口名
-	BaseURL         string   `json:"base_url,omitempty"` // 迁移前的老字段；迁移后留空
+	Name     string `json:"name"`
+	Endpoint string `json:"endpoint,omitempty"` // 引用 endpoints.json 里的接口名
+	BaseURL  string `json:"base_url,omitempty"` // 迁移前的老字段；迁移后留空
+	// Model 是发给上游的模型名（裸 id，不带接口前缀）。
+	// 窗口/模态/档位这些"模型事实"就存在这份配置里 —— 读的时候只看它，
+	// 不去问上游、也不查缓存：配置文件必须能离线解析出完整参数。
+	// 新建时由"选模型"自动填（下拉拉到的能力），上游没报的就让人自己填。
 	Model           string   `json:"model"`
 	APIKey          string   `json:"api_key,omitempty"`          // 空=用全局 cfg.APIKey；云端填自己的 key
 	Provider        string   `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
@@ -24,11 +28,18 @@ type Profile struct {
 	KeepMessages    int      `json:"keep_messages,omitempty"`
 	Summarizer      string   `json:"summarizer,omitempty"`        // 用哪个 profile 写摘要；空=自己
 	MaxPromptTokens int      `json:"max_prompt_tokens,omitempty"` // 该模型的输入 token 上限；0 = 默认 105000（模型窗口 131072 的 80%）
-	ContextWindow   int      `json:"context_window,omitempty"`    // 该模型的窗口(tokens)；0 = 自动读上游 /models 的 meta.n_ctx
+	ContextWindow   int      `json:"context_window,omitempty"`    // 该模型的窗口(tokens)；必填（保存时校验 >0）
 	ReasoningBudget int      `json:"reasoning_budget,omitempty"`  // 单轮思考 token 预算；0 = 默认 4096
 	MaxTokensOut    int      `json:"max_tokens_out,omitempty"`    // 单次回复(含思考)的输出上限；0 = 默认 8192
 	CompactPct      int      `json:"compact_pct,omitempty"`       // 达到上限的百分之几时自动压缩/摘要；0 = 默认 80
-	Builtin         bool     `json:"builtin,omitempty"`
+	Input           []string `json:"input,omitempty"`             // ["text"] / ["text","image"]；必填（至少 text）
+	EffortLevels    []string `json:"effort_levels,omitempty"`     // 支持的档位标签；空 = 不限（界面列全部）
+	// AutoCaps：运行时跟随上游 —— 这份配置每次真正拿来跑（发一轮请求）之前，
+	// 先去上游问一次现在的能力，问到了就用上游的，问不到用下面存的值。
+	// 应对的是"背后会换模型的接口"（llm-local 那种代理层）：
+	// 面板上存的是快照（必填，用于离线/兜底），auto 让它在用的时候总是新的。
+	AutoCaps bool `json:"auto_caps,omitempty"`
+	Builtin  bool `json:"builtin,omitempty"`
 }
 
 var (
@@ -47,12 +58,15 @@ func profilesPath() string {
 func defaults() []Profile {
 	return []Profile{
 		{Name: "180-think", BaseURL: "http://127.0.0.1:18320/180/v1", Model: "qwen3.8-flash-next-iq3_xxs",
+			ContextWindow: 131072, Input: []string{"text"},
 			ReasoningEffort: "high", Builtin: true, KeepMessages: 16,
 			Tools: []string{"bash", "screenshot", "kb_search", "recall"}},
 		{Name: "180-low", BaseURL: "http://127.0.0.1:18320/180/v1", Model: "qwen3.8-flash-next-iq3_xxs",
+			ContextWindow: 131072, Input: []string{"text"},
 			ReasoningEffort: "low", Builtin: true, KeepMessages: 16,
 			Tools: []string{"bash", "screenshot", "kb_search", "recall"}},
 		{Name: "9-exec", BaseURL: "http://127.0.0.1:18320/9/v1", Model: "Qwen3.5-9B-int4-ov",
+			ContextWindow: 32768, Input: []string{"text"},
 			ReasoningEffort: "none", Builtin: true, KeepMessages: 8,
 			Tools: []string{"bash"}},
 	}
@@ -113,16 +127,6 @@ func RenameToolInProfiles(oldName, newName string) (int, error) {
 	return n, writeProfiles(list)
 }
 
-// ModelsMigrated：profile.model 已经指向 models.json 里的条目了吗。
-// 直接查表而不是靠字符串形态判断 —— 模型 id 本身也可能带斜杠。
-func (p Profile) ModelsMigrated() bool {
-	if p.Model == "" {
-		return false
-	}
-	_, ok := GetModel(p.Model)
-	return ok
-}
-
 // Resolved：这个 profile 实际要用的东西，把三层拼起来。
 type Resolved struct {
 	BaseURL       string
@@ -135,34 +139,19 @@ type Resolved struct {
 	EffortLevels  []string // 支持的思考强度；空 = 全部
 }
 
-func (r Resolved) SupportsImage() bool {
-	for _, x := range r.Input {
-		if x == "image" {
-			return true
-		}
-	}
-	return false
-}
-
-// Resolve：把 profile 引用的模型和接口拼成实际请求参数。
+// Resolve：把 profile 和它引用的接口拼成实际请求参数。
 //
-// 三层各管一段：profile 说"用哪个模型、怎么用"，model 说"它是什么"，
-// endpoint 说"接哪儿"。老数据（还没迁移）逐级回落，保证迁移前后都能跑。
+// 能力（窗口/输出/模态/档位）取自 profile 自己 —— 这是有意的：
+// 配置文件必须能离线解析，接口挂了也不影响"我这套配置要多少上下文"。
+// 上游的数字通过两条路进来：新建时下拉自动填；以及开着 auto_caps 时，
+// 每次拉到列表就回写（见 ApplyCapsToAutoProfiles）。
 func (p Profile) Resolve() Resolved {
-	r := Resolved{ModelID: p.Model, ContextWindow: p.ContextWindow, MaxTokens: p.MaxTokensOut}
-	if m, ok := GetModel(p.Model); ok {
-		r.ModelID = m.ID
-		if r.ContextWindow == 0 {
-			r.ContextWindow = m.ContextWindow
-		}
-		if r.MaxTokens == 0 {
-			r.MaxTokens = m.MaxTokens
-		}
-		r.Input = m.Input
-		r.EffortLevels = m.EffortLevels
-		if p.Endpoint == "" {
-			p.Endpoint = m.Endpoint
-		}
+	r := Resolved{
+		ModelID:       p.Model,
+		ContextWindow: p.ContextWindow,
+		MaxTokens:     p.MaxTokensOut,
+		Input:         p.Input,
+		EffortLevels:  p.EffortLevels,
 	}
 	if p.Endpoint != "" {
 		if e, ok := GetEndpoint(p.Endpoint); ok {
@@ -170,6 +159,7 @@ func (p Profile) Resolve() Resolved {
 			return r
 		}
 	}
+	// 迁移前的老数据：接口不存在了也还能跑
 	r.BaseURL, r.APIKey, r.Provider = p.BaseURL, p.APIKey, p.Provider
 	return r
 }
@@ -205,28 +195,43 @@ func writeProfiles(list []Profile) error {
 func ValidateProfile(p Profile) error { return ValidateProfileWith(p, nil) }
 
 // ValidateProfileWith：同 ValidateProfile，但额外接受一批"本批次里刚声明、
-// 还没落盘"的模型键（批量提交时新建模型 + 新配置常常一起提交）。
-func ValidateProfileWith(p Profile, extraModels map[string]bool) error {
+// 还没落盘"的接口名（批量提交时新建接口 + 新配置常常一起提交）。
+func ValidateProfileWith(p Profile, extraEndpoints map[string]bool) error {
 	if p.Name == "" || p.Model == "" {
 		return fmt.Errorf("名称和模型都不能为空")
 	}
-	// 模型必须真的在 models.json 里：三层结构下 profile 只引用模型键，
-	// 留一个指向空气的键，运行时才报错、而且报的是"发不出去"这种看不清原因的话。
-	// 老数据（还没迁移、自己带 base_url + 裸模型名）在迁移时会被补成完整键，
-	// 之后不再允许出现。
-	m, has := GetModel(p.Model)
-	inBatch := !has && extraModels[p.Model]
-	if !has && !inBatch && len(LoadModels()) > 0 {
-		return fmt.Errorf("没有这个模型：%s（先在「模型」那层登记）", p.Model)
-	}
-	// 地址从哪来：优先看引用的模型（模型挂在某个接口下），其次自己写接口，
-	// 最后是还没迁移的老数据带着 base_url。
+	// 地址从哪来：接口名（两层结构下正常路径），或迁移前自己带的 base_url。
 	if p.Endpoint == "" && p.BaseURL == "" {
-		if has && m.Endpoint == "" {
-			return fmt.Errorf("要选一个模型（或接口）")
+		return fmt.Errorf("要选一个接口（或填接口地址）")
+	}
+	// 接口名必须真的存在（批量提交时可能在同一次请求里刚建出来）
+	if p.Endpoint != "" {
+		if _, ok := GetEndpoint(p.Endpoint); !ok && !extraEndpoints[p.Endpoint] {
+			return fmt.Errorf("没有这个接口：%s", p.Endpoint)
 		}
-		if !has && !inBatch {
-			return fmt.Errorf("要选一个模型（或接口）")
+	}
+	// 能力是这份配置的一部分，不是"能省就省"的注释：
+	//   窗口留空 → 压缩预算算不出来，猜错就真的丢上下文；
+	//   模态留空 → 不知道能不能贴图，界面只能瞎猜。
+	// 上游没报的时候，"以后再自动拉一次"也还是同一个结果，所以留空就是无效配置，
+	// 必须在保存时说清楚，而不是运行时退回一个默认值装作没事。
+	if p.ContextWindow <= 0 {
+		return fmt.Errorf("窗口大小必填（上游没报就自己填，比如 131072）")
+	}
+	if len(p.Input) == 0 {
+		return fmt.Errorf("输入模态必填（至少要有 text）")
+	}
+	for _, x := range p.Input {
+		if x != "text" && x != "image" {
+			return fmt.Errorf("input 只能是 text / image（收到 %q）", x)
+		}
+	}
+	if p.MaxTokensOut < 0 {
+		return fmt.Errorf("输出上限不能是负数")
+	}
+	for _, x := range p.EffortLevels {
+		if !EffortLevelOK(x) {
+			return fmt.Errorf("effort_levels 里的 %q 不像档位名（小写英文，可带数字 _ -）", x)
 		}
 	}
 	// 档位只查形状不查词表：各家叫法不同（minimal / xhigh / max），
@@ -273,4 +278,26 @@ func DeleteProfile(name string) error {
 		return fmt.Errorf("没有这个 profile")
 	}
 	return writeProfiles(out)
+}
+
+// EffortLevelOK：档位名**不限定词表**。
+//
+// 各家叫法不一样：OpenAI 是 low|medium|high，DeepSeek 是 low|high|max，
+// OpenCode 还有 minimal|xhigh。agentd 只是把它原样转给上游，没有资格替上游
+// 决定它认哪些 —— 白名单式的校验只会在遇到新供应商时把人卡住。
+// 挡的是形状：空、带空格、大小写混杂，那些一定是手滑。
+func EffortLevelOK(s string) bool {
+	if s == "" || len(s) > 16 {
+		return false
+	}
+	for i, r := range s {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if i > 0 && ((r >= '0' && r <= '9') || r == '_' || r == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }

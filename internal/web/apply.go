@@ -78,19 +78,13 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 	// 接口正躺在同一张表单里、还没落盘 —— 只看盘上有什么就会误报"没有这个接口"。
 	// 所以先扫一遍，校验时把本批次的声明也当成存在。
 	newEPs := map[string]bool{}
-	newModels := map[string]bool{}
 	for _, c := range in.Changes {
-		switch c.Kind {
-		case "endpoint":
-			var e config.Endpoint
-			if json.Unmarshal(c.Data, &e) == nil && e.Name != "" {
-				newEPs[e.Name] = true
-			}
-		case "model":
-			var m config.Model
-			if json.Unmarshal(c.Data, &m) == nil && m.Endpoint != "" && strings.TrimSpace(m.ID) != "" {
-				newModels[config.ModelName(m.Endpoint, m.ID)] = true
-			}
+		if c.Kind != "endpoint" {
+			continue
+		}
+		var e config.Endpoint
+		if json.Unmarshal(c.Data, &e) == nil && e.Name != "" {
+			newEPs[e.Name] = true
 		}
 	}
 
@@ -103,7 +97,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				reject(i, c, "profile 解析失败："+err.Error())
 				return
 			}
-			if err := config.ValidateProfileWith(p, newModels); err != nil {
+			if err := config.ValidateProfileWith(p, newEPs); err != nil {
 				reject(i, c, err.Error())
 				return
 			}
@@ -164,21 +158,6 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 			}
 			saved := e
 			ops = append(ops, op{"endpoint", e.Name, i, func() error { return config.UpsertEndpoint(saved) }})
-		case "model":
-			var m config.Model
-			if err := json.Unmarshal(c.Data, &m); err != nil {
-				reject(i, c, "model 解析失败："+err.Error())
-				return
-			}
-			// 唯一键是 <endpoint>/<id>，由 UpsertModel 自己算，前端传什么都不作数
-			if err := config.ValidateModelWith(m, newEPs); err != nil {
-				reject(i, c, err.Error())
-				return
-			}
-			saved := m
-			ops = append(ops, op{"model", config.ModelName(m.Endpoint, m.ID), i, func() error {
-				return config.UpsertModel(saved)
-			}})
 		case "settings":
 			var st config.Settings
 			if err := json.Unmarshal(c.Data, &st); err != nil {
@@ -195,11 +174,11 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 
 	// ── 第二阶段：写 ──
 	//
-	// 按依赖排序再写：接口 → 模型 → 配置 → 其它。
-	// 三层是引用关系，同一张表单里通常三层都在；照着请求顺序写的话，
-	// "先配置后接口"这种顺序就会在 UpsertModel 里撞到"没有这个接口"。
+	// 按依赖排序再写：接口 → 配置 → 其它。
+	// 配置引用接口，同一张表单里常常一起提交；照着请求顺序写的话，
+	// "先配置后接口"这种顺序就会在 UpsertProfile 里撞到"没有这个接口"。
 	// 排序只影响写盘顺序，报错里的"第几项"仍然按请求下标说。
-	prio := map[string]int{"endpoint": 0, "model": 1, "profile": 2}
+	prio := map[string]int{"endpoint": 0, "profile": 1}
 	rank := func(k string) int {
 		if p, ok := prio[k]; ok {
 			return p

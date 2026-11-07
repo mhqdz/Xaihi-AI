@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 // 配置类卡片的共用骨架。
 //
@@ -89,6 +89,51 @@ export function ChoiceGrid({ label, options, selected, onToggle, hint }) {
           )
         })}
       </div>
+      {hint ? <span className="field-hint">{hint}</span> : null}
+    </div>
+  )
+}
+
+// 标签输入：一排可删的标签 + 一个输入框（回车/逗号加）。
+//
+// 用在这里的是"思考强度档位"：上游给它报了就点一下补进来，没报就自己敲。
+// 之所以做成标签而不是逗号分隔的文本框：档位是**枚举**，删错一个比删对难发现，
+// 每个都能单独点掉才不会漏。
+export function TagInput({ label, value, onChange, suggestions, hint }) {
+  const [draft, setDraft] = useState('')
+  const add = (raw) => {
+    const v = String(raw || '').trim().toLowerCase()
+    if (!v || value.includes(v)) { setDraft(''); return }
+    onChange([...value, v])
+    setDraft('')
+  }
+  const remove = (t) => onChange(value.filter(x => x !== t))
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <div className="tags">
+        {value.map(t => (
+          <span className="tag" key={t}>
+            {t}
+            <button type="button" className="tag-x" onClick={() => remove(t)}
+              aria-label={'去掉 ' + t} title={'去掉 ' + t}>×</button>
+          </span>
+        ))}
+        <input className="tag-input" value={draft} placeholder="回车添加" aria-label="添加档位"
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(draft) }
+            if (e.key === 'Backspace' && !draft && value.length) remove(value[value.length - 1])
+          }} />
+      </div>
+      {suggestions && suggestions.length ? (
+        <span className="field-hint">上游说支持：
+          {suggestions.filter(x => !value.includes(x)).map(x => (
+            <button type="button" className="tag-sug" key={x} onClick={() => add(x)}>{x}</button>
+          ))}
+          {suggestions.every(x => value.includes(x)) ? '（都加上了）' : null}
+        </span>
+      ) : null}
       {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )

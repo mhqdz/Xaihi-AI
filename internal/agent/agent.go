@@ -42,6 +42,24 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	}
 	// 地址和密钥来自 profile 引用的接口（老数据没迁移时 Resolve 会逐级回落）
 	r := profile.Resolve()
+	// 跟随上游的配置：这一轮开始前先看一眼现在的能力。
+	// 问不到就用配置里存的值 —— 那些是必填的，本来就是能用的兜底。
+	if profile.AutoCaps {
+		if info, ok := llm.CapsFor(r.BaseURL, r.APIKey, profile.Model); ok {
+			if info.ContextWindow > 0 {
+				profile.ContextWindow = info.ContextWindow
+			}
+			if info.MaxOutput > 0 {
+				profile.MaxTokensOut = info.MaxOutput
+			}
+			if len(info.Input) > 0 {
+				profile.Input = info.Input
+			}
+			if len(info.EffortLevels) > 0 {
+				profile.EffortLevels = info.EffortLevels
+			}
+		}
+	}
 	base, key := r.BaseURL, r.APIKey
 	if base == "" {
 		base = cfg.BaseURL

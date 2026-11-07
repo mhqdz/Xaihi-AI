@@ -43,10 +43,6 @@ const TOOL_LABELS = {
 const ENDPOINT_LABELS = {
   name: '名称', base_url: '接口地址', api_key: 'API Key', provider: '协议', source: '来源模板'
 }
-const MODEL_LABELS = {
-  endpoint: '所属接口', id: '模型 id', context_window: '窗口大小', max_tokens: '输出上限',
-  input: '输入模态', effort_levels: '支持的思考强度'
-}
 const SETTING_LABELS = {
   tool_rounds_enabled: '工具轮次上限开关', tool_rounds: '工具轮次上限',
   auto_archive_enabled: '自动归档开关', auto_archive_days: '自动归档天数',
@@ -110,10 +106,9 @@ export function useSettings({ refresh }) {
   // 上游探测结果：{state: running|ok|error|waitkey, models, error, url}。
   // 一次只开一张 2 级卡，所以一个对象够了，不用按接口名存。
   const [probe, setProbe] = useState(null)
-  const [models, setModels] = useState([])           // 模型层（属于某个接口）
-  const [editM, setEditM] = useState(null)           // 正在编辑的模型（2 级）
-  const [editMSnap, setEditMSnap] = useState('')     // 打开模型卡时的快照
-  const [discovered, setDiscovered] = useState({})   // 接口名 -> [{id, registered}]
+  // 接口名 → 上一次问上游拿到的模型列表 {models, at, stale, error, loading}
+  // 只用于"选模型"和"看一眼有哪些"：能力会写进 profile，读配置时不依赖它。
+  const [modelList, setModelList] = useState({})
   const [toolSnapShot, setToolSnapShot] = useState(null)  // 工具表单打开时的快照（对象，用于 diff）
   const [pendingNewPlugin, setPendingNewPlugin] = useState(false)
   const [settings, setSettings] = useState(BLANK_SETTINGS)
@@ -135,7 +130,6 @@ export function useSettings({ refresh }) {
   const loadEndpoints = async () => {
     setEndpoints((await api('/api/endpoints').catch(() => [])) || [])
     setSources((await api('/api/sources').catch(() => [])) || [])
-    setModels((await api('/api/models').catch(() => [])) || [])
   }
   const loadTools = async () => {
     setToolList((await api('/api/tools').catch(() => [])) || [])
@@ -225,18 +219,16 @@ export function useSettings({ refresh }) {
     ? ((editField ? (editP?.[editField] || '') : (toolEdit?.description || '')) !== (editOriginal || ''))
     : false
   const settingsDirty = JSON.stringify(settings) !== setSnap
-  // 接口 / 模型两层的脏标记，和配置层同一把尺子：快照比对，
+  // 接口层的脏标记，和配置层同一把尺子：快照比对，
   // 只认用户能改的字段（_new 这类元数据不算）。
   const editEDirty = !!editE && snapOf(editE) !== editESnap
-  const editMDirty = !!editM && snapOf(editM) !== editMSnap
   // 草稿：退出详情卡时把没保存的改动按 profile 名存这儿。
   // 目的——改完 A 想再看 B、回头一起保存；退出层级不等于放弃改动。
   const [drafts, setDrafts] = useState({})
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
   // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
   const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnap(toolSnapShot)
-  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty ||
-    editEDirty || editMDirty
+  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty || editEDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
   const [nudge, setNudge] = useState(0)
@@ -256,7 +248,6 @@ export function useSettings({ refresh }) {
     // 回滚成 {} 会得到一张标题写着 undefined 的空卡
     if (editP) { if (editSnap) setEditP(JSON.parse(editSnap)); else setEditP(null) }
     if (editE) { if (editESnap) setEditE(JSON.parse(editESnap)); else setEditE(null) }
-    if (editM) { if (editMSnap) setEditM(JSON.parse(editMSnap)); else setEditM(null) }
     setSettings(JSON.parse(setSnap || '{}'))
   }
 
@@ -269,11 +260,6 @@ export function useSettings({ refresh }) {
       out.push({ kind: 'endpoint', title: (editE._new ? '新接口 · ' : '接口 · ') + (editE.name || '（未命名）'),
         name: editE.name, base: JSON.parse(editESnap || '{}'), next: editE,
         rows: diffFields(JSON.parse(editESnap || '{}'), editE, ENDPOINT_LABELS) })
-    }
-    if (editMDirty) {
-      out.push({ kind: 'model', title: (editM._new ? '新模型 · ' : '模型 · ') + (editM.id || '（未命名）'),
-        name: editM.name, base: JSON.parse(editMSnap || '{}'), next: editM,
-        rows: diffFields(JSON.parse(editMSnap || '{}'), editM, MODEL_LABELS) })
     }
     if (formDirty && editP) {
       out.push({ kind: 'profile', title: '模型 · ' + editP.name, name: editP.name,
@@ -335,6 +321,12 @@ export function useSettings({ refresh }) {
           kind: 'profile', name: c.next.name,
           data: {
             ...body,
+            // 数字字段统一转一遍：输入框给的是字符串，后端按 int 解，
+            // 空字符串要变成 0（"没填"），而不是让 JSON 解码直接失败
+            context_window: Number(body.context_window) || 0,
+            max_tokens_out: Number(body.max_tokens_out) || 0,
+            max_prompt_tokens: Number(body.max_prompt_tokens) || 0,
+            compact_pct: Number(body.compact_pct) || 0,
             tools: (body.tools || '').split(',').map(x => x.trim()).filter(Boolean),
             keep_messages: body.keep_messages || 16
           }
@@ -404,7 +396,6 @@ export function useSettings({ refresh }) {
     // 接口/模型存过之后就不是"新建"了：标题去掉"新建"、名字和 id 变成只读，
     // 否则再改一次名字会让引用它的模型/配置悬空
     if (editE) { setEditE({ ...editE, _new: false }); setEditESnap(snapOf({ ...editE, _new: false })) }
-    if (editM) { setEditM({ ...editM, _new: false }); setEditMSnap(snapOf({ ...editM, _new: false })) }
     setEditOriginal(editField ? (editP?.[editField] || '') : (toolEdit?.description || ''))
     setSetSnap(JSON.stringify(settings))
     if (toolForm) setToolSnapShot(toolForm)
@@ -444,10 +435,6 @@ export function useSettings({ refresh }) {
       if (editEDirty) { setNudge(n => n + 1); return }
       setEditE(null); return
     }
-    if (editM) {
-      if (editMDirty) { setNudge(n => n + 1); return }
-      setEditM(null); return
-    }
     if (settingsDirty) { setNudge(n => n + 1); return }
     setShowSet(false)
   }
@@ -456,7 +443,7 @@ export function useSettings({ refresh }) {
   // 以前每个"打开"函数各抄一遍要清哪些，加一层就漏一层（打开接口卡再点工具，
   // 屏幕上就并排两张 2 级卡）。集中在这儿，加层只改这一处。
   const clearDetail = () => {
-    setEditP(null); setEditE(null); setEditM(null)
+    setEditP(null); setEditE(null)
     setToolForm(null); setToolSnapShot(null); setToolEdit(null); setEditField(null)
   }
 
@@ -517,63 +504,27 @@ export function useSettings({ refresh }) {
     return r
   }
 
-  // —— 模型层（属于某接口；配置再引用它）——
-  const pickModel = (m) => {
-    clearDetail()
-    const v = { ...m, input: m.input && m.input.length ? m.input : ['text'] }
-    setEditM(v); setEditMSnap(snapOf(v))
-  }
-  const newModel = () => {
-    clearDetail()
-    const v = { name: '', endpoint: (endpoints[0] || {}).name || '', id: '',
-      context_window: '', max_tokens: '', input: ['text'], effort_levels: [], _new: true }
-    setEditM(v); setEditMSnap('')
-  }
-  const closeModel = () => {
-    if (editMDirty) { setNudge(n => n + 1); return }
-    setEditM(null)
-  }
-  const deleteModel = async () => {
-    if (!editM) return
-    if (!confirm('删除模型 ' + editM.id + '？')) return
-    const r = await fetch('/api/models/' + encodeURIComponent(editM.name), { method: 'DELETE' })
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) { alert(j.error || '删除失败'); return }
-    setEditM(null); await loadEndpoints()
-  }
-  // 让某个接口去上游问一次有哪些模型（"发现"）
-  const discoverModels = async (endpointName) => {
-    const r = await api('/api/discover/' + encodeURIComponent(endpointName)).catch(() => null)
-    if (!r) return []
-    if (r.error) { alert(r.error); return [] }
-    setDiscovered(d => ({ ...d, [endpointName]: r.models || [] }))
-    return r.models || []
-  }
-  // 把一个发现的模型登记进来
-  // 登记：把上游给的能力一起存下来，省得手填窗口和模态
-  const registerModel = async (endpointName, info) => {
-    const body = { endpoint: endpointName, id: info.id,
-      context_window: info.context_window || 0, max_tokens: info.max_tokens || 0,
-      input: info.input && info.input.length ? info.input : ['text'],
-      effort_levels: info.effort_levels || [] }
-    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body) })
-    if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || '登记失败'); return }
-    await loadEndpoints(); await discoverModels(endpointName)
-  }
-  // 同步能力：拿上游的能力覆盖本地（窗口/输出/模态/强度档位）
-  const syncModel = async (endpointName, info) => {
-    const cur = models.find(x => x.endpoint === endpointName && x.id === info.id)
-    if (!cur) return
-    const body = { ...cur,
-      context_window: info.context_window || 0, max_tokens: info.max_tokens || 0,
-      input: info.input && info.input.length ? info.input : ['text'],
-      effort_levels: info.effort_levels || [] }
-    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body) })
-    if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || '同步失败'); return }
-    await loadEndpoints(); await discoverModels(endpointName)
-    if (editM && editM.name === cur.name) setEditM({ ...body })
+  // —— 模型列表（懒加载）：配置卡里"选模型"时才去问上游 ——
+  //
+  // 只有"有哪些模型、各自什么能力"这一件事需要联网，而且只在打开下拉时才需要。
+  // 拿到之后：选中一个 → 能力填进 profile（之后读配置就完全不依赖网络）；
+  // 列表本身存进 modelList，供离线时仍能选上次见过的。
+  const loadModelList = async (endpointName, force = true) => {
+    if (!endpointName) return null
+    const prev = modelList[endpointName]
+    if (!force && prev && !prev.error) return prev
+    setModelList(m => ({ ...m, [endpointName]: { ...(prev || {}), loading: true } }))
+    const r = await api('/api/endpoints/' + encodeURIComponent(endpointName) + '/models').catch(() => null)
+    if (!r) {
+      setModelList(m => ({ ...m, [endpointName]: { ...(prev || {}), loading: false, error: '后端没响应' } }))
+      return null
+    }
+    const next = {
+      loading: false, models: r.models || [], at: r.at || null,
+      stale: !!r.stale, error: r.error || ''
+    }
+    setModelList(m => ({ ...m, [endpointName]: next }))
+    return next
   }
 
   // 点工具直接打开**可编辑表单**（和模型配置一样，没有独立的只读态）。
@@ -655,8 +606,7 @@ export function useSettings({ refresh }) {
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
     endpoints, sources, editE, setEditE, editESnap, editEDirty, probe,
     pickEndpoint, newEndpoint, closeEndpoint, deleteEndpoint, probeEndpoint,
-    models, editM, setEditM, editMDirty, discovered,
-    pickModel, newModel, closeModel, deleteModel, discoverModels, registerModel, syncModel,
+    modelList, loadModelList,
     openSystemEditor, openToolEditor,
     deletePlugin, deleteProfile, cleanShots,
   }

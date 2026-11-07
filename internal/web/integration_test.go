@@ -71,7 +71,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 	}
 
 	// ② 建 profile + 读回 + 列表
-	postJSON(t, srv.URL+"/api/profiles", `{"name":"it","base_url":"`+up.URL+`","model":"fake","tools":["bash"]}`)
+	postJSON(t, srv.URL+"/api/profiles", `{"name":"it","base_url":"`+up.URL+`","model":"fake","tools":["bash"],"context_window":8192,"input":["text"]}`)
 	var p config.Profile
 	getJSON(t, srv.URL+"/api/profiles/it", &p)
 	if p.Model != "fake" || len(p.Tools) != 1 {

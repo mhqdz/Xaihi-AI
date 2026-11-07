@@ -119,6 +119,11 @@ def probe(s, scope):
     return s.js("const SCOPESEL = " + json.dumps(scope) + ";\nreturn " + PROBE.strip())
 
 
+def note(msg):
+    """记一条"需要留意"：最后统一打印，不算断言失败。"""
+    notes.append(msg)
+
+
 def report(title, items):
     print(f"\n── {title} ── {len(items)} 个控件")
     small, unlabeled = [], []
@@ -213,11 +218,11 @@ def functional(s):
     print("第二部分：逐字段功能")
     print("=" * 62)
     api("DELETE", "/api/profiles/" + PROBE_NAME)
-    # 三层：探针 profile 引用一个已登记的模型（模型自己知道接口和上游 id）
-    st, mdl = api("GET", "/api/models")
-    models = mdl or []
-    m0 = models[0]["name"] if models else ""
-    api("POST", "/api/profiles", {"name": PROBE_NAME, "model": m0,
+    # 两层：探针 profile 自己带接口 + 裸模型名 + 能力（窗口/模态必填）
+    st, eps = api("GET", "/api/endpoints")
+    ep0 = (eps or [{}])[0].get("name", "")
+    api("POST", "/api/profiles", {"name": PROBE_NAME, "endpoint": ep0, "model": "probe-model",
+                                  "context_window": 8192, "input": ["text"],
                                   "system": "probe-system",
                                   "reasoning_effort": "high",
                                   "max_prompt_tokens": 0, "compact_pct": 0, "tools": []})
@@ -235,10 +240,10 @@ def functional(s):
         check(f"字段「{label}」可编辑", str(got) == val, f"控件值={got}")
         check(f"字段「{label}」触发脏标记", dirty(s), "")
 
-    # 模型下拉：换成另一个已登记的模型
-    other = next((m["name"] for m in models if m["name"] != m0), "")
+    # 模型：换成另一个名字（现在是可手输的输入框，不在列表里也允许）
+    other = "probe-model-2"
     got = s.js(SET_FIELD, "模型", other); time.sleep(0.25)
-    check("下拉「模型」可选", got == other and other != "", got)
+    check("模型可手输", got == other, got)
     got = s.js(SET_FIELD, "默认思考强度", "medium"); time.sleep(0.25)
     check("下拉「默认思考强度」可选", got == "medium", got)
 
@@ -264,9 +269,10 @@ def functional(s):
 
     click_save(s)
     p = get_profile(PROBE_NAME) or {}
-    check("保存后模型引用生效", p.get("model") == other, p.get("model"))
-    check("配置里不再存上游模型名（归模型层）", p.get("model") != "probe-model", p.get("model"))
-    check("配置里不再存窗口（归模型层）", not p.get("context_window"), p.get("context_window"))
+    check("保存后模型名生效", p.get("model") == other, p.get("model"))
+    # 两层之后能力就存在配置里：读配置不需要联网
+    check("配置里带着窗口", p.get("context_window") == 8192, p.get("context_window"))
+    check("配置里带着模态", p.get("input") == ["text"], p.get("input"))
     check("保存后 max_prompt_tokens 生效", p.get("max_prompt_tokens") == 3000, p.get("max_prompt_tokens"))
     check("保存后 compact_pct 生效", p.get("compact_pct") == 70, p.get("compact_pct"))
     check("保存后默认思考强度生效", p.get("reasoning_effort") == "medium", p.get("reasoning_effort"))
@@ -413,9 +419,11 @@ def plugin_flow(s):
 
     # 改名：内容里的 name 换了，文件名不动，profile 里的引用要跟着换
     # （三层之后 profile 必须引用一个真模型，不能再用裸 model 名）
-    st, _mdl = api("GET", "/api/models")
-    _m0 = (_mdl or [{}])[0].get("name", "")
-    st, _ = api("POST", "/api/profiles", {"name": "rename_probe", "model": _m0, "tools": ["cfg_plugin"]})
+    st, _eps = api("GET", "/api/endpoints")
+    _ep = (_eps or [{}])[0].get("name", "")
+    st, _ = api("POST", "/api/profiles", {"name": "rename_probe", "endpoint": _ep,
+                                          "model": "probe-model", "context_window": 8192,
+                                          "input": ["text"], "tools": ["cfg_plugin"]})
     check("探针 profile 引用插件", st == 200, st)
     s.get(B + "/?settings=1&conv=51")
     time.sleep(2.5)
@@ -654,9 +662,11 @@ def delete_flow():
     print("=" * 62)
     for width, where, sel in ((1600, "标题栏", ".del-top"), (900, "卡片底部", ".del-bottom")):
         api("DELETE", "/api/profiles/del_probe")
-        st, _mdl = api("GET", "/api/models")
+        st, _eps = api("GET", "/api/endpoints")
         st, _ = api("POST", "/api/profiles", {"name": "del_probe",
-                                              "model": (_mdl or [{}])[0].get("name", ""), "system": "x"})
+                                              "endpoint": (_eps or [{}])[0].get("name", ""),
+                                              "model": "probe-model", "context_window": 8192,
+                                              "input": ["text"], "system": "x"})
         check(f"探针 profile 建出来了（{where}）", st == 200, st)
         s = Session(width, 1000)
         try:
@@ -947,7 +957,11 @@ def endpoint_flow():
         s.js("""const el=[...document.querySelectorAll('.col-detail .field')].find(f=>/API Key/.test(f.textContent)).querySelector('input');
           const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
           set.call(el,'sk-bogus-0000'); el.dispatchEvent(new Event('input',{bubbles:true})); return 1""")
-        time.sleep(3.5)
+        # 401 要真的打一次 opencode，慢的时候 3 秒都还没回来
+        for _ in range(20):
+            time.sleep(0.5)
+            if s.js("return document.querySelectorAll('.col-detail .probe-err').length"):
+                break
         err = s.js("return (document.querySelector('.col-detail .probe-err')||{}).textContent")
         check("key 不对时说清是 key 的问题", isinstance(err, str) and ("API Key" in err or "401" in err), err)
 
@@ -957,65 +971,99 @@ def endpoint_flow():
         api("POST", "/api/endpoints", {"name": ep["name"], "base_url": ep["base_url"],
                                        "api_key": ep.get("api_key", ""), "provider": ep.get("provider", ""),
                                        "source": ep.get("source", "")})
-        # 被引用的接口不能删（先查模型层，再查配置层 —— 两句都得说清楚是谁在拦）
+        # 被配置引用的接口不能删
         st, d = api("DELETE", "/api/endpoints/" + ep["name"])
-        check("被模型引用的接口不能删",
-              st == 400 and "还有模型挂在这个接口下" in (d.get("error") or ""), f"{st} {d.get('error')}")
+        check("被配置引用的接口不能删",
+              st == 400 and "还有配置" in (d.get("error") or ""), f"{st} {d.get('error')}")
     finally:
         s.close()
 
 
-def three_layers():
-    """三层：接口（接哪儿）→ 模型（是什么）→ 配置（怎么用）。"""
+def two_layers():
+    """两层：接口（接哪儿）→ 配置（用哪个模型 + 怎么用，能力也在里面）。"""
     print("\n" + "=" * 62)
-    print("第十四部分：三层结构与会话级思考强度")
+    print("第十四部分：两层结构与会话级思考强度")
     print("=" * 62)
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
-    # 这一节会临时改一个模型和一个接口；中途断言抛异常也要还原，
-    # 否则真库上会留着 max_tokens=1234 这种探针值
+    # 这一节会临时改一套配置和一个接口；中途断言抛异常也要还原
     undo = []
     try:
         s.get(B + "/?settings=1&conv=51")
         time.sleep(2.5)
+        # 后端拒绝保存是走 alert 的（原生弹窗会把 WD 会话打死），先接住
+        s.js("window.__alerts=[]; window.alert=(m)=>window.__alerts.push(String(m)); return 1")
         secs = s.js("return [...document.querySelectorAll('.col-list .set-section')].map(e=>e.textContent.trim())")
-        check("一级卡按三层分组", secs[:4] == ["常规配置", "接口", "模型", "模型配置"], secs)
+        check("一级卡只有两层 + 工具/任务", secs[:4] == ["常规配置", "接口", "模型配置", "工具配置"], secs)
+        check("没有「模型」这一层了", "模型" not in secs, secs)
 
-        st, mdl = api("GET", "/api/models")
-        check("模型层非空", len(mdl or []) > 0, len(mdl or []))
-        check("每个模型都归属一个接口", all(m.get("endpoint") for m in (mdl or [])), "")
-        m0 = mdl[0]
-        check("模型的唯一键是 接口/id", m0["name"] == m0["endpoint"] + "/" + m0["id"], m0["name"])
-
-        # 同一模型可以被多个配置共用 —— 这正是拆层要解决的重复配置
         st, profs = api("GET", "/api/profiles")
-        names = [p.get("model") for p in (profs or [])]
+        profs = profs or []
+        check("配置非空", len(profs) > 0, len(profs))
+        check("每套配置都指向一个接口", all(p.get("endpoint") for p in profs),
+              [p["name"] for p in profs if not p.get("endpoint")])
+        check("model 是裸 id（不再带接口前缀）", all("/" not in (p.get("model") or "") for p in profs),
+              [p.get("model") for p in profs if "/" in (p.get("model") or "")])
+        # 能力就在配置里：读配置不需要联网
+        missing_caps = [p["name"] for p in profs if not p.get("context_window")]
+        check("能力存在配置里", not missing_caps, missing_caps)
+        check("模态存在配置里", all(p.get("input") for p in profs), "")
+
+        # 同一模型可以被多套配置共用（能力各存一份，是选它的代价）
+        names = [p.get("model") for p in profs]
         shared = [m for m in set(names) if names.count(m) > 1]
-        check("存在多个配置共用一个模型", len(shared) > 0, shared[:2])
+        check("存在多套配置共用一个模型", len(shared) > 0, shared[:2])
 
-        # 配置里不再存上游 id / 窗口
-        check("配置不再存上游模型名", all("/" in (p.get("model") or "") for p in (profs or [])),
-              [p["name"] for p in (profs or []) if "/" not in (p.get("model") or "")])
-        check("配置不再存窗口", all(not p.get("context_window") for p in (profs or [])), "")
-
-        # 模型卡
-        ok = s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
-            .find(e=>e.querySelector('.item-title')?.textContent.trim()===%s);
-          x&&x.click(); return !!x;""" % json.dumps(m0["id"]))
-        time.sleep(1.2)
-        check("点模型打开模型卡", ok, "")
+        # —— 配置卡：字段就位 ——
+        s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>e.querySelector('.item-title')?.textContent.trim()==='180-low');
+          x&&x.click(); return !!x;""")
+        time.sleep(1.5)
         fields = s.js("""return [...document.querySelectorAll('.col-detail .field')]
             .map(f=>f.querySelector('span')?.textContent.trim());""")
-        check("模型卡只有「模型事实」",
-              fields[:4] == ["接口", "模型 id", "窗口大小 (tokens)", "输出上限 (tokens)"]
-              and "支持的思考强度" in fields, fields)
-        check("模型卡有图像开关",
-              s.js("""return [...document.querySelectorAll('.col-detail .switch-row')]
-                  .some(e=>/能接收图像/.test(e.textContent));"""), "")
+        for want in ["名称", "接口", "模型", "窗口大小 (tokens)", "输出上限 (tokens)",
+                     "支持的思考强度", "默认思考强度"]:
+            check(f"配置卡有「{want}」", want in (fields or []), fields)
 
-        # —— 接口卡和模型卡都要能存 ——
-        # 拆成三层之后这两层曾经只显示不保存（改了直接丢），
-        # 现在它们和配置层走同一份改动清单：改 → 清单 → 确认 → 后端真变了。
+        # —— 模型输入：聚焦时懒加载上游列表 ——
+        check("模型选择是输入框（可手输）",
+              s.js("return !!document.querySelector('.col-detail input[list]')"), "")
+        s.js("""const el=document.querySelector('.col-detail input[list]');
+          el.focus(); el.dispatchEvent(new Event('focus',{bubbles:true})); return 1""")
+        time.sleep(2.5)
+        hint = s.js("""return [...document.querySelectorAll('.col-detail .field-hint')]
+            .map(e=>e.textContent).find(t=>/个模型|拉不到/.test(t))""")
+        check("聚焦后懒加载上游列表", isinstance(hint, str) and "个模型" in hint, hint)
+        opts = s.js("return [...document.querySelectorAll('#agentd-model-ids option')].map(o=>o.value)")
+        check("下拉里有上游报的模型", isinstance(opts, list) and len(opts) > 0, opts[:3])
+
+        # —— 选模型会自动填能力 ——
+        st, eps = api("GET", "/api/endpoints")
+        ep = next((e for e in (eps or []) if e["name"] == "api-deepseek-com"), (eps or [{}])[0])
+        before_prof = next(p for p in profs if p["name"] == "180-low")
+        undo.append(("profile", before_prof))
+        s.js("""const sel=[...document.querySelectorAll('.col-detail .field select')][0];
+          const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
+          set.call(sel, %s); sel.dispatchEvent(new Event('change',{bubbles:true})); return 1""" % json.dumps(ep["name"]))
+        time.sleep(3.0)
+        mname = s.js("""return [...document.querySelectorAll('#agentd-model-ids option')].map(o=>o.value)[0]""")
+        if mname:
+            s.js("""const el=document.querySelector('.col-detail input[list]');
+              const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+              set.call(el, %s); el.dispatchEvent(new Event('input',{bubbles:true})); return 1""" % json.dumps(mname))
+            time.sleep(0.6)
+            caps = s.js("""const g=(l)=>{const f=[...document.querySelectorAll('.col-detail .field')]
+                .find(x=>(x.querySelector('span')||{}).textContent?.trim()===l); return f? f.querySelector('input,select'):null};
+              const ctx=g('窗口大小 (tokens)'), out=g('输出上限 (tokens)');
+              return {ctx:ctx?ctx.value:'', out:out?out.value:'',
+                tags:[...document.querySelectorAll('.col-detail .tag')].map(e=>e.textContent.replace('×',''))}""")
+            check("选模型会填窗口", str(caps.get("ctx") or "") != "", caps)
+            check("选模型会填输出上限", str(caps.get("out") or "") != "", caps)
+            check("选模型会填思考强度标签", isinstance(caps.get("tags"), list) and len(caps["tags"]) > 0, caps)
+        else:
+            check("选模型会填能力（上游没给列表，跳过）", False, "no models")
+
+        # —— 存下来：脏点 → 清单 → 确认 → 后端生效 ——
         def save_sheet():
             s.js("const b=document.querySelector('.col-list .card-actions .btn.save'); b&&b.click(); return !!b")
             time.sleep(0.9)
@@ -1023,59 +1071,57 @@ def three_layers():
                  ".find(x=>/确认保存/.test(x.textContent)).click(); return 1")
             time.sleep(2.2)
 
-        def put_value(sel, val):
-            s.js("""const el=%s; const set=Object.getOwnPropertyDescriptor(
-                el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;
-                set.call(el, %s); el.dispatchEvent(new Event('input',{bubbles:true})); return el.value""" % (sel, json.dumps(val)))
-            time.sleep(0.3)
-
-        # 模型卡：改输出上限 → 存 → 读回
-        st, models_now = api("GET", "/api/models")
-        me = next(m for m in models_now if m["name"] == m0["name"])
-        old_out = str(me.get("max_tokens") or "")
-        undo.append(("model", me))
-        put_value("document.querySelectorAll('.col-detail input')[2]", "1234")
-        check("改模型卡字段后标题出现脏点", s.js("return !!document.querySelector('.col-detail .dirty-dot')"), "")
+        check("改配置后标题出现脏点", s.js("return !!document.querySelector('.col-detail .dirty-dot')"), "")
         s.js("const b=document.querySelector('.col-list .card-actions .btn.save'); b&&b.click(); return !!b")
         time.sleep(0.9)
         rows = s.js("return [...document.querySelectorAll('.sheet-grp-t, .sheet-row')].map(e=>e.textContent)")
-        check("清单里列出模型改动", any("模型 ·" in (r or "") for r in (rows or [])), rows)
+        check("清单里列出配置改动", any("模型 ·" in (r or "") for r in (rows or [])), rows)
         s.js("[...document.querySelectorAll('.sheet-ft .btn')].find(x=>/确认保存/.test(x.textContent)).click(); return 1")
         time.sleep(2.2)
-        st, after_m = api("GET", "/api/models")
-        got = next((m.get("max_tokens") for m in after_m if m["name"] == m0["name"]), None)
-        check("模型卡的改动真的落盘", got == 1234, got)
+        st, after = api("GET", "/api/profiles")
+        got = next((p for p in after if p["name"] == "180-low"), {})
+        check("能力真的写进配置", got.get("context_window") and got.get("input"), got.get("context_window"))
         check("存完脏点消失", s.js("return !document.querySelector('.col-detail .dirty-dot')"), "")
-        put_value("document.querySelectorAll('.col-detail input')[2]", old_out)
-        save_sheet()
-        st, after_m = api("GET", "/api/models")
-        got = next((m.get("max_tokens") for m in after_m if m["name"] == m0["name"]), None)
-        check("模型卡改回去也落盘", got == (int(old_out) if old_out else None), got)
 
-        # 接口卡：改地址 → 存 → 读回 → 改回
+        # 还原（走 API，省得再点一遍界面）
+        api("POST", "/api/profiles", before_prof)
+        undo.clear()
+
+        # —— 能力必填：留空保存不下来 ——
+        s.js("""const g=(l)=>{const f=[...document.querySelectorAll('.col-detail .field')]
+            .find(x=>(x.querySelector('span')||{}).textContent?.trim()===l); return f? f.querySelector('input'):null};
+          const el=g('窗口大小 (tokens)');
+          const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+          set.call(el,''); el.dispatchEvent(new Event('input',{bubbles:true})); return 1""")
+        time.sleep(0.4)
+        s.js("const b=document.querySelector('.col-list .card-actions .btn.save'); b&&b.click(); return !!b")
+        time.sleep(0.9)
+        s.js("[...document.querySelectorAll('.sheet-ft .btn')].find(x=>/确认保存/.test(x.textContent)).click(); return 1")
+        time.sleep(1.5)
+        err = s.js("return window.__alerts && window.__alerts.length ? window.__alerts[0] : ''")
+        check("窗口留空不许保存", "窗口大小必填" in (err or ""), err)
+        s.js("const b=[...document.querySelectorAll('.col-list .card-actions .btn')].find(x=>x.textContent==='取消'); b&&b.click(); return !!b")
+        time.sleep(0.6)
+
+        # —— 接口卡：改地址 → 存 → 生效 → 改回 ——
+        st, eps2 = api("GET", "/api/endpoints")
+        undo.append(("endpoint", next(e for e in eps2 if e["name"] == ep["name"])))
         s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
             .find(e=>e.querySelector('.item-title')?.textContent.trim()===%s);
-          x&&x.click(); return !!x;""" % json.dumps(m0["endpoint"]))
+          x&&x.click(); return !!x;""" % json.dumps(ep["name"]))
         time.sleep(1.0)
         check("点接口打开接口卡",
               (s.js("return (document.querySelector('.col-detail .ef-label-t')||{}).textContent") or "")
               .startswith("接口 · "), "")
-        st, eps = api("GET", "/api/endpoints")
-        ep = next(e for e in eps if e["name"] == m0["endpoint"])
-        old_url = ep["base_url"]
-        undo.append(("endpoint", ep))
-        put_value("document.querySelectorAll('.col-detail input')[1]", "http://127.0.0.1:18320/9/v1")
+        s.js("""const el=document.querySelectorAll('.col-detail input')[1];
+          const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+          set.call(el,'http://127.0.0.1:18320/9/v1'); el.dispatchEvent(new Event('input',{bubbles:true})); return 1""")
         save_sheet()
-        st, eps = api("GET", "/api/endpoints")
-        got_url = next(e["base_url"] for e in eps if e["name"] == m0["endpoint"])
+        st, eps3 = api("GET", "/api/endpoints")
+        got_url = next(e["base_url"] for e in eps3 if e["name"] == ep["name"])
         check("接口卡的改动真的落盘", got_url == "http://127.0.0.1:18320/9/v1", got_url)
-        put_value("document.querySelectorAll('.col-detail input')[1]", old_url)
-        save_sheet()
-        st, eps = api("GET", "/api/endpoints")
-        got_url = next(e["base_url"] for e in eps if e["name"] == m0["endpoint"])
-        check("接口卡改回去也落盘", got_url == old_url, got_url)
 
-        # 2 级卡互斥：接口卡开着时点工具，不能并排两张
+        # —— 2 级卡互斥：接口卡开着时点工具，不能并排两张 ——
         s.js("""const x=[...document.querySelectorAll('.col-list .item')].find(e=>{
             const t=e.querySelector('.item-title');
             return t && t.textContent.trim().startsWith('bash');});
@@ -1086,52 +1132,37 @@ def three_layers():
               and (s.js("return (document.querySelector('.col-detail .ef-label-t')||{}).textContent") or "").startswith("tool"),
               s.js("return [...document.querySelectorAll('.col-detail .ef-label-t')].map(e=>e.textContent)"))
 
-        # 配置卡的模型下拉
-        s.js("const b=document.querySelector('.col-detail .back')||document.querySelector('.card-back'); b&&b.click(); return 1")
-        time.sleep(0.8)
-        s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
-            .find(e=>e.querySelector('.item-title')?.textContent.trim()==='180-low'); x&&x.click(); return !!x;""")
-        time.sleep(1.2)
-        sel = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
-            .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='模型');
-          const sel=f?.querySelector('select'); return sel? {v:sel.value, n:sel.options.length}:null;""")
-        check("配置卡用模型下拉", bool(sel) and sel["n"] == len(mdl) + 1, sel)
-
-        # 会话级思考强度：临时覆盖，不落盘
+        # —— 会话级思考强度 ——
         st, profiles = api("GET", "/api/profiles")
         before = next(p for p in profiles if p["name"] == "180-low")
         s.get(B + "/?conv=51")
         time.sleep(2.5)
         picks = s.js("return [...document.querySelectorAll('.composer .pick select')].length")
         check("composer 有两个选择器（配置 + 强度）", picks == 2, picks)
-        opts = s.js("""const sel=[...document.querySelectorAll('.composer .pick select')][1];
+        opts2 = s.js("""const sel=[...document.querySelectorAll('.composer .pick select')][1];
           return [...sel.options].map(o=>o.value);""")
-        check("强度选择器含「默认」与各档位", opts[0] == "" and "high" in opts and "none" in opts, opts)
-        # 比的是"当前选中的那个配置"的默认值 —— composer 从 localStorage 恢复配置，
-        # 不一定是上面查的 180-low
+        check("强度选择器含「默认」与各档位", opts2[0] == "" and "none" in opts2, opts2)
         cur_name = s.js("return [...document.querySelectorAll('.composer .pick select')][0].value")
         cur_prof = next((p for p in profiles if p["name"] == cur_name), {})
         label = s.js("return [...document.querySelectorAll('.composer .pick select')][1].options[0].textContent")
         check("默认档显示当前配置的默认值",
               (cur_prof.get("reasoning_effort") or "none") in label, f"{cur_name}: {label}")
-        # 改一下，确认没写回配置
         s.js("""const sel=[...document.querySelectorAll('.composer .pick select')][1];
           sel.value='high'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 1;""")
         time.sleep(0.5)
-        st, after = api("GET", "/api/profiles")
-        same = next(p for p in after if p["name"] == "180-low")
+        st, after_p = api("GET", "/api/profiles")
+        same = next(p for p in after_p if p["name"] == "180-low")
         check("会话里改强度不写回配置", same.get("reasoning_effort") == before.get("reasoning_effort"),
               f"{before.get('reasoning_effort')} → {same.get('reasoning_effort')}")
 
-        # 多模态提示：标记要跟**当前选中的配置**所用的模型一致，
-        # 不是"库里存在某个纯文字模型"（那种写法现在会因为 deepseek-v4-pro 而误判）
-        hint = s.js("const n=document.querySelector('.composer .no-vision'); return n? n.textContent.trim():null;")
-        cur_model = next((m for m in (models_now or []) if m.get("name") == cur_prof.get("model")), {})
-        want = None if "image" in (cur_model.get("input") or []) else "文字"
-        check("composer 上的模态标记跟当前配置的模型一致", hint == want,
-              f"{cur_prof.get('name')} · {cur_model.get('id')} 只有 {cur_model.get('input')} → {hint}")
+        # 多模态提示：跟当前配置所用的模型一致
+        hint2 = s.js("const n=document.querySelector('.composer .no-vision'); return n? n.textContent.trim():null;")
+        st, now_prof = api("GET", "/api/profiles")
+        cur2 = next((p for p in now_prof if p["name"] == cur_name), {})
+        want = None if "image" in (cur2.get("input") or []) else "文字"
+        check("composer 上的模态标记跟当前配置一致", hint2 == want,
+              f"{cur_name} input={cur2.get('input')} → {hint2}")
     finally:
-        # 断言中途失败也要把探针值还原（这一节改的是真模型 / 真接口）
         for kind, orig in undo:
             try:
                 api("POST", "/api/" + kind + "s", orig)
@@ -1155,7 +1186,7 @@ def main():
         deep_links()
         dirty_dot()
         endpoint_flow()
-        three_layers()
+        two_layers()
         task_deeplink()
         new_plugin_ui()
     finally:

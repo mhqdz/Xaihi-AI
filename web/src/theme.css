@@ -403,6 +403,28 @@ body{background:var(--paper);color:var(--ink);
 .card .field .ro-val{font-size:.72rem;line-height:1.6;color:var(--ink2);
   overflow-wrap:anywhere;min-width:0}
 .card .field .ro-val.mono{font-family:var(--mono);font-size:.7rem;color:var(--c6)}
+/* 同一行放两个字段（窗口 / 输出上限）：两列等宽，标签各自在上 */
+.card-bd .row-2{display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;min-width:0}
+/* 输入框 + 按钮并排（模型选择 + ⟳）：按钮不能把输入框挤变形 */
+.card .field .row-btn{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.35rem;align-items:center}
+.card .field .row-btn .btn{padding:.3rem .5rem;line-height:1;min-width:2rem;min-height:2rem}
+/* 标签输入：整块当成一个输入框（白底细边），标签在里面换行 */
+.card .field .tags{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;
+  border:1px solid var(--line);background:#fff;padding:.25rem .3rem;min-height:35px}
+.card .field .tags:focus-within{border-color:var(--ink)}
+.card .field .tag{display:inline-flex;align-items:center;gap:.25rem;padding:.1rem .15rem .1rem .35rem;
+  border:1px solid var(--c3);background:var(--c1);font-family:var(--mono);font-size:.68rem;color:var(--c6)}
+.card .field .tag-x{border:0;background:transparent;color:var(--c5);cursor:pointer;
+  font-size:.8rem;line-height:1;padding:0 .15rem}
+.card .field .tag-x:hover{color:var(--ink)}
+.card .field .tag-input{flex:1 1 6rem;min-width:5rem;border:0;background:transparent;
+  padding:.15rem .2rem;font-size:.72rem}
+.card .field .tag-input:focus{outline:none}
+.card .field .tag-sug{margin-left:.25rem;padding:0 .2rem;border:1px dashed var(--c3);
+  background:transparent;font-family:var(--mono);font-size:.64rem;color:var(--c6);cursor:pointer}
+.card .field .tag-sug:hover{border-color:var(--sage);color:var(--sage-d)}
+.card .field-hint.warn{color:#9a5d43}
+.btn.tiny{padding:.12rem .35rem;font-size:.64rem}
 /* 只读的多行清单（接口下的模型名）：同样是纯信息，不套框；保留换行 */
 .card-bd .ro-list{font-family:var(--mono);font-size:.7rem;line-height:1.7;color:var(--c6);
   white-space:pre-line;overflow-wrap:anywhere;margin:.1rem 0 .2em}

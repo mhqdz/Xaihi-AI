@@ -147,7 +147,7 @@ func TestProfilesCRUD(t *testing.T) {
 	// 用一个临时 profiles 文件隔离
 	t.Setenv("AGENTD_PROFILES", t.TempDir()+"/profiles.json")
 
-	body := `{"name":"p1","base_url":"http://x","model":"m"}`
+	body := `{"name":"p1","base_url":"http://x","model":"m","context_window":8192,"input":["text"]}`
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, jsonReq("POST", "/api/profiles", body))
 	if rec.Code != 200 {

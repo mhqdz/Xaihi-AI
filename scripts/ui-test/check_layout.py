@@ -28,13 +28,17 @@ check("宽屏初始只有列表卡", len(base) == 1 and base[0]['cls'] == 'card 
 # 按名字找模型：「接口」分组的条目也是 .item.col，取第一个会点到接口卡
 s.js("[...document.querySelectorAll('.col-list .item.col')].find(e=>/180-low/.test(e.textContent)).click(); return 1"); time.sleep(1.0)
 model2 = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
+# 3 级的入口是 LinkRow（配置卡的 system / 工具卡的 说明）：
+# 用 .item 会点到"能接收图像"那种开关行
+s.js("document.querySelector('.col-detail .item.link-row').click(); return 1"); time.sleep(1.0)
 model3 = s.js(CARDS)
 
 open_settings(s)
 s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(1.0)
 tool2 = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
+# 3 级的入口是 LinkRow（配置卡的 system / 工具卡的 说明）：
+# 用 .item 会点到"能接收图像"那种开关行
+s.js("document.querySelector('.col-detail .item.link-row').click(); return 1"); time.sleep(1.0)
 tool3 = s.js(CARDS)
 
 def geom(c): return [c['x'], c['y'], c['w'], c['h']]
@@ -57,12 +61,16 @@ states = {'初始': s.js(CARDS)}
 # 按名字找模型：「接口」分组的条目也是 .item.col，取第一个会点到接口卡
 s.js("[...document.querySelectorAll('.col-list .item.col')].find(e=>/180-low/.test(e.textContent)).click(); return 1"); time.sleep(1.0)
 states['模型2'] = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
+# 3 级的入口是 LinkRow（配置卡的 system / 工具卡的 说明）：
+# 用 .item 会点到"能接收图像"那种开关行
+s.js("document.querySelector('.col-detail .item.link-row').click(); return 1"); time.sleep(1.0)
 states['模型3'] = s.js(CARDS)
 open_settings(s)
 s.js("[...document.querySelectorAll('.col-list .item')].find(e=>e.textContent.includes('bash')).click(); return 1"); time.sleep(1.0)
 states['工具2'] = s.js(CARDS)
-s.js("document.querySelector('.col-detail .item').click(); return 1"); time.sleep(1.0)
+# 3 级的入口是 LinkRow（配置卡的 system / 工具卡的 说明）：
+# 用 .item 会点到"能接收图像"那种开关行
+s.js("document.querySelector('.col-detail .item.link-row').click(); return 1"); time.sleep(1.0)
 states['工具3'] = s.js(CARDS)
 
 for k, v in states.items():

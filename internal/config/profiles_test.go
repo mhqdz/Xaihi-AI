@@ -10,16 +10,27 @@ func TestValidateProfile(t *testing.T) {
 	bad := []Profile{
 		{},
 		{Name: "a", BaseURL: "", Model: "m"},
-		{Name: "a", BaseURL: "u", Model: "m", ReasoningEffort: "ultra"},
+		// 能力必填：窗口 / 模态缺一个都是无效配置（不能靠"以后再拉"补上）
+		{Name: "a", BaseURL: "u", Model: "m"},
+		{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192},
+		{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"audio"}},
+		// 档位只查形状：大写不行
+		{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"text"}, ReasoningEffort: "Ultra"},
 	}
 	for i, p := range bad {
 		if ValidateProfile(p) == nil {
 			t.Fatalf("第 %d 个应校验失败: %+v", i, p)
 		}
 	}
-	good := Profile{Name: "a", BaseURL: "u", Model: "m", ReasoningEffort: "high"}
+	good := Profile{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192,
+		Input: []string{"text"}, ReasoningEffort: "high"}
 	if err := ValidateProfile(good); err != nil {
 		t.Fatalf("应通过: %v", err)
+	}
+	// 上游的新档位（OpenCode 的 xhigh / minimal）不该被挡
+	good.ReasoningEffort = "xhigh"
+	if err := ValidateProfile(good); err != nil {
+		t.Fatalf("xhigh 应通过: %v", err)
 	}
 }
 
@@ -30,7 +41,8 @@ func TestProfilesCRUD(t *testing.T) {
 	if l := LoadProfiles(); len(l) != 3 {
 		t.Fatalf("内置应有 3 个，得到 %d", len(l))
 	}
-	p := Profile{Name: "x", BaseURL: "http://h", Model: "m", Tools: []string{"bash"}}
+	p := Profile{Name: "x", BaseURL: "http://h", Model: "m", Tools: []string{"bash"},
+		ContextWindow: 8192, Input: []string{"text"}}
 	if err := UpsertProfile(p); err != nil {
 		t.Fatal(err)
 	}
@@ -58,8 +70,8 @@ func TestProfilesCRUD(t *testing.T) {
 func TestProfileSortingAndReload(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AGENTD_PROFILES", filepath.Join(dir, "p.json"))
-	_ = UpsertProfile(Profile{Name: "z", BaseURL: "u", Model: "m"})
-	_ = UpsertProfile(Profile{Name: "a", BaseURL: "u", Model: "m"})
+	_ = UpsertProfile(Profile{Name: "z", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"text"}})
+	_ = UpsertProfile(Profile{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"text"}})
 	list := LoadProfiles()
 	for i := 1; i < len(list); i++ {
 		if list[i-1].Name > list[i].Name {
