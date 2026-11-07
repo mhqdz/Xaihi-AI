@@ -77,8 +77,14 @@
 | GET | `/api/sources` | 来源模板（`sources.json`，加一条就多一个服务商） |
 | PUT | `/api/sources` | 整份覆盖 |
 | GET | `/api/models` | 模型数组 |
-| POST | `/api/models` | `{endpoint, id, context_window?, max_tokens?, input?}`，唯一键 `<endpoint>/<id>` |
+| POST | `/api/models` | `{endpoint, id, context_window?, max_tokens?, input?, effort_levels?}`，唯一键 `<endpoint>/<id>`（由后端算） |
 | DELETE | `/api/models/{name}` | 被配置引用时 400 |
+
+**`api_key` 是明文**：`GET /api/endpoints`（以及 `/api/profiles` 里遗留的 key）原样返回
+密钥，只在前端渲染成 `type=password`。这是有意为之 —— 单用户、家庭内网、没有鉴权系统；
+打码只是表演，前端要拿它发请求，能逆向的地方永远在。理由与取舍见
+[`AUDIT.md` 的 R-1](AUDIT.md#r-1-监听-000018400-且无认证)。真要收紧就做鉴权或缩回
+`127.0.0.1`，不要打码。
 | GET | `/api/discover/{endpoint}` | `{models:[{id, registered}]}`，`registered` = 已登记 |
 | GET | `/api/profiles` | 配置数组，附带 `model_id` / `input` / `resolved_context_window` |
 | POST / PUT | `/api/profiles` | 新建或更新。注意是**集合**路径，`PUT /api/profiles/{name}` 会 405 |

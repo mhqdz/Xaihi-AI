@@ -67,7 +67,7 @@ export default function EndpointForm({ v, top }) {
             onClick={() => v.fetchEndpointModels(e.name)}>拉取列表</button>
         </div>
         {models ? (
-          <div className="tool-meta tool-cmd">{models.length ? models.join('\n') : '这个接口没有返回任何模型'}</div>
+          <div className="ro-list">{models.length ? models.join('\n') : '这个接口没有返回任何模型'}</div>
         ) : <div className="set-meta">接口保存后可以拉一次，确认地址和 key 是通的</div>}
 
         {!isNew ? (

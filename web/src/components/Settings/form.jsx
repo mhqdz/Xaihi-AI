@@ -29,12 +29,17 @@ export function Field({ label, hint, children }) {
   )
 }
 
-// 只读信息：灰底块。故意不套输入框 —— 看起来像能改、点上去却没反应更糟
+// 只读信息：不带框的一行文字。
+//
+// 曾经套的是 .tool-meta（灰底 + 边线的块）—— 那是消息流里"工具输出"的样式，
+// 放进表单读起来就是一个灰色输入框：看着能改、点上去没反应。
+// 面板里的框是有语义的（白框=能改，.ro 灰框=不能改的输入框），
+// 纯信息就不该有框；只有 .mono 用来强调"这是一段路径 / 标识"。
 export function InfoField({ label, value, mono }) {
   return (
     <div className="field">
       <span>{label}</span>
-      <div className={'tool-meta' + (mono ? ' tool-cmd' : '')}>{value}</div>
+      <div className={'ro-val' + (mono ? ' mono' : '')}>{value}</div>
     </div>
   )
 }
@@ -54,11 +59,15 @@ export function SwitchRow({ label, hint, checked, onChange, disabled }) {
   )
 }
 
-// 进 3 级卡片的入口：长文本不适合塞在 2 级里编辑
+// 进 3 级卡片的入口：长文本不适合塞在 2 级里编辑。
+//
+// 它长得像输入框（白框 + 右侧 ›），因为内容确实能改，只是改在下一层；
+// 只读信息（InfoField）没有框。两者外观的区别就是"能不能改"。
 export function LinkRow({ label, value, onClick, placeholder = '（空）' }) {
   return (
-    <div className="item" onClick={onClick}>
+    <div className="item link-row" onClick={onClick}>
       <span className="item-title">{label}</span>
+      <span className="caret" aria-hidden="true">›</span>
       <span className="item-desc">{value || placeholder}</span>
     </div>
   )

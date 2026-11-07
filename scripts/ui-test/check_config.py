@@ -198,8 +198,7 @@ def inventory(s):
     time.sleep(1.2)
     report("2 级 · 工具详情", probe(s, ".col-detail"))
 
-    s.js("const b=[...document.querySelectorAll('.set-foot-actions .btn')].find(x=>/编辑插件定义/.test(x.textContent)); b&&b.click(); return !!b")
-    time.sleep(1.0)
+    # 插件卡就是表单本身（合并态，没有"详情 → 编辑"这一步）
     report("2 级 · 插件表单", probe(s, ".col-detail"))
     sec4 = s.js("return [...document.querySelectorAll('.col-detail .set-section')].map(e=>e.textContent.trim())")
     print("   分组：", sec4)
@@ -363,13 +362,12 @@ def plugin_flow(s):
       x&&x.click(); return !!x;""")
     time.sleep(1.2)
     check("插件详情可打开", ok, "")
-    info = s.js("""return [...document.querySelectorAll('.col-detail .tool-meta')]
+    info = s.js("""return [...document.querySelectorAll('.col-detail .ro-val')]
         .map(e=>e.textContent.trim()).slice(0,4);""")
     print("   详情信息：", info)
 
-    s.js("const b=[...document.querySelectorAll('.set-foot-actions .btn')].find(x=>/编辑插件定义/.test(x.textContent)); b&&b.click(); return !!b")
-    time.sleep(1.0)
-    check("编辑表单打开", s.js("return !!document.querySelector('.plugin-cmd')"), "")
+    # 合并态之后没有"点一下才变成可编辑"这一步：卡片开着就是表单
+    check("插件卡直接就是可编辑表单", s.js("return !!document.querySelector('.col-detail .plugin-cmd')"), "")
 
     got = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
         .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='超时（毫秒）');
@@ -425,8 +423,6 @@ def plugin_flow(s):
     s.js("""const x=[...document.querySelectorAll('.col-list .item')]
         .find(e=>e.querySelector('.item-title')?.textContent.startsWith('cfg_plugin'));
       x&&x.click(); return !!x;""")
-    time.sleep(1.0)
-    s.js("const b=[...document.querySelectorAll('.set-foot-actions .btn')].find(x=>/编辑插件定义/.test(x.textContent)); b&&b.click(); return !!b")
     time.sleep(1.0)
     got = s.js("""const f=[...document.querySelectorAll('.col-detail .field')]
         .find(x=>(x.querySelector('span')||{}).textContent?.trim()==='名称');
@@ -893,7 +889,7 @@ def endpoint_flow():
         # 拉模型列表
         s.js("const b=[...document.querySelectorAll('.col-detail .btn')].find(x=>/拉取列表/.test(x.textContent)); b&&b.click(); return !!b")
         time.sleep(2.5)
-        got = s.js("const m=document.querySelector('.col-detail .tool-cmd'); return m? m.textContent.trim() : null;")
+        got = s.js("const m=document.querySelector('.col-detail .ro-list'); return m? m.textContent.trim() : null;")
         check("拉取列表能返回模型", isinstance(got, str) and len(got) > 0, (got or "")[:40])
         check("拉取没有报错", s.js("return window.__alerts.length") == 0, s.js("return window.__alerts"))
 

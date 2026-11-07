@@ -392,6 +392,25 @@ body{background:var(--paper);color:var(--ink);
 .card .field input.ro,.card .field textarea.ro,.card .field select.ro{
   background:var(--c1);color:var(--c6);border-color:var(--c2);cursor:not-allowed}
 .card .field input.ro:hover,.card .field textarea.ro:hover{border-color:var(--c2)}
+/* 只读信息：**不给框**。
+   面板里的框只有一个意思 —— "这里能改"（白框可改，.ro 灰框不可改但仍是个输入框）。
+   套着框的纯信息会被当成输入框去点，点上去没反应。
+   所以只读信息只留一行次要色文字，要等宽就加 .mono。 */
+.card .field .ro-val{font-size:.72rem;line-height:1.6;color:var(--ink2);
+  overflow-wrap:anywhere;min-width:0}
+.card .field .ro-val.mono{font-family:var(--mono);font-size:.7rem;color:var(--c6)}
+/* 只读的多行清单（接口下的模型名）：同样是纯信息，不套框；保留换行 */
+.card-bd .ro-list{font-family:var(--mono);font-size:.7rem;line-height:1.7;color:var(--c6);
+  white-space:pre-line;overflow-wrap:anywhere;margin:.1rem 0 .2rem}
+/* 点进 3 级卡片的入口（长文本）：长得像输入框，右边一个 ›。
+   它确实能改，只是改在 3 级 —— 有框这一件事必须保住，
+   否则和"只读信息"读起来没区别，而它俩的行为差着一整个层级。 */
+.card .item.link-row{border:1px solid var(--line);background:#fff;padding:.45rem .55rem;
+  margin:.15rem 0}
+.card .item.link-row:hover{border-color:var(--sage);background:#fff}
+.card .item.link-row>.item-title{grid-column:1;grid-row:1}
+.card .item.link-row>.item-desc{grid-column:1 / -1;grid-row:2}
+.card .item.link-row>.caret{grid-column:2;grid-row:1;color:var(--c5);font-size:.95rem;line-height:1}
 .card .switch-row.ro{cursor:not-allowed}
 .card .switch-row.ro:hover .item-title{color:inherit}
 .card .switch-row.ro .tg{opacity:.45}

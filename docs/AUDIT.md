@@ -1502,13 +1502,22 @@ setSetSnap(JSON.stringify(settings))
 
 - 读全部对话（`GET /api/convs`、`GET /api/conv/<id>`）
 - **让模型执行任意命令**（`POST /api/chat`，模型手上有 `bash`）
-- 改配置（profiles 里存着 API Key）
+- 改配置（`profiles.json` / `endpoints.json` 里存着 API Key，读接口也原样返回）
 
 这大概率是你为了手机或其它机器访问特意设的，所以**没动**。三种收窄方式，按侵入性排：
 
 1. `AGENTD_ADDR=127.0.0.1:18400` —— 只有本机能连，会失去局域网访问
 2. 前面挂一层反向代理做 Basic Auth
 3. 再加一个 `Origin` / `Sec-Fetch-Site` 校验（`requireJSONBody` 已经挡了跨站写请求，但读请求还是开放的）
+
+**2026-11 决定：就这样，不改。** 你的判断是 —— 单用户、家庭内网；真要收紧，
+缺的是**鉴权系统**，而"把 `api_key` 打码 / 本地加密"只是表演：前端要拿它去发请求，
+能逆向出密钥的地方永远存在（打码后的读接口 + 一按保存就回来的写接口，等于没打）。
+所以明文的取舍记在这儿，不再当作待修项：
+
+- `GET /api/endpoints`、`GET /api/profiles` **原样返回 `api_key`** —— 界面上它
+  是 `type=password` 的输入框（眼里是点，不是明文），但接口层不遮
+- 想真收紧就做鉴权（或缩回 `127.0.0.1`），不要做打码
 
 ### R-2 Host 头不校验（DNS rebinding）
 

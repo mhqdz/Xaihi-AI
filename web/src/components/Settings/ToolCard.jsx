@@ -1,6 +1,6 @@
 import React from 'react'
 import Card from './Card'
-import { Section, Field, InfoField, SwitchRow } from './form'
+import { Section, Field, InfoField, LinkRow, SwitchRow } from './form'
 
 // 工具卡（第二级：详细配置）
 //
@@ -11,6 +11,10 @@ import { Section, Field, InfoField, SwitchRow } from './form'
 //
 // 这样两种工具的字段顺序、间距、标签位置完全一致，
 // 差别只剩"哪些格子能点"，而不是两套长得不一样的界面。
+//
+// 「来源」那一块删掉了：它只说明内置 / 外置，而一级卡的工具行上已经有
+// 内置/外置标签，每个只读字段的提示也说清了为什么灰（"写在 Go 代码里"）。
+// 一块只能读、又只复述外面的信息，纯属占位。
 export default function ToolCard({ v, narrow, profiles, top }) {
   const form = v.toolForm
   if (!form) return null
@@ -25,17 +29,12 @@ export default function ToolCard({ v, narrow, profiles, top }) {
       onClose={() => v.closeToolForm()}>
 
       <div className="card-bd">
-        {/* 这里不套 Section：「说明」两个字既是分组名又是条目名，会连着出现两遍 */}
-        <div className="item" onClick={() => v.openToolEditor(form.name, form.description)}>
-          <span className="item-title">说明</span>
-          <span className="item-desc">{form.description || '（空）'}</span>
-        </div>
+        {/* 说明是唯一的"长文本"，走 3 级卡；不套 Section ——
+            「说明」两个字既是分组名又是条目名，会连着出现两遍 */}
+        <LinkRow label="说明" value={form.description}
+          onClick={() => v.openToolEditor(form.name, form.description)} />
 
-        <Section>来源与运行</Section>
-        <InfoField label="来源"
-          value={editable
-            ? '外置插件 · 清单 + 脚本，改完即生效'
-            : '内置工具 · Go 内置，改需重编译'} />
+        <Section>定义</Section>
         <Field label="名称" hint={editable ? '小写字母开头，可用 a-z 0-9 _；改名后所有 profile 里的引用会自动跟着换' : '内置工具的名称由程序决定'}>
           <input className={ro} value={form.name} disabled={!editable}
             onChange={e => set('name', e.target.value)} />
@@ -76,16 +75,15 @@ export default function ToolCard({ v, narrow, profiles, top }) {
           value={form.path || '（内置，没有清单文件）'} />
 
         <Section>启用情况</Section>
-        <div className="item static">
-          <span className="item-title">由 profile 决定</span>
-        </div>
-        <div className="set-meta">
+        {/* 这里只报事实：哪几个配置在用。开关不在这一层（在模型的「可用工具」里），
+            所以不摆一个"由 profile 决定"的假标题当行用 */}
+        <div className="ro-val">
           {(() => {
             const on = (profiles || []).filter(pr => (pr.tools || []).includes(form.name)).map(pr => pr.name)
             return on.length ? '在 ' + on.join('、') + ' 中启用' : '当前没有任何 profile 启用它'
           })()}
         </div>
-        <div className="set-meta">要改可用性：打开对应模型的「工具」勾选</div>
+        <div className="set-meta">可用性在模型的「可用工具」里勾选；这张卡只管工具本身</div>
 
         {editable && !form.isNew ? (
           <div className="set-foot-actions">
