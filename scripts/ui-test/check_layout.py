@@ -84,5 +84,17 @@ check("窄屏 3 级：编辑区填满卡片",
       (s.js("""const a=document.querySelector('.col-editor .set-area'), c=document.querySelector('.col-editor');
                return Math.round(a.getBoundingClientRect().height) > Math.round(c.getBoundingClientRect().height) * 0.8""") == True))
 s.shot('/tmp/uitest/layout_narrow.png')
+
+# ─────────── 阅读栏宽度上限：铺满可用宽度，而不是卡在写死的数字 ───────────
+# 曾经 Math.min(1400, …) —— 屏幕更宽时拖到 1400 就再也不动，看起来像"文本被设了最大宽度"
+# 用一个"足够宽"的窗口量：1400 的旧上限只有在舞台 >1432 时才咬得住
+req("POST", f"/session/{s.id}/window/rect", {"width": 2000, "height": 1000})
+s.js("localStorage.setItem('colW','3000'); return 1")
+s.get(BASE + "/?conv=51"); time.sleep(2.2)
+mm = s.js("""const c=document.querySelector('.col'), st=document.querySelector('.stage');
+  return {col: Math.round(c.getBoundingClientRect().width), stage: st.clientWidth}""")
+check("阅读栏拖到最大会铺满可用宽度", mm and mm["col"] > mm["stage"] * 0.9, str(mm))
+check("阅读栏没有超出舞台", mm and mm["col"] <= mm["stage"], str(mm))
+s.js("localStorage.setItem('colW','960'); return 1")
 s.close()
 print("失败:", "、".join(FAIL) if FAIL else "无")

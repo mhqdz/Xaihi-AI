@@ -69,7 +69,7 @@ export default function ModelForm({ v, narrow, top }) {
       <div className="card-bd">
         <Section>接入</Section>
         <Field label="名称"><input value={editP.name || ''} onChange={e => set('name', e.target.value)} /></Field>
-        <Field label="接口" hint="地址和凭据归接口那层；同一个接口可以被多套配置共用">
+        <Field label="接口">
           <select value={editP.endpoint || ''} onChange={e => {
             set('endpoint', e.target.value)
             v.loadModelList(e.target.value)
@@ -80,8 +80,7 @@ export default function ModelForm({ v, narrow, top }) {
             ))}
           </select>
         </Field>
-        <Field label="模型"
-          hint="可以直接输入上游没报的模型名；从列表里选会自动填下面的能力">
+        <Field label="模型">
           <div className="row-btn">
             <input list="agentd-model-ids" value={editP.model || ''} placeholder="qwen3.8-flash-next-iq3_xxs"
               onFocus={() => { if (!lst) v.loadModelList(editP.endpoint) }}
@@ -97,7 +96,7 @@ export default function ModelForm({ v, narrow, top }) {
 
         <Section>能力</Section>
         <div className="row-2">
-          <Field label="窗口大小 (tokens)" hint={cur && cur.context_window ? '上游报的：' + cur.context_window : '上游没报就自己填'}>
+          <Field label="窗口大小 (tokens)">
             <input type="number" min="1" value={editP.context_window || ''} placeholder="131072"
               onChange={e => set('context_window', e.target.value)} />
           </Field>
@@ -106,39 +105,35 @@ export default function ModelForm({ v, narrow, top }) {
               onChange={e => set('max_tokens_out', e.target.value)} />
           </Field>
         </div>
-        <SwitchRow label="能接收图像" hint={hasImage ? '会话里可以贴图 / 用截图工具' : '只能处理文字；界面上会拦下图像输入'}
-          checked={hasImage} onChange={toggleImage} />
+        <SwitchRow label="能接收图像" checked={hasImage} onChange={toggleImage} />
         <TagInput label="支持的思考强度" value={editP.effort_levels || []}
-          suggestions={cur && cur.effort_levels ? cur.effort_levels : null}
-          onChange={list => set('effort_levels', list)}
-          hint="agentd 就按这些档位渲染；留空表示不限制，界面列出全部五档" />
-        <SwitchRow label="跟随上游" hint="每轮对话前重新问一次这个模型的能力（适合背后会换模型的接口）；问不到就用上面存的值"
+          onChange={list => set('effort_levels', list)} hint="留空不限" />
+        <SwitchRow label="跟随上游" hint="每轮对话前重新问一次能力"
           checked={!!editP.auto_caps} onChange={x => set('auto_caps', x)} />
         {cur ? (
-          <div className="set-meta">
-            上游现在说：{cur.context_window ? Math.round(cur.context_window / 1024) + 'k 窗口' : '没报窗口'}
-            {cur.max_tokens ? ' · 输出 ' + cur.max_tokens : ''}
-            {(cur.input || []).includes('image') ? ' · 图像' : ' · 纯文字'}
-            {(cur.effort_levels || []).length ? ' · 强度 ' + cur.effort_levels.join('/') : ''}
-            {'　'}
-            <button type="button" className="btn tiny" onClick={pullCaps}>用上游的值</button>
+          <div className="field-hint">
+            上游 {cur.context_window || '—'} · {cur.max_tokens || '—'} ·{' '}
+            {(cur.input || []).includes('image') ? '图像' : '文字'}
+            {(cur.effort_levels || []).length ? ' · ' + cur.effort_levels.join('/') : ''}
+            {' '}
+            <button type="button" className="btn tiny" onClick={pullCaps}>套用</button>
           </div>
         ) : null}
 
         <Section>运行</Section>
-        <Field label="默认思考强度" hint="这里存的是默认值；会话里可以临时改，不落盘">
+        <Field label="默认思考强度">
           <select value={editP.reasoning_effort || 'none'}
             onChange={e => set('reasoning_effort', e.target.value)}>
             {(levels.includes(editP.reasoning_effort || 'none') ? levels : [...levels, editP.reasoning_effort])
               .map(x => <option key={x} value={x}>{x}</option>)}
           </select>
         </Field>
-        <Field label="输入上限 (tokens)" hint="单次请求的实际预算，留空按窗口的 80%">
+        <Field label="输入上限 (tokens)" hint="留空按窗口的 80%">
           <input type="number" min="0" max="1000000" placeholder="自动"
             value={editP.max_prompt_tokens || ''}
             onChange={e => set('max_prompt_tokens', Number(e.target.value) || 0)} />
         </Field>
-        <Field label="压缩阈值 (%)" hint="用到上限的百分之几开始摘要/裁剪，留空按 80">
+        <Field label="压缩阈值 (%)" hint="留空按 80">
           <input type="number" min="1" max="99" placeholder="80"
             value={editP.compact_pct || ''}
             onChange={e => set('compact_pct', Number(e.target.value) || 0)} />
@@ -152,7 +147,7 @@ export default function ModelForm({ v, narrow, top }) {
           onToggle={name => set('tools', tools.includes(name)
             ? tools.filter(x => x !== name).join(',')
             : [...tools, name].join(','))}
-          hint="内置与外置都在这里统一开关" />
+          />
 
         <Section>提示词</Section>
         <LinkRow label="system" value={editP.system} onClick={v.openSystemEditor} />

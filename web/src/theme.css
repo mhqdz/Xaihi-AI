@@ -365,7 +365,12 @@ body{background:var(--paper);color:var(--ink);
 .card .field>.field-label{font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3)}
 /* 字段下面那行说明：比标签更淡、更小，长解释都挪到这儿，
    标签本身只留短语（原来把整句塞进 <span>，读起来像一句话断成两截） */
-.card .field-hint{font-size:.64rem;line-height:1.45;color:var(--c6);letter-spacing:0;text-transform:none}
+.card .field-hint{font-size:.66rem;line-height:1.5;color:var(--c6);letter-spacing:0;text-transform:none;
+  display:block;min-width:0}
+/* 说明行在 .item（开关行）和 .card-bd（独立一行）里也要按整行排，
+   否则会被 grid 塞进右侧那一列，看起来像"描述跑到旁边去了" */
+.card .item>.field-hint{grid-column:1 / -1}
+.card-bd>.field-hint{margin:.15rem 0 .25rem}
 /* 整行可切的开关：光标和悬停反馈要跟上，否则看不出来能点 */
 .card .switch-row{cursor:pointer}
 .card .switch-row:hover .item-title{color:var(--c7)}
@@ -424,6 +429,7 @@ body{background:var(--paper);color:var(--ink);
   background:transparent;font-family:var(--mono);font-size:.64rem;color:var(--c6);cursor:pointer}
 .card .field .tag-sug:hover{border-color:var(--sage);color:var(--sage-d)}
 .card .field-hint.warn{color:#9a5d43}
+.card .item>.field-hint{grid-column:1 / -1}
 .btn.tiny{padding:.12rem .35rem;font-size:.64rem}
 /* 只读的多行清单（接口下的模型名）：同样是纯信息，不套框；保留换行 */
 .card-bd .ro-list{font-family:var(--mono);font-size:.7rem;line-height:1.7;color:var(--c6);

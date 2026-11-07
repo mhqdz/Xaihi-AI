@@ -268,6 +268,15 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('colW', String(colW)) }, [colW])
 
+  // 窗口（或窄屏布局）变了之后，存下来的阅读栏宽度可能已经超过现在能给的宽度：
+  // 收回来，否则拖动手柄有一段"拖了但文本不动"的死行程。
+  useEffect(() => {
+    const fit = () => setColW(w => Math.min(w, colMax()))
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [narrow])
+
   useEffect(() => { localStorage.setItem('inputH', String(inputH)) }, [inputH])
   // 竖屏：输入框默认更矮（宽屏保持原高度；切到竖屏时把过高的收回来）
   useEffect(() => {
@@ -366,12 +375,23 @@ export default function App() {
   }
 
   // 拖动阅读栏左边界调整正文宽度（居中 → 左右留白同步变化）
+  //
+  // 上限是**舞台的可用宽度**，不是写死的数字：以前钳在 1400，屏幕更宽时
+  // 拖到 1400 就再也不动，看起来像"文本被设了最大宽度"。可用宽度由
+  // .thread 的 padding 决定（左右各 1rem 以内），这里各留 8px 余量。
+  const colMax = () => {
+    const el = stageRef.current
+    if (!el) return 1400
+    const pad = Math.min(16, Math.max(8, el.clientWidth * 0.012))
+    return Math.max(560, Math.round(el.clientWidth - pad * 2))
+  }
   const startColDrag = (e) => {
     e.preventDefault()
-    colDrag.current = { x: e.clientX, w: colW }
+    const max = colMax()
+    colDrag.current = { x: e.clientX, w: Math.min(colW, max) }
     const move = (ev) => {
       const dx = colDrag.current.x - ev.clientX
-      const w = Math.min(1400, Math.max(560, colDrag.current.w + dx * 2))
+      const w = Math.min(max, Math.max(560, colDrag.current.w + dx * 2))
       setColW(w)
     }
     const up = () => {

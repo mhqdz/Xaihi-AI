@@ -49,7 +49,7 @@ export default function EndpointForm({ v, top }) {
       onClose={() => v.closeEndpoint()}>
       <div className="card-bd">
         <Section>来源</Section>
-        <Field label="来源模板" hint="切一个模板会把下面的地址和协议换成它的；清单在 sources.json，可以自己加">
+        <Field label="来源模板" hint="切一个模板会替换下面的地址和协议">
           <select value={tplVal} onChange={ev => pickSource(ev.target.value)}>
             <option value="">（不套模板）</option>
             {(v.sources || []).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
@@ -58,21 +58,21 @@ export default function EndpointForm({ v, top }) {
 
         <Section>连接</Section>
         <Field label="名称"
-          hint={isNew ? '给这个接口起个短名字，模型通过它来引用' : '名字是模型引用它的键，不能改 —— 改名等于换一个接口'}>
+          hint={isNew ? '模型用它来引用' : '改名等于换一个接口，不能改'}>
           {/* 只读用 readOnly 而不是 disabled：disabled 的文字被 UA 调淡，
               而且不能选中复制 —— 接口名/模型 id 恰恰是会被复制出去的东西 */}
           <input className={isNew ? '' : 'ro'} value={e.name || ''} readOnly={!isNew}
             onChange={ev => set('name', ev.target.value)} />
         </Field>
-        <Field label="接口地址" hint="填到 /v1 为止，不带 /chat/completions">
+        <Field label="接口地址" hint="填到 /v1 为止">
           {/* 手工改地址就等于脱离了模板：不然选择器还写着 "OpenAI"，下面是别家的地址 */}
           <input value={e.base_url || ''} placeholder="http://127.0.0.1:18320/180/v1"
             onChange={ev => v.setEditE({ ...e, base_url: ev.target.value, source: '' })} />
         </Field>
-        <Field label="API Key" hint="留空则回落全局配置里的 key">
+        <Field label="API Key" hint="留空用全局配置里的 key">
           <input type="password" value={e.api_key || ''} onChange={ev => set('api_key', ev.target.value)} />
         </Field>
-        <Field label="协议" hint="云端 OpenAI 兼容选 openai（不发本地扩展字段），自建保持自动">
+        <Field label="协议" hint="云端选 openai；自建保持自动">
           <select value={e.provider || ''} onChange={ev => set('provider', ev.target.value)}>
             <option value="">自动（本地 / Strata / llama.cpp）</option>
             <option value="openai">openai（云端兼容接口）</option>
@@ -91,9 +91,6 @@ export default function EndpointForm({ v, top }) {
         {probe.state === 'ok' ? (
           <div className="ro-list">{models.length ? models.map(m => m.id).join('\n') : '这个接口没有返回任何模型'}</div>
         ) : null}
-        <div className="set-meta">
-          通了就可以去「模型」那层登记：点开一个模型条目、问上游要列表、挑一个登记
-        </div>
 
         {!isNew ? (
           <div className="set-foot-actions">

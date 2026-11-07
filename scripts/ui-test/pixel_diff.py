@@ -4,7 +4,7 @@
   python3 pixel_diff.py baseline <dir>
   python3 pixel_diff.py compare  <dir>
 """
-import sys, os, time, hashlib
+import sys, os, time, json, hashlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wd import Session, req
 from PIL import Image, ImageChops
@@ -22,9 +22,17 @@ SHOTS = [
     ("narrow-empty", 900, 1000, "/", 252),
 ]
 
+# 版面旋钮（抽屉宽 / 阅读栏宽 / 输入框高）都记在 localStorage 里，而且会被
+# 拖拽改变 —— 不固定住，基线就会随"上一个测试拖到哪儿"漂移（曾因此误报 9000 像素）。
+LAYOUT = {"sideW": "250", "sideOpen": "1", "colW": "960", "inputH": "92"}
+
+
 def grab(name, w, h, path, outdir):
     s = Session(w, h)
     req("POST", f"/session/{s.id}/window/rect", {"width": w, "height": h})
+    s.get(BASE + path)
+    time.sleep(1.0)
+    s.js("const o=%s; for (const k in o) localStorage.setItem(k, o[k]); return 1" % json.dumps(LAYOUT))
     s.get(BASE + path)
     time.sleep(2.2)
     p = os.path.join(outdir, name + ".png")

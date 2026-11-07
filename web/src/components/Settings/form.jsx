@@ -54,7 +54,9 @@ export function SwitchRow({ label, hint, checked, onChange, disabled }) {
       <button type="button" role="switch" aria-checked={checked} disabled={disabled}
         className={'tg' + (checked ? ' on' : '')}
         onClick={e => { e.stopPropagation(); flip() }}><b /></button>
-      {hint ? <div className="set-meta">{hint}</div> : null}
+      {/* 说明用和 Field 同一个 class、同一个位置（控件下方）：
+          以前这里用 .set-meta，字号和颜色都和别处不同，同一张卡里两种说明长相 */}
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )
 }
