@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,8 @@ import (
 //
 //	{"changes":[
 //	  {"kind":"profile","data":{...config.Profile...}},
+//	  {"kind":"endpoint","data":{...config.Endpoint...}},
+//	  {"kind":"model","data":{...config.Model...}},
 //	  {"kind":"tool","name":"kb_get","data":{"description":"..."}},
 //	  {"kind":"settings","data":{...config.Settings...}}
 //	]}
@@ -57,6 +60,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 
 	type op struct {
 		kind, name string
+		idx        int // 在请求里的下标：报错时用它指认"第几项"
 		run        func() error
 	}
 	ops := make([]op, 0, len(in.Changes))
@@ -65,6 +69,29 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{
 			"error": msg, "index": i, "kind": c.Kind, "name": c.Name, "applied": 0,
 		})
+	}
+
+	// 预扫：本批次里新声明的接口和模型。
+	//
+	// 三层是引用关系（配置 → 模型 → 接口），而一张表单常常把三层一起提交
+	// （新建接口 + 注册模型 + 配一个 profile）。校验"模型引用的接口存在吗"时，
+	// 接口正躺在同一张表单里、还没落盘 —— 只看盘上有什么就会误报"没有这个接口"。
+	// 所以先扫一遍，校验时把本批次的声明也当成存在。
+	newEPs := map[string]bool{}
+	newModels := map[string]bool{}
+	for _, c := range in.Changes {
+		switch c.Kind {
+		case "endpoint":
+			var e config.Endpoint
+			if json.Unmarshal(c.Data, &e) == nil && e.Name != "" {
+				newEPs[e.Name] = true
+			}
+		case "model":
+			var m config.Model
+			if json.Unmarshal(c.Data, &m) == nil && m.Endpoint != "" && strings.TrimSpace(m.ID) != "" {
+				newModels[config.ModelName(m.Endpoint, m.ID)] = true
+			}
+		}
 	}
 
 	// ── 第一阶段：解析 + 校验，不落盘 ──
@@ -76,12 +103,12 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				reject(i, c, "profile 解析失败："+err.Error())
 				return
 			}
-			if err := config.ValidateProfile(p); err != nil {
+			if err := config.ValidateProfileWith(p, newModels); err != nil {
 				reject(i, c, err.Error())
 				return
 			}
 			saved := p // 显式拷贝：闭包别去抓循环变量
-			ops = append(ops, op{"profile", p.Name, func() error { return config.UpsertProfile(saved) }})
+			ops = append(ops, op{"profile", p.Name, i, func() error { return config.UpsertProfile(saved) }})
 		case "tool":
 			name := c.Name
 			var body struct {
@@ -96,7 +123,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			desc := body.Description
-			ops = append(ops, op{"tool", name, func() error {
+			ops = append(ops, op{"tool", name, i, func() error {
 				_, err := saveToolDescription(name, desc)
 				return err
 			}})
@@ -109,7 +136,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			saved := d
-			ops = append(ops, op{"plugin", d.Name, func() error {
+			ops = append(ops, op{"plugin", d.Name, i, func() error {
 				if err := tools.SavePlugin(saved); err != nil {
 					return err
 				}
@@ -121,6 +148,37 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				}
 				return nil
 			}})
+		case "endpoint":
+			// 接口（地址 + 凭据 + 协议）。名字是模型引用它的键，改名等于新建，
+			// 所以界面上只在新建时可改 —— 这里不做改名级联。
+			var e config.Endpoint
+			if err := json.Unmarshal(c.Data, &e); err != nil {
+				reject(i, c, "endpoint 解析失败："+err.Error())
+				return
+			}
+			// 第一阶段就校验：不然缺地址会拖到写盘时变成 500，调用方分不清
+			// "我填错了"和"服务器坏了"
+			if err := config.ValidateEndpoint(e); err != nil {
+				reject(i, c, err.Error())
+				return
+			}
+			saved := e
+			ops = append(ops, op{"endpoint", e.Name, i, func() error { return config.UpsertEndpoint(saved) }})
+		case "model":
+			var m config.Model
+			if err := json.Unmarshal(c.Data, &m); err != nil {
+				reject(i, c, "model 解析失败："+err.Error())
+				return
+			}
+			// 唯一键是 <endpoint>/<id>，由 UpsertModel 自己算，前端传什么都不作数
+			if err := config.ValidateModelWith(m, newEPs); err != nil {
+				reject(i, c, err.Error())
+				return
+			}
+			saved := m
+			ops = append(ops, op{"model", config.ModelName(m.Endpoint, m.ID), i, func() error {
+				return config.UpsertModel(saved)
+			}})
 		case "settings":
 			var st config.Settings
 			if err := json.Unmarshal(c.Data, &st); err != nil {
@@ -128,7 +186,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			saved := st
-			ops = append(ops, op{"settings", "", func() error { return config.SaveSettings(saved) }})
+			ops = append(ops, op{"settings", "", i, func() error { return config.SaveSettings(saved) }})
 		default:
 			reject(i, c, "未知的改动类型："+c.Kind)
 			return
@@ -136,12 +194,26 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 第二阶段：写 ──
+	//
+	// 按依赖排序再写：接口 → 模型 → 配置 → 其它。
+	// 三层是引用关系，同一张表单里通常三层都在；照着请求顺序写的话，
+	// "先配置后接口"这种顺序就会在 UpsertModel 里撞到"没有这个接口"。
+	// 排序只影响写盘顺序，报错里的"第几项"仍然按请求下标说。
+	prio := map[string]int{"endpoint": 0, "model": 1, "profile": 2}
+	rank := func(k string) int {
+		if p, ok := prio[k]; ok {
+			return p
+		}
+		return 3
+	}
+	sort.SliceStable(ops, func(a, b int) bool { return rank(ops[a].kind) < rank(ops[b].kind) })
+
 	before := config.LoadSettings()
-	for i, o := range ops {
+	for n, o := range ops {
 		if err := o.run(); err != nil {
 			writeJSON(w, 500, map[string]any{
-				"error": "第 " + strconv.Itoa(i+1) + " 项（" + o.kind + " " + o.name + "）写入失败：" + err.Error(),
-				"index": i, "kind": o.kind, "name": o.name, "applied": i,
+				"error": "第 " + strconv.Itoa(o.idx+1) + " 项（" + o.kind + " " + o.name + "）写入失败：" + err.Error(),
+				"index": o.idx, "kind": o.kind, "name": o.name, "applied": n,
 			})
 			return
 		}

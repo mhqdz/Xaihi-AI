@@ -101,12 +101,28 @@ func fetchWindow(baseURL, apiKey, model string) int {
 	return 0
 }
 
-// ListModels：拉某个接口的可用模型名。
+// ModelInfo：上游 /v1/models 能告诉我们的模型能力。
 //
-// 设置面板用它做"选接口 → 自动匹配可用模型"：接口配置好之后，
-// 模型选项里才能看到这个接口下有哪些模型，不必手打模型名。
-// 和 fetchWindow 走同一个 /models，只是这里要的是列表本身。
-func ListModels(baseURL, apiKey string) ([]string, error) {
+// 各家字段命名不统一，这里做一次归一：
+//
+//	llama.cpp： meta.n_ctx、architecture.input_modalities
+//	DeepSeek 等云端：context_window、max_output_tokens、input_modalities、effort.*
+//
+// 官方 OpenAI 的 /v1/models 只给 {id, object, owned_by}，什么都不给；
+// OpenRouter 之类的聚合器给得最全。所以这里全部是可选的 —— 拿不到就留零值，
+// 由用户手填，不能假设一定有。
+type ModelInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name,omitempty"` // 显示名（有就带回）
+	ContextWindow int      `json:"context_window,omitempty"`
+	MaxOutput     int      `json:"max_tokens,omitempty"`
+	Input         []string `json:"input,omitempty"`         // 模态
+	EffortLevels  []string `json:"effort_levels,omitempty"` // 支持的思考强度
+	EffortDefault string   `json:"effort_default,omitempty"`
+}
+
+// ListModels：拉某个接口的模型清单和能拿到的一切能力。
+func ListModels(baseURL, apiKey string) ([]ModelInfo, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, fmt.Errorf("接口地址为空")
 	}
@@ -130,18 +146,44 @@ func ListModels(baseURL, apiKey string) ([]string, error) {
 	}
 	var out struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID            string   `json:"id"`
+			Name          string   `json:"name"`
+			ContextWindow int      `json:"context_window"`
+			MaxOutput     int      `json:"max_output_tokens"`
+			InputModality []string `json:"input_modalities"`
+			// llama.cpp 风格
+			Meta struct {
+				NCtx int `json:"n_ctx"`
+			} `json:"meta"`
+			Architecture struct {
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
+			Effort struct {
+				SupportedLevels []string `json:"supported_levels"`
+				DefaultLevel    string   `json:"default_level"`
+			} `json:"effort"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(out.Data))
+	list := make([]ModelInfo, 0, len(out.Data))
 	for _, d := range out.Data {
-		if d.ID != "" {
-			names = append(names, d.ID)
+		if d.ID == "" {
+			continue
 		}
+		m := ModelInfo{ID: d.ID, Name: d.Name, ContextWindow: d.ContextWindow, MaxOutput: d.MaxOutput}
+		if m.ContextWindow == 0 {
+			m.ContextWindow = d.Meta.NCtx
+		}
+		m.Input = d.InputModality
+		if len(m.Input) == 0 {
+			m.Input = d.Architecture.InputModalities
+		}
+		m.EffortLevels = d.Effort.SupportedLevels
+		m.EffortDefault = d.Effort.DefaultLevel
+		list = append(list, m)
 	}
-	sort.Strings(names)
-	return names, nil
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+	return list, nil
 }

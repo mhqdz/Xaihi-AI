@@ -132,6 +132,7 @@ type Resolved struct {
 	ContextWindow int
 	MaxTokens     int
 	Input         []string // 模态；空按纯文本
+	EffortLevels  []string // 支持的思考强度；空 = 全部
 }
 
 func (r Resolved) SupportsImage() bool {
@@ -158,6 +159,7 @@ func (p Profile) Resolve() Resolved {
 			r.MaxTokens = m.MaxTokens
 		}
 		r.Input = m.Input
+		r.EffortLevels = m.EffortLevels
 		if p.Endpoint == "" {
 			p.Endpoint = m.Endpoint
 		}
@@ -200,20 +202,37 @@ func writeProfiles(list []Profile) error {
 	return nil
 }
 
-func ValidateProfile(p Profile) error {
+func ValidateProfile(p Profile) error { return ValidateProfileWith(p, nil) }
+
+// ValidateProfileWith：同 ValidateProfile，但额外接受一批"本批次里刚声明、
+// 还没落盘"的模型键（批量提交时新建模型 + 新配置常常一起提交）。
+func ValidateProfileWith(p Profile, extraModels map[string]bool) error {
 	if p.Name == "" || p.Model == "" {
 		return fmt.Errorf("名称和模型都不能为空")
+	}
+	// 模型必须真的在 models.json 里：三层结构下 profile 只引用模型键，
+	// 留一个指向空气的键，运行时才报错、而且报的是"发不出去"这种看不清原因的话。
+	// 老数据（还没迁移、自己带 base_url + 裸模型名）在迁移时会被补成完整键，
+	// 之后不再允许出现。
+	m, has := GetModel(p.Model)
+	inBatch := !has && extraModels[p.Model]
+	if !has && !inBatch && len(LoadModels()) > 0 {
+		return fmt.Errorf("没有这个模型：%s（先在「模型」那层登记）", p.Model)
 	}
 	// 地址从哪来：优先看引用的模型（模型挂在某个接口下），其次自己写接口，
 	// 最后是还没迁移的老数据带着 base_url。
 	if p.Endpoint == "" && p.BaseURL == "" {
-		if m, ok := GetModel(p.Model); !ok || m.Endpoint == "" {
+		if has && m.Endpoint == "" {
+			return fmt.Errorf("要选一个模型（或接口）")
+		}
+		if !has && !inBatch {
 			return fmt.Errorf("要选一个模型（或接口）")
 		}
 	}
+	// max 也算合法档位：DeepSeek 的 /models 就报 low|high|max
 	if p.ReasoningEffort != "" && p.ReasoningEffort != "none" && p.ReasoningEffort != "low" &&
-		p.ReasoningEffort != "medium" && p.ReasoningEffort != "high" {
-		return fmt.Errorf("reasoning_effort 只能是 none|low|medium|high")
+		p.ReasoningEffort != "medium" && p.ReasoningEffort != "high" && p.ReasoningEffort != "max" {
+		return fmt.Errorf("reasoning_effort 只能是 none|low|medium|high|max")
 	}
 	return nil
 }

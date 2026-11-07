@@ -29,6 +29,9 @@ type Model struct {
 	ContextWindow int      `json:"context_window,omitempty"` // 0 = 读上游 /models 的 meta
 	MaxTokens     int      `json:"max_tokens,omitempty"`     // 0 = 默认 8192
 	Input         []string `json:"input,omitempty"`          // ["text"] / ["text","image"]；空=按 text
+	// EffortLevels：上游说支持的思考强度档位（DeepSeek 这类会给）。
+	// 空 = 不知道，界面上就把所有档位都列出来。
+	EffortLevels []string `json:"effort_levels,omitempty"`
 }
 
 var (
@@ -95,19 +98,31 @@ func (m Model) SupportsImage() bool {
 	return false
 }
 
-func ValidateModel(m Model) error {
+func ValidateModel(m Model) error { return ValidateModelWith(m, nil) }
+
+// ValidateModelWith：同 ValidateModel，但额外接受一批"本批次里刚声明、还没落盘"
+// 的接口名。批量提交时接口和模型常在同一张表单里，只查盘上有什么必然误报
+// "没有这个接口"。
+func ValidateModelWith(m Model, extraEndpoints map[string]bool) error {
 	if strings.TrimSpace(m.ID) == "" {
 		return fmt.Errorf("模型 id 不能为空")
 	}
 	if strings.TrimSpace(m.Endpoint) == "" {
 		return fmt.Errorf("要指定所属接口")
 	}
-	if _, ok := GetEndpoint(m.Endpoint); !ok {
+	if _, ok := GetEndpoint(m.Endpoint); !ok && !extraEndpoints[m.Endpoint] {
 		return fmt.Errorf("没有这个接口：%s", m.Endpoint)
 	}
 	for _, x := range m.Input {
 		if x != "text" && x != "image" {
 			return fmt.Errorf("input 只能是 text / image（收到 %q）", x)
+		}
+	}
+	for _, x := range m.EffortLevels {
+		switch x {
+		case "none", "low", "medium", "high", "max":
+		default:
+			return fmt.Errorf("effort_levels 里有不认识的档位 %q", x)
 		}
 	}
 	return nil

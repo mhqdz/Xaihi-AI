@@ -55,11 +55,15 @@ base = settings()
 orig_rounds = base.get("tool_rounds")
 print(f"基线 tool_rounds={orig_rounds}")
 
+# 一个真模型键：三层之后 profile 只引用模型，不再自带 base_url + 裸模型名
+st, _mdl = call("GET", "/api/models")
+mkey = (_mdl or [{}])[0].get("name", "")
+print(f"探针用模型 {mkey}")
+
 # ── 1. 分发：三种 kind 一次提交 ──
 st, d = call("POST", "/api/apply", {"changes": [
     {"kind": "settings", "data": {**base, "tool_rounds": (orig_rounds or 50)}},
-    {"kind": "profile", "data": {"name": "apply-probe", "base_url": "http://127.0.0.1:18320/180/v1",
-                                 "model": "m", "system": "S"}},
+    {"kind": "profile", "data": {"name": "apply-probe", "model": mkey, "system": "S"}},
 ]})
 check("多类型提交返回 200 且 applied=2", st == 200 and d.get("applied") == 2, f"{st} {d}")
 check("profile 真的建出来了", "apply-probe" in profiles())
@@ -68,11 +72,12 @@ check("profile 真的建出来了", "apply-probe" in profiles())
 probe_rounds = (orig_rounds or 50) + 7
 st, d = call("POST", "/api/apply", {"changes": [
     {"kind": "settings", "data": {**base, "tool_rounds": probe_rounds}},
-    {"kind": "profile", "data": {"name": "bad-probe", "model": "m"}},   # 缺 base_url
+    {"kind": "profile", "data": {"name": "bad-probe", "model": "不存在的模型"}},
 ]})
 check("非法项返回 400", st == 400, f"{st}")
 check("错误里指明是第 2 项", d.get("index") == 1, f"index={d.get('index')}")
-check("错误里带上原因", "base_url" in (d.get("error") or ""), str(d.get("error"))[:50])
+# 三层之后引用了一个不存在的模型键：说清是"没有这个模型"，而不是一句"保存失败"
+check("错误里带上原因", "没有这个模型" in (d.get("error") or ""), str(d.get("error"))[:80])
 check("applied 为 0", d.get("applied") == 0, f"applied={d.get('applied')}")
 # 关键：settings 没被写
 check("前面的合法项没有落盘（原子性）", settings().get("tool_rounds") == orig_rounds,
@@ -92,7 +97,39 @@ check("不存在的工具 → 400", st == 400, f"{st} {d.get('error')}")
 st, d = call("POST", "/api/apply", {"changes": [{"kind": "settings", "data": base}] * 201})
 check("超过 200 项 → 400", st == 400, f"{st}")
 
-# ── 4. 仍然要求 JSON（CSRF 防护没有被新端点绕过）──
+# ── 4. 三层：接口和模型也能走 apply ──
+# 界面上三层的保存是同一个按钮、同一份清单，所以这里的两层必须和 profile 同级。
+st, d = call("POST", "/api/apply", {"changes": [
+    {"kind": "endpoint", "data": {"name": "apply-probe-ep", "base_url": "http://127.0.0.1:18320/9/v1"}},
+    # name 故意写错：唯一键由后端算成 <endpoint>/<id>，前端传的不作数
+    {"kind": "model", "data": {"name": "胡写的", "endpoint": "apply-probe-ep", "id": "probe-m",
+                               "context_window": 4096, "input": ["text"]}},
+]})
+check("接口 + 模型一起提交返回 200", st == 200 and d.get("applied") == 2, f"{st} {d}")
+st, eps = call("GET", "/api/endpoints")
+check("接口真的落盘", any(e["name"] == "apply-probe-ep" for e in (eps or [])), str(eps)[:80])
+st, mdls = call("GET", "/api/models")
+mm = next((m for m in (mdls or []) if m["name"] == "apply-probe-ep/probe-m"), None)
+check("模型的键由后端算", mm is not None and mm.get("context_window") == 4096, str(mm)[:80])
+
+st, d = call("POST", "/api/apply", {"changes": [
+    {"kind": "model", "data": {"endpoint": "apply-probe-ep", "id": "bad-m", "effort_levels": ["超高"]}},
+]})
+check("模型的非法档位 → 400", st == 400 and "effort_levels" in (d.get("error") or ""), f"{st} {d.get('error')}")
+
+st, d = call("POST", "/api/apply", {"changes": [
+    {"kind": "endpoint", "data": {"name": "无地址", "base_url": ""}},
+]})
+check("接口缺地址 → 400", st == 400, f"{st} {d.get('error')}")
+
+# 有模型挂着的接口不能删 —— 顺序反了会留下没有地址的模型
+st, d = call("DELETE", "/api/endpoints/apply-probe-ep")
+check("有模型的接口删不掉", st == 400 and "还有模型" in (d.get("error") or ""), f"{st} {d.get('error')}")
+call("DELETE", "/api/models/apply-probe-ep%2Fprobe-m")
+st, d = call("DELETE", "/api/endpoints/apply-probe-ep")
+check("先删模型再删接口才通", st == 200, f"{st} {d}")
+
+# ── 5. 仍然要求 JSON（CSRF 防护没有被新端点绕过）──
 st, d = call("POST", "/api/apply", {"changes": []}, ctype="text/plain")
 check("text/plain → 415", st == 415, f"{st}")
 

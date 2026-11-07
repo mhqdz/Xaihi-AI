@@ -72,8 +72,8 @@
 |---|---|---|
 | GET | `/api/endpoints` | 接口数组 |
 | POST | `/api/endpoints` | 新建或覆盖（同名即覆盖） |
-| DELETE | `/api/endpoints/{name}` | 被模型引用时 400 |
-| GET | `/api/endpoints/{name}/models` | 问一次上游 `/models` |
+| DELETE | `/api/endpoints/{name}` | 还有模型挂在这个接口下、或还有配置在用它时 400 |
+| GET | `/api/endpoints/{name}/models` | 问一次上游 `/models`（只回 id 列表） |
 | GET | `/api/sources` | 来源模板（`sources.json`，加一条就多一个服务商） |
 | PUT | `/api/sources` | 整份覆盖 |
 | GET | `/api/models` | 模型数组 |
@@ -94,11 +94,18 @@
 
 ```json
 {"changes":[
+  {"kind":"endpoint","data":{ /* 与 POST /api/endpoints 的 body 相同 */ }},
+  {"kind":"model","data":{ /* 与 POST /api/models 的 body 相同 */ }},
   {"kind":"profile","data":{ /* 与 POST /api/profiles 的 body 相同 */ }},
+  {"kind":"plugin","name":"新名字","data":{ /* 与 POST /api/plugins 的 body 相同 */ }},
   {"kind":"tool","name":"kb_get","data":{"description":"…"}},
   {"kind":"settings","data":{ /* 与 PUT /api/settings 的 body 相同 */ }}
 ]}
 ```
+
+三层都给 `kind`：接口和模型以前只能看不能存（改了没有任何地方可落），
+现在它们和配置层走同一条路 —— 界面上三层的保存按钮也只有一级卡那一个。
+注意 `model` 的唯一键由后端算（`<endpoint>/<id>`），请求里带 `name` 不作数。
 
 返回：
 

@@ -19,8 +19,8 @@ export const toolSnap = (f) => {
 
 const BLANK_SETTINGS = { tool_rounds_enabled: true, tool_rounds: 8 }
 const NEW_PROFILE = {
-  _new: true, name: '', base_url: 'http://127.0.0.1:18320/180/v1', api_key: '',
-  model: 'qwen3.8-flash-next-iq3_xxs', reasoning_effort: 'high', tools: '', system: ''
+  _new: true, name: '', endpoint: '', model: '',
+  reasoning_effort: 'high', tools: '', system: ''
 }
 const NEW_PLUGIN = {
   isNew: true, name: '', description: '', command: '', timeoutMs: 20000,
@@ -37,6 +37,15 @@ const FIELD_LABELS = {
 const TOOL_LABELS = {
   name: '名称', description: '说明', command: '命令', timeoutMs: '超时(ms)',
   persistent: '常驻进程', paramsText: 'JSON Schema', requiredText: '必填参数'
+}
+// 接口 / 模型两层的字段名。三层结构里这两层以前只有"打开看看"，
+// 改了也没地方存 —— 现在它们和配置层一样进同一份改动清单。
+const ENDPOINT_LABELS = {
+  name: '名称', base_url: '接口地址', api_key: 'API Key', provider: '协议', source: '来源模板'
+}
+const MODEL_LABELS = {
+  endpoint: '所属接口', id: '模型 id', context_window: '窗口大小', max_tokens: '输出上限',
+  input: '输入模态', effort_levels: '支持的思考强度'
 }
 const SETTING_LABELS = {
   tool_rounds_enabled: '工具轮次上限开关', tool_rounds: '工具轮次上限',
@@ -97,9 +106,11 @@ export function useSettings({ refresh }) {
   const [endpoints, setEndpoints] = useState([])     // 接口列表（地址 + 凭据）
   const [sources, setSources] = useState([])         // 来源模板（sources.json）
   const [editE, setEditE] = useState(null)           // 正在编辑的接口（2 级）
+  const [editESnap, setEditESnap] = useState('')     // 打开接口卡时的快照
   const [endpointModels, setEndpointModels] = useState({})  // 接口名 -> 模型列表
   const [models, setModels] = useState([])           // 模型层（属于某个接口）
   const [editM, setEditM] = useState(null)           // 正在编辑的模型（2 级）
+  const [editMSnap, setEditMSnap] = useState('')     // 打开模型卡时的快照
   const [discovered, setDiscovered] = useState({})   // 接口名 -> [{id, registered}]
   const [toolSnapShot, setToolSnapShot] = useState(null)  // 工具表单打开时的快照（对象，用于 diff）
   const [pendingNewPlugin, setPendingNewPlugin] = useState(false)
@@ -186,13 +197,18 @@ export function useSettings({ refresh }) {
     ? ((editField ? (editP?.[editField] || '') : (toolEdit?.description || '')) !== (editOriginal || ''))
     : false
   const settingsDirty = JSON.stringify(settings) !== setSnap
+  // 接口 / 模型两层的脏标记，和配置层同一把尺子：快照比对，
+  // 只认用户能改的字段（_new 这类元数据不算）。
+  const editEDirty = !!editE && snapOf(editE) !== editESnap
+  const editMDirty = !!editM && snapOf(editM) !== editMSnap
   // 草稿：退出详情卡时把没保存的改动按 profile 名存这儿。
   // 目的——改完 A 想再看 B、回头一起保存；退出层级不等于放弃改动。
   const [drafts, setDrafts] = useState({})
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
   // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
   const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnap(toolSnapShot)
-  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty
+  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty ||
+    editEDirty || editMDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
   const [nudge, setNudge] = useState(0)
@@ -208,7 +224,11 @@ export function useSettings({ refresh }) {
   const cancel = () => {
     setDrafts({})
     setEditField(null); setToolEdit(null); setToolForm(null); setToolSnapShot(null)
-    if (editP) setEditP(JSON.parse(editSnap || '{}'))
+    // 快照为空 = 这张卡是"新建"，回滚等于回滚到"没这张卡"，直接关掉；
+    // 回滚成 {} 会得到一张标题写着 undefined 的空卡
+    if (editP) { if (editSnap) setEditP(JSON.parse(editSnap)); else setEditP(null) }
+    if (editE) { if (editESnap) setEditE(JSON.parse(editESnap)); else setEditE(null) }
+    if (editM) { if (editMSnap) setEditM(JSON.parse(editMSnap)); else setEditM(null) }
     setSettings(JSON.parse(setSnap || '{}'))
   }
 
@@ -217,6 +237,16 @@ export function useSettings({ refresh }) {
   const pendingChanges = () => {
     const out = []
     const seen = new Set()
+    if (editEDirty) {
+      out.push({ kind: 'endpoint', title: (editE._new ? '新接口 · ' : '接口 · ') + (editE.name || '（未命名）'),
+        name: editE.name, base: JSON.parse(editESnap || '{}'), next: editE,
+        rows: diffFields(JSON.parse(editESnap || '{}'), editE, ENDPOINT_LABELS) })
+    }
+    if (editMDirty) {
+      out.push({ kind: 'model', title: (editM._new ? '新模型 · ' : '模型 · ') + (editM.id || '（未命名）'),
+        name: editM.name, base: JSON.parse(editMSnap || '{}'), next: editM,
+        rows: diffFields(JSON.parse(editMSnap || '{}'), editM, MODEL_LABELS) })
+    }
     if (formDirty && editP) {
       out.push({ kind: 'profile', title: '模型 · ' + editP.name, name: editP.name,
         base: JSON.parse(editSnap || '{}'), next: editP, rows: diffFields(JSON.parse(editSnap || '{}'), editP, FIELD_LABELS) })
@@ -254,6 +284,9 @@ export function useSettings({ refresh }) {
   const discardAll = () => {
     setDrafts({})
     setEditP(null); setEditField(null); setToolEdit(null)
+    setEditE(null); setEditM(null)
+    // 插件表单有自己的保存按钮，但也进清单 —— "全部放弃"当然也包括它
+    if (toolForm && toolSnapShot) setToolForm({ ...toolSnapShot })
     setSettings(JSON.parse(setSnap || '{}'))
     setSheet(null)
   }
@@ -295,6 +328,29 @@ export function useSettings({ refresh }) {
           }
         }
       }
+      if (c.kind === 'endpoint') {
+        const { _new, ...body } = c.next
+        return {
+          kind: 'endpoint', name: (body.name || '').trim(),
+          data: {
+            name: (body.name || '').trim(), base_url: (body.base_url || '').trim(),
+            api_key: body.api_key || '', provider: body.provider || '', source: body.source || ''
+          }
+        }
+      }
+      if (c.kind === 'model') {
+        const { _new, ...body } = c.next
+        return {
+          kind: 'model',
+          data: {
+            endpoint: body.endpoint || '', id: (body.id || '').trim(),
+            context_window: Number(body.context_window) || 0,
+            max_tokens: Number(body.max_tokens) || 0,
+            input: body.input && body.input.length ? body.input : ['text'],
+            effort_levels: body.effort_levels || []
+          }
+        }
+      }
       return { kind: 'settings', data: c.next }
     })
     let resp
@@ -317,6 +373,10 @@ export function useSettings({ refresh }) {
     // 成功才清状态
     setDrafts({})
     if (editP) { setEditSnap(snapOf(editP)) }
+    // 接口/模型存过之后就不是"新建"了：标题去掉"新建"、名字和 id 变成只读，
+    // 否则再改一次名字会让引用它的模型/配置悬空
+    if (editE) { setEditE({ ...editE, _new: false }); setEditESnap(snapOf({ ...editE, _new: false })) }
+    if (editM) { setEditM({ ...editM, _new: false }); setEditMSnap(snapOf({ ...editM, _new: false })) }
     setEditOriginal(editField ? (editP?.[editField] || '') : (toolEdit?.description || ''))
     setSetSnap(JSON.stringify(settings))
     if (toolForm) setToolSnapShot(toolForm)
@@ -351,12 +411,30 @@ export function useSettings({ refresh }) {
       if (formDirty) setDrafts(d => ({ ...d, [editP.name]: { data: editP, base: editSnap } }))
       setEditP(null); return
     }
+    // 接口和模型没有草稿列表可续，退出就真的丢了 —— 所以这里拦住，让按钮跳两下
+    if (editE) {
+      if (editEDirty) { setNudge(n => n + 1); return }
+      setEditE(null); return
+    }
+    if (editM) {
+      if (editMDirty) { setNudge(n => n + 1); return }
+      setEditM(null); return
+    }
     if (settingsDirty) { setNudge(n => n + 1); return }
     setShowSet(false)
   }
 
+  // 2 级详情同一时刻只能有一张：配置 / 接口 / 模型 / 插件表单四者互斥。
+  // 以前每个"打开"函数各抄一遍要清哪些，加一层就漏一层（打开接口卡再点工具，
+  // 屏幕上就并排两张 2 级卡）。集中在这儿，加层只改这一处。
+  const clearDetail = () => {
+    setEditP(null); setEditE(null); setEditM(null)
+    setToolForm(null); setToolSnapShot(null); setToolEdit(null); setEditField(null)
+  }
+
   // —— 列表卡上的各种"打开"——
   const openProfile = (pr) => {
+    clearDetail()
     // 有草稿就续上：用户上次退出时改过但没保存，再打开应该看到自己改的版本
     const d = drafts[pr.name]
     if (d) { setEditP(d.data); setEditSnap(d.base) }
@@ -364,34 +442,24 @@ export function useSettings({ refresh }) {
       const v = { ...pr, tools: (pr.tools || []).join(',') }
       setEditP(v); setEditSnap(snapOf(v))
     }
-    setEditField(null); setToolEdit(null); setToolForm(null)
   }
   const newProfile = () => {
-    setEditP({ ...NEW_PROFILE }); setEditSnap(''); setEditField(null); setToolEdit(null)
-    setToolForm(null)   // 2 级详情同一时刻只能有一张
+    clearDetail()
+    setEditP({ ...NEW_PROFILE }); setEditSnap('')
   }
   // —— 接口（地址 + 凭据）——
   const pickEndpoint = (e) => {
-    setEditP(null); setToolForm(null); setToolEdit(null); setEditField(null)
-    setEditE({ ...e })
+    clearDetail()
+    setEditE({ ...e }); setEditESnap(snapOf(e))
   }
   const newEndpoint = () => {
-    setEditP(null); setToolForm(null); setToolEdit(null); setEditField(null)
-    setEditE({ name: '', base_url: '', api_key: '', provider: '', source: '', _new: true })
+    clearDetail()
+    const e = { name: '', base_url: '', api_key: '', provider: '', source: '', _new: true }
+    setEditE(e); setEditESnap('')   // 和 newProfile 一样：新建卡天生是脏的（本来就有东西要存）
   }
-  const closeEndpoint = () => setEditE(null)
-  const saveEndpoint = async () => {
-    if (!editE) return
-    const r = await fetch('/api/endpoints', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editE.name.trim(), base_url: editE.base_url.trim(),
-        api_key: editE.api_key || '', provider: editE.provider || '', source: editE.source || '' }) })
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) { alert(j.error || '保存失败'); return }
-    await loadEndpoints(); await refresh()
-    // 保存后回到新数据，别把整层关掉
-    const list = await api('/api/endpoints').catch(() => [])
-    const me = (list || []).find(x => x.name === editE.name.trim())
-    setEditE(me ? { ...me } : null)
+  const closeEndpoint = () => {
+    if (editEDirty) { setNudge(n => n + 1); return }
+    setEditE(null)
   }
   const deleteEndpoint = async () => {
     if (!editE) return
@@ -412,28 +480,19 @@ export function useSettings({ refresh }) {
 
   // —— 模型层（属于某接口；配置再引用它）——
   const pickModel = (m) => {
-    setEditP(null); setEditE(null); setToolForm(null); setToolEdit(null); setEditField(null)
-    setEditM({ ...m, input: m.input && m.input.length ? m.input : ['text'] })
+    clearDetail()
+    const v = { ...m, input: m.input && m.input.length ? m.input : ['text'] }
+    setEditM(v); setEditMSnap(snapOf(v))
   }
   const newModel = () => {
-    setEditP(null); setEditE(null); setToolForm(null); setToolEdit(null); setEditField(null)
-    setEditM({ name: '', endpoint: (endpoints[0] || {}).name || '', id: '',
-      context_window: '', max_tokens: '', input: ['text'], _new: true })
+    clearDetail()
+    const v = { name: '', endpoint: (endpoints[0] || {}).name || '', id: '',
+      context_window: '', max_tokens: '', input: ['text'], effort_levels: [], _new: true }
+    setEditM(v); setEditMSnap('')
   }
-  const closeModel = () => setEditM(null)
-  const saveModel = async () => {
-    if (!editM) return
-    const body = { endpoint: editM.endpoint, id: editM.id.trim(),
-      context_window: Number(editM.context_window) || 0,
-      max_tokens: Number(editM.max_tokens) || 0, input: editM.input }
-    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body) })
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) { alert(j.error || '保存失败'); return }
-    await loadEndpoints()
-    const list = await api('/api/models').catch(() => [])
-    const me = (list || []).find(x => x.name === j.name)
-    setEditM(me ? { ...me, input: me.input && me.input.length ? me.input : ['text'] } : null)
+  const closeModel = () => {
+    if (editMDirty) { setNudge(n => n + 1); return }
+    setEditM(null)
   }
   const deleteModel = async () => {
     if (!editM) return
@@ -452,11 +511,30 @@ export function useSettings({ refresh }) {
     return r.models || []
   }
   // 把一个发现的模型登记进来
-  const registerModel = async (endpointName, id) => {
+  // 登记：把上游给的能力一起存下来，省得手填窗口和模态
+  const registerModel = async (endpointName, info) => {
+    const body = { endpoint: endpointName, id: info.id,
+      context_window: info.context_window || 0, max_tokens: info.max_tokens || 0,
+      input: info.input && info.input.length ? info.input : ['text'],
+      effort_levels: info.effort_levels || [] }
     const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: endpointName, id, input: ['text'] }) })
+      body: JSON.stringify(body) })
     if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || '登记失败'); return }
     await loadEndpoints(); await discoverModels(endpointName)
+  }
+  // 同步能力：拿上游的能力覆盖本地（窗口/输出/模态/强度档位）
+  const syncModel = async (endpointName, info) => {
+    const cur = models.find(x => x.endpoint === endpointName && x.id === info.id)
+    if (!cur) return
+    const body = { ...cur,
+      context_window: info.context_window || 0, max_tokens: info.max_tokens || 0,
+      input: info.input && info.input.length ? info.input : ['text'],
+      effort_levels: info.effort_levels || [] }
+    const r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) })
+    if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || '同步失败'); return }
+    await loadEndpoints(); await discoverModels(endpointName)
+    if (editM && editM.name === cur.name) setEditM({ ...body })
   }
 
   // 点工具直接打开**可编辑表单**（和模型配置一样，没有独立的只读态）。
@@ -465,7 +543,7 @@ export function useSettings({ refresh }) {
   // 由程序决定，用 .ro 灰掉；说明两边都能改（点它进 3 级长文本）。
   // 这样两种工具的布局、字段顺序、间距完全一致，差别只剩"哪些格子能点"。
   const pickTool = (t) => {
-    setEditP(null); setToolEdit(null); setEditField(null)
+    clearDetail()
     const isPlugin = t.source === 'plugin'
     // 原名取自清单路径的文件名 —— 改过名之后它会和显示名分叉
     const orig = (t.path || '').split('/').pop().replace(/\.json$/, '')
@@ -482,11 +560,14 @@ export function useSettings({ refresh }) {
     setToolForm(form); setToolSnapShot(form)
   }
   const newPlugin = () => {
-    setEditP(null); setToolEdit(null); setEditField(null)
+    clearDetail()
     const form = { ...NEW_PLUGIN, source: 'plugin' }
     setToolForm(form); setToolSnapShot(form)
   }
-  const closeToolForm = () => { setToolForm(null); setToolSnapShot(null) }
+  const closeToolForm = () => {
+    if (toolFormDirty) { setNudge(n => n + 1); return }
+    setToolForm(null); setToolSnapShot(null)
+  }
   // 深链 ?newplugin 的处理：等 newPlugin 定义好再执行，避免 TDZ 和漏设快照
   useEffect(() => {
     if (!pendingNewPlugin) return
@@ -528,15 +609,15 @@ export function useSettings({ refresh }) {
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
     toolList, toolIssues, toolForm, setToolForm, toolFormDirty, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
-    models, shotInfo,
+    shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,
     drafts, draftsDirty, sheet, setSheet, committing, commitSheet, discardAll, pendingChanges,
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
-    endpoints, sources, editE, setEditE, endpointModels,
-    pickEndpoint, newEndpoint, closeEndpoint, saveEndpoint, deleteEndpoint, fetchEndpointModels,
-    models, editM, setEditM, discovered,
-    pickModel, newModel, closeModel, saveModel, deleteModel, discoverModels, registerModel,
+    endpoints, sources, editE, setEditE, editESnap, endpointModels, editEDirty,
+    pickEndpoint, newEndpoint, closeEndpoint, deleteEndpoint, fetchEndpointModels,
+    models, editM, setEditM, editMDirty, discovered,
+    pickModel, newModel, closeModel, deleteModel, discoverModels, registerModel, syncModel,
     openSystemEditor, openToolEditor,
     deletePlugin, deleteProfile, cleanShots,
   }

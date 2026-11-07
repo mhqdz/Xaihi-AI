@@ -47,10 +47,16 @@ func (s *Server) handleEndpointItem(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})
 			return
 		}
-		names, err := llm.ListModels(e.BaseURL, e.APIKey)
+		found, err := llm.ListModels(e.BaseURL, e.APIKey)
 		if err != nil {
 			writeJSON(w, 502, map[string]any{"error": "取模型列表失败：" + err.Error(), "models": []string{}})
 			return
+		}
+		// 这里只要 id：模型卡里"可用模型"是拿来看通不通、有哪些名字的；
+		// 窗口/模态/强度那些能力走 /api/discover，那边给完整结构。
+		names := make([]string, 0, len(found))
+		for _, m := range found {
+			names = append(names, m.ID)
 		}
 		writeJSON(w, 200, map[string]any{"models": names})
 		return

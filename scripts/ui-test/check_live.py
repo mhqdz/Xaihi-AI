@@ -16,8 +16,10 @@ time.sleep(1.5)
 
 s.click('.new-conv')
 time.sleep(0.8)
+# composer 有两个 select：配置（profile）+ 思考强度（会话级，不落盘）
 sel = s.js("return document.querySelectorAll('.composer select').length")
-check("新建会话后输入区可用", sel == 1, f"n={sel}")
+ta = s.js("return !!document.querySelector('.composer textarea') && !document.querySelector('.composer textarea').disabled")
+check("新建会话后输入区可用", sel == 2 and ta, f"n={sel} textarea={ta}")
 
 prof = s.js("""const sel=document.querySelector('.composer select');
 const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;

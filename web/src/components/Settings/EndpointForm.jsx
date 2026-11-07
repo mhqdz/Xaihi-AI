@@ -27,6 +27,7 @@ export default function EndpointForm({ v, top }) {
   return (
     <Card kind="col-detail" top={top}
       title={isNew ? '新建接口' : ('接口 · ' + e.name)}
+      dirty={v.editEDirty}
       onClose={() => v.closeEndpoint()}>
       <div className="card-bd">
         <Section>来源</Section>
@@ -38,8 +39,12 @@ export default function EndpointForm({ v, top }) {
         </Field>
 
         <Section>连接</Section>
-        <Field label="名称" hint="给这个接口起个短名字，模型通过它来引用">
-          <input value={e.name || ''} onChange={ev => set('name', ev.target.value)} />
+        <Field label="名称"
+          hint={isNew ? '给这个接口起个短名字，模型通过它来引用' : '名字是模型引用它的键，不能改 —— 改名等于换一个接口'}>
+          {/* 只读用 readOnly 而不是 disabled：disabled 的文字被 UA 调淡，
+              而且不能选中复制 —— 接口名/模型 id 恰恰是会被复制出去的东西 */}
+          <input className={isNew ? '' : 'ro'} value={e.name || ''} readOnly={!isNew}
+            onChange={ev => set('name', ev.target.value)} />
         </Field>
         <Field label="接口地址" hint="填到 /v1 为止，不带 /chat/completions">
           <input value={e.base_url || ''} placeholder="http://127.0.0.1:18320/180/v1"

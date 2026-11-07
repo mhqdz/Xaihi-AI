@@ -71,13 +71,22 @@ func (s *Server) handleEndpointDiscover(w http.ResponseWriter, r *http.Request) 
 			registered[m.ID] = true
 		}
 	}
+	// 把上游给的能力一起带回去：界面登记时可以直接沿用，不用手填窗口和模态
 	type entry struct {
-		ID         string `json:"id"`
-		Registered bool   `json:"registered"`
+		ID            string   `json:"id"`
+		Registered    bool     `json:"registered"`
+		Name          string   `json:"name,omitempty"`
+		ContextWindow int      `json:"context_window,omitempty"`
+		MaxTokens     int      `json:"max_tokens,omitempty"`
+		Input         []string `json:"input,omitempty"`
+		EffortLevels  []string `json:"effort_levels,omitempty"`
+		EffortDefault string   `json:"effort_default,omitempty"`
 	}
 	out := make([]entry, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, entry{ID: id, Registered: registered[id]})
+	for _, m := range ids {
+		out = append(out, entry{ID: m.ID, Registered: registered[m.ID], Name: m.Name,
+			ContextWindow: m.ContextWindow, MaxTokens: m.MaxOutput, Input: m.Input,
+			EffortLevels: m.EffortLevels, EffortDefault: m.EffortDefault})
 	}
 	writeJSON(w, 200, map[string]any{"endpoint": name, "models": out})
 }

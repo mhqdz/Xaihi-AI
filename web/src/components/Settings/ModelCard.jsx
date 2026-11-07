@@ -1,6 +1,6 @@
 import React from 'react'
 import Card from './Card'
-import { Section, Field, InfoField } from './form'
+import { Section, Field } from './form'
 
 // 模型卡（第二级：详细配置）
 //
@@ -23,6 +23,7 @@ export default function ModelCard({ v, top }) {
   return (
     <Card kind="col-detail" top={top}
       title={isNew ? '新建模型' : ('模型 · ' + m.id)}
+      dirty={v.editMDirty}
       onClose={() => v.closeModel()}>
       <div className="card-bd">
         <Section>归属</Section>
@@ -32,8 +33,10 @@ export default function ModelCard({ v, top }) {
             {(v.endpoints || []).map(ep => <option key={ep.name} value={ep.name}>{ep.name}</option>)}
           </select>
         </Field>
-        <Field label="模型 id" hint="请求里真正发出去的字符串，要和上游 /models 里的一致">
-          <input value={m.id || ''} placeholder="qwen3.8-flash-next-iq3_xxs"
+        <Field label="模型 id"
+          hint={isNew ? '请求里真正发出去的字符串，要和上游 /models 里的一致'
+            : 'id 是「接口/id」这个唯一键的一半，不能改 —— 换个 id 就是另一个模型'}>
+          <input className={isNew ? '' : 'ro'} value={m.id || ''} placeholder="qwen3.8-flash-next-iq3_xxs" readOnly={!isNew}
             onChange={e => set('id', e.target.value)} />
         </Field>
 
@@ -55,6 +58,10 @@ export default function ModelCard({ v, top }) {
         <div className="set-meta">
           {hasImage ? '会话里可以贴图 / 用截图工具' : '只能处理文字；界面上会拦下图像输入'}
         </div>
+        <Field label="支持的思考强度" hint="上游说的档位；留空表示不知道，界面上会列出全部">
+          <input value={(m.effort_levels || []).join(',')} placeholder="low,high,max"
+            onChange={e => set('effort_levels', e.target.value.split(',').map(x => x.trim()).filter(Boolean))} />
+        </Field>
 
         <Section>发现</Section>
         <div className="item static">
@@ -68,10 +75,18 @@ export default function ModelCard({ v, top }) {
               {found.map(x => (
                 <div className="item" key={x.id}>
                   <span className="item-title">{x.id}</span>
+                  <span className="item-desc">
+                    {[
+                      x.context_window ? Math.round(x.context_window / 1024) + 'k 窗口' : '',
+                      (x.input || []).includes('image') ? '图像' : '',
+                      (x.effort_levels || []).length ? '强度 ' + x.effort_levels.join('/') : ''
+                    ].filter(Boolean).join(' · ')}
+                  </span>
                   {x.registered
-                    ? <span className="set-meta">已登记</span>
+                    ? <button type="button" className="btn"
+                        onClick={() => v.syncModel(m.endpoint, x)}>同步能力</button>
                     : <button type="button" className="btn"
-                        onClick={() => v.registerModel(m.endpoint, x.id)}>登记</button>}
+                        onClick={() => v.registerModel(m.endpoint, x)}>登记</button>}
                 </div>
               ))}
             </div>

@@ -970,16 +970,17 @@ func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		list := config.LoadProfiles()
 		type view struct {
 			config.Profile
-			ModelID     string   `json:"model_id"`
-			Input       []string `json:"input"`
-			ResolvedCtx int      `json:"resolved_context_window"`
-			ResolvedOut int      `json:"resolved_max_tokens"`
+			ModelID      string   `json:"model_id"`
+			Input        []string `json:"input"`
+			ResolvedCtx  int      `json:"resolved_context_window"`
+			ResolvedOut  int      `json:"resolved_max_tokens"`
+			EffortLevels []string `json:"effort_levels"`
 		}
 		out := make([]view, 0, len(list))
 		for _, p := range list {
 			r := p.Resolve()
 			out = append(out, view{Profile: p, ModelID: r.ModelID, Input: r.Input,
-				ResolvedCtx: r.ContextWindow, ResolvedOut: r.MaxTokens})
+				ResolvedCtx: r.ContextWindow, ResolvedOut: r.MaxTokens, EffortLevels: r.EffortLevels})
 		}
 		writeJSON(w, 200, out)
 	case http.MethodPost, http.MethodPut:

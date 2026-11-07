@@ -46,16 +46,23 @@ check("取消把值回滚", after == before, f"{before} -> {after}")
 check("回滚后按钮消失", s.js("return document.querySelectorAll('.col-list .card-actions').length") == 0)
 
 # ---------- 常规配置：保存真的落库（改 31 再改回）----------
+# 保存走"改动清单"：点保存先弹清单，确认后才写后端
+def save_all():
+    s.js("[...document.querySelectorAll('.col-list .card-actions .btn, .col-list .title-actions .btn')]"
+         ".find(b=>b.textContent==='保存').click(); return 1")
+    time.sleep(0.8)
+    s.js("[...document.querySelectorAll('.sheet-ft .btn')].find(x=>/确认保存/.test(x.textContent)).click(); return 1")
+    time.sleep(2.0)
+
 set_input(days_lab, '31')
 time.sleep(0.3)
-s.js("[...document.querySelectorAll('.col-list .card-actions .btn')].find(b=>b.textContent==='保存').click(); return 1")
-time.sleep(1.0)
+save_all()
 check("保存后后端生效", api('/api/settings').get('auto_archive_days') == 31, str(api('/api/settings')))
 set_input(days_lab, str(before))
 time.sleep(0.3)
-s.js("[...document.querySelectorAll('.col-list .card-actions .btn')].find(b=>b.textContent==='保存').click(); return 1")
-time.sleep(1.0)
+save_all()
 check("改回后后端复原", api('/api/settings').get('auto_archive_days') == int(before), str(api('/api/settings')))
+check("保存后回到干净状态（没有保存/取消）", s.js("return document.querySelectorAll('.card-actions .btn').length") == 0)
 
 # ---------- 模型卡：打开 → 改 API Key → 取消 ----------
 s.js("[...document.querySelectorAll('.col-list .item.col')][0].click(); return 1")
@@ -87,10 +94,15 @@ old_txt = s.js("return " + area + " ? " + area + ".value : ''")
 set_input(area, old_txt + '\n测试追加')
 time.sleep(0.3)
 check("改工具说明后出现保存/取消", s.js("return document.querySelectorAll('.col-list .card-actions .btn').length") == 2)
+# 字数栏读的是 textarea 的 value.length，改完必须跟着变
+foot = s.js("return (document.querySelector('.col-editor .set-col-foot')||{}).textContent")
+cnt = s.js("return " + area + ".value.length")
+check("字数栏跟随文本", foot == f"{cnt} 字", f"{foot} vs {cnt}")
+# 保存按钮只有一个（在一级卡），所以"取消"是放弃全部：三级卡跟着关掉
 s.js("[...document.querySelectorAll('.col-list .card-actions .btn')].find(b=>b.textContent==='取消').click(); return 1")
 time.sleep(0.4)
-check("取消后工具说明回滚", s.js("return " + area + ".value") == old_txt)
-check("字数栏跟随文本", (s.text('.col-editor .set-col-foot') or '').strip().endswith('字'))
+check("取消后三级卡关闭（取消=放弃全部）", s.js("return !document.querySelector('.col-editor')"))
+check("取消后没有残留的保存/取消", s.js("return document.querySelectorAll('.card-actions .btn').length") == 0)
 
 # ---------- 运行中提示（localStorage，前端专属）----------
 orig = s.js("return localStorage.getItem('ui.quips')")

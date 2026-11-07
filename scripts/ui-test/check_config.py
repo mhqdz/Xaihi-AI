@@ -414,9 +414,10 @@ def plugin_flow(s):
     check("工具说明已保存", t.get("description") == "改过的测试插件说明", t.get("description"))
 
     # 改名：内容里的 name 换了，文件名不动，profile 里的引用要跟着换
-    st, _ = api("POST", "/api/profiles", {"name": "rename_probe",
-                                          "base_url": "http://127.0.0.1:18320/180/v1",
-                                          "model": "m", "tools": ["cfg_plugin"]})
+    # （三层之后 profile 必须引用一个真模型，不能再用裸 model 名）
+    st, _mdl = api("GET", "/api/models")
+    _m0 = (_mdl or [{}])[0].get("name", "")
+    st, _ = api("POST", "/api/profiles", {"name": "rename_probe", "model": _m0, "tools": ["cfg_plugin"]})
     check("探针 profile 引用插件", st == 200, st)
     s.get(B + "/?settings=1&conv=51")
     time.sleep(2.5)
@@ -657,8 +658,10 @@ def delete_flow():
     print("=" * 62)
     for width, where, sel in ((1600, "标题栏", ".del-top"), (900, "卡片底部", ".del-bottom")):
         api("DELETE", "/api/profiles/del_probe")
-        api("POST", "/api/profiles", {"name": "del_probe", "base_url": "http://127.0.0.1:18320/180/v1",
-                                      "model": "m", "system": "x"})
+        st, _mdl = api("GET", "/api/models")
+        st, _ = api("POST", "/api/profiles", {"name": "del_probe",
+                                              "model": (_mdl or [{}])[0].get("name", ""), "system": "x"})
+        check(f"探针 profile 建出来了（{where}）", st == 200, st)
         s = Session(width, 1000)
         try:
             req("POST", f"/session/{s.id}/window/rect", {"width": width, "height": 1000})
@@ -916,9 +919,10 @@ def endpoint_flow():
         api("POST", "/api/endpoints", {"name": ep["name"], "base_url": ep["base_url"],
                                        "api_key": ep.get("api_key", ""), "provider": ep.get("provider", ""),
                                        "source": ep.get("source", "")})
-        # 被引用的接口不能删
+        # 被引用的接口不能删（先查模型层，再查配置层 —— 两句都得说清楚是谁在拦）
         st, d = api("DELETE", "/api/endpoints/" + ep["name"])
-        check("被模型引用的接口不能删", st == 400 and "还有模型在用" in (d.get("error") or ""), f"{st} {d.get('error')}")
+        check("被模型引用的接口不能删",
+              st == 400 and "还有模型挂在这个接口下" in (d.get("error") or ""), f"{st} {d.get('error')}")
     finally:
         s.close()
 
@@ -930,6 +934,9 @@ def three_layers():
     print("=" * 62)
     s = Session(1600, 1000)
     req("POST", f"/session/{s.id}/window/rect", {"width": 1600, "height": 1000})
+    # 这一节会临时改一个模型和一个接口；中途断言抛异常也要还原，
+    # 否则真库上会留着 max_tokens=1234 这种探针值
+    undo = []
     try:
         s.get(B + "/?settings=1&conv=51")
         time.sleep(2.5)
@@ -961,10 +968,85 @@ def three_layers():
         check("点模型打开模型卡", ok, "")
         fields = s.js("""return [...document.querySelectorAll('.col-detail .field')]
             .map(f=>f.querySelector('span')?.textContent.trim());""")
-        check("模型卡只有「模型事实」", fields == ["接口", "模型 id", "窗口大小 (tokens)", "输出上限 (tokens)"], fields)
+        check("模型卡只有「模型事实」",
+              fields[:4] == ["接口", "模型 id", "窗口大小 (tokens)", "输出上限 (tokens)"]
+              and "支持的思考强度" in fields, fields)
         check("模型卡有图像开关",
               s.js("""return [...document.querySelectorAll('.col-detail .switch-row')]
                   .some(e=>/能接收图像/.test(e.textContent));"""), "")
+
+        # —— 接口卡和模型卡都要能存 ——
+        # 拆成三层之后这两层曾经只显示不保存（改了直接丢），
+        # 现在它们和配置层走同一份改动清单：改 → 清单 → 确认 → 后端真变了。
+        def save_sheet():
+            s.js("const b=document.querySelector('.col-list .card-actions .btn.save'); b&&b.click(); return !!b")
+            time.sleep(0.9)
+            s.js("[...document.querySelectorAll('.sheet-ft .btn')]"
+                 ".find(x=>/确认保存/.test(x.textContent)).click(); return 1")
+            time.sleep(2.2)
+
+        def put_value(sel, val):
+            s.js("""const el=%s; const set=Object.getOwnPropertyDescriptor(
+                el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;
+                set.call(el, %s); el.dispatchEvent(new Event('input',{bubbles:true})); return el.value""" % (sel, json.dumps(val)))
+            time.sleep(0.3)
+
+        # 模型卡：改输出上限 → 存 → 读回
+        st, models_now = api("GET", "/api/models")
+        me = next(m for m in models_now if m["name"] == m0["name"])
+        old_out = str(me.get("max_tokens") or "")
+        undo.append(("model", me))
+        put_value("document.querySelectorAll('.col-detail input')[2]", "1234")
+        check("改模型卡字段后标题出现脏点", s.js("return !!document.querySelector('.col-detail .dirty-dot')"), "")
+        s.js("const b=document.querySelector('.col-list .card-actions .btn.save'); b&&b.click(); return !!b")
+        time.sleep(0.9)
+        rows = s.js("return [...document.querySelectorAll('.sheet-grp-t, .sheet-row')].map(e=>e.textContent)")
+        check("清单里列出模型改动", any("模型 ·" in (r or "") for r in (rows or [])), rows)
+        s.js("[...document.querySelectorAll('.sheet-ft .btn')].find(x=>/确认保存/.test(x.textContent)).click(); return 1")
+        time.sleep(2.2)
+        st, after_m = api("GET", "/api/models")
+        got = next((m.get("max_tokens") for m in after_m if m["name"] == m0["name"]), None)
+        check("模型卡的改动真的落盘", got == 1234, got)
+        check("存完脏点消失", s.js("return !document.querySelector('.col-detail .dirty-dot')"), "")
+        put_value("document.querySelectorAll('.col-detail input')[2]", old_out)
+        save_sheet()
+        st, after_m = api("GET", "/api/models")
+        got = next((m.get("max_tokens") for m in after_m if m["name"] == m0["name"]), None)
+        check("模型卡改回去也落盘", got == (int(old_out) if old_out else None), got)
+
+        # 接口卡：改地址 → 存 → 读回 → 改回
+        s.js("""const x=[...document.querySelectorAll('.col-list .item.col')]
+            .find(e=>e.querySelector('.item-title')?.textContent.trim()===%s);
+          x&&x.click(); return !!x;""" % json.dumps(m0["endpoint"]))
+        time.sleep(1.0)
+        check("点接口打开接口卡",
+              (s.js("return (document.querySelector('.col-detail .ef-label-t')||{}).textContent") or "")
+              .startswith("接口 · "), "")
+        st, eps = api("GET", "/api/endpoints")
+        ep = next(e for e in eps if e["name"] == m0["endpoint"])
+        old_url = ep["base_url"]
+        undo.append(("endpoint", ep))
+        put_value("document.querySelectorAll('.col-detail input')[1]", "http://127.0.0.1:18320/9/v1")
+        save_sheet()
+        st, eps = api("GET", "/api/endpoints")
+        got_url = next(e["base_url"] for e in eps if e["name"] == m0["endpoint"])
+        check("接口卡的改动真的落盘", got_url == "http://127.0.0.1:18320/9/v1", got_url)
+        put_value("document.querySelectorAll('.col-detail input')[1]", old_url)
+        save_sheet()
+        st, eps = api("GET", "/api/endpoints")
+        got_url = next(e["base_url"] for e in eps if e["name"] == m0["endpoint"])
+        check("接口卡改回去也落盘", got_url == old_url, got_url)
+
+        # 2 级卡互斥：接口卡开着时点工具，不能并排两张
+        s.js("""const x=[...document.querySelectorAll('.col-list .item')].find(e=>{
+            const t=e.querySelector('.item-title');
+            return t && t.textContent.trim().startsWith('bash');});
+          x&&x.click(); return !!x;""")
+        time.sleep(1.0)
+        check("打开工具时接口卡让位（2 级只有一张）",
+              s.js("return document.querySelectorAll('.col-detail').length") == 1
+              and (s.js("return (document.querySelector('.col-detail .ef-label-t')||{}).textContent") or "").startswith("tool"),
+              s.js("return [...document.querySelectorAll('.col-detail .ef-label-t')].map(e=>e.textContent)"))
 
         # 配置卡的模型下拉
         s.js("const b=document.querySelector('.col-detail .back')||document.querySelector('.card-back'); b&&b.click(); return 1")
@@ -1003,11 +1085,20 @@ def three_layers():
         check("会话里改强度不写回配置", same.get("reasoning_effort") == before.get("reasoning_effort"),
               f"{before.get('reasoning_effort')} → {same.get('reasoning_effort')}")
 
-        # 多模态提示
+        # 多模态提示：标记要跟**当前选中的配置**所用的模型一致，
+        # 不是"库里存在某个纯文字模型"（那种写法现在会因为 deepseek-v4-pro 而误判）
         hint = s.js("const n=document.querySelector('.composer .no-vision'); return n? n.textContent.trim():null;")
-        has_text_only = any(not (m.get("input") or []).count("image") for m in (mdl or []))
-        check("纯文字模型在 composer 上有标记", (hint == "文字") == has_text_only, hint)
+        cur_model = next((m for m in (models_now or []) if m.get("name") == cur_prof.get("model")), {})
+        want = None if "image" in (cur_model.get("input") or []) else "文字"
+        check("composer 上的模态标记跟当前配置的模型一致", hint == want,
+              f"{cur_prof.get('name')} · {cur_model.get('id')} 只有 {cur_model.get('input')} → {hint}")
     finally:
+        # 断言中途失败也要把探针值还原（这一节改的是真模型 / 真接口）
+        for kind, orig in undo:
+            try:
+                api("POST", "/api/" + kind + "s", orig)
+            except Exception as e:
+                print(f"  ! 还原 {kind} {orig.get('name')} 失败：{e}")
         s.close()
 
 

@@ -62,13 +62,26 @@ body: 14px/1.7 "Maple Mono NF CN", ui-monospace, …
 | 层级 | 卡片组件 | 放什么 | 判据 |
 |---|---|---|---|
 | 1 级 `col-list` | `ListCard` | 通用配置 + 详细配置入口 | 只放"全局开关/数字"和"点进去"的行 |
-| 2 级 `col-detail` | `ModelForm` / `ToolCard` | 详细配置 | 一组字段，按 `Section` 分组 |
+| 2 级 `col-detail` | `ModelForm` / `ToolCard` / `EndpointForm` / `ModelCard` | 详细配置 | 一组字段，按 `Section` 分组 |
 | 3 级 `col-editor` | `EditorCard` | 长文本输入 | 铺满、无边框、只放一个文本域 |
 
-2 级的三张卡（模型详情 / 工具详情 / 插件表单）共用 `components/Settings/form.jsx`：
+2 级只有一张卡：**配置 / 接口 / 模型 / 工具**（插件表单就是工具卡，没有第二张"插件详情"）
+四者互斥，3 级编辑器可以叠在它们上面。
+`useSettings` 里只有 `clearDetail()` 一个入口负责清场，加一层只改这一处。
+以前每个"打开"函数各抄一遍要清哪些状态，加一层就漏一层 —— 打开接口卡再点工具，
+屏幕上会并排两张 2 级卡。
+
+2 级卡共用 `components/Settings/form.jsx`：
 `Section` / `Field` / `InfoField` / `SwitchRow` / `LinkRow` / `ChoiceGrid`。
 前端不解释字段语义（哪个是地址、哪个是路径），只负责"标签 + 控件 + 提示"这一层排版，
 所以内置工具、外置插件、模型配置天然是同一套样式。
+
+**保存只有一个入口**：一级卡标题栏的「保存」→ 摊开改动清单（`SaveSheet`）→ 确认后
+一次 `POST /api/apply`。接口层和模型层的改动也进这份清单（`kind: endpoint|model`），
+所以三层都是一句话："改了就有脏点，保存统一在 1 级卡"。
+`接口`卡上的**名称**和`模型`卡上的**模型 id** 只在新建时可改 —— 它们是
+`models.json` 唯一键（`<接口>/<id>`）的两半，改名等于换一个条目，会让引用它的
+配置悬空；要改就新建一个再把配置指过去。
 
 **两处"长文本放在 2 级"的例外，以及理由**：
 

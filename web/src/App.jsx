@@ -1184,7 +1184,10 @@ export default function App() {
                 <select value={effort} onChange={e => setEffort(e.target.value)}
                   title="本轮临时生效，不改配置里的默认值">
                   <option value="">默认（{cur && cur.reasoning_effort ? cur.reasoning_effort : 'none'}）</option>
-                  {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
+                  {(cur && cur.effort_levels && cur.effort_levels.length
+                    ? ['none', ...cur.effort_levels.filter(x => x !== 'none')]
+                    : ['none', 'low', 'medium', 'high', 'max']
+                  ).map(x => <option key={x} value={x}>{x}</option>)}
                 </select>
                 <span className="caret">▾</span>
               </label>

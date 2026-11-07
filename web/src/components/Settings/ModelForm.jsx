@@ -13,9 +13,14 @@ export default function ModelForm({ v, narrow, top }) {
   const isNew = !!editP._new
   const set = (k, val) => v.setEditP({ ...editP, [k]: val })
   const tools = (editP.tools || '').split(',').map(x => x.trim()).filter(Boolean)
+  // 模型支持的档位来自「模型」那层（上游 /models 说的）；不知道就全列出来
+  const cur = (v.models || []).find(m => m.name === editP.model)
+  const levels = cur && cur.effort_levels && cur.effort_levels.length
+    ? ['none', ...cur.effort_levels.filter(x => x !== 'none')]
+    : ['none', 'low', 'medium', 'high', 'max']
   return (
     <Card kind="col-detail" top={top}
-      title={isNew ? '新建模型' : ('模型详情 · ' + editP.name)}
+      title={isNew ? '新建配置' : ('配置 · ' + editP.name)}
       dirty={v.formDirty}
       onClose={() => v.closeOne()}
       actions={!isNew
@@ -37,7 +42,7 @@ export default function ModelForm({ v, narrow, top }) {
         <Field label="默认思考强度" hint="这里存的是默认值；会话里可以临时改，不落盘">
           <select value={editP.reasoning_effort || 'none'}
             onChange={e => set('reasoning_effort', e.target.value)}>
-            {['none', 'low', 'medium', 'high', 'max'].map(x => <option key={x} value={x}>{x}</option>)}
+            {levels.map(x => <option key={x} value={x}>{x}</option>)}
           </select>
         </Field>
         <Field label="输入上限 (tokens)" hint="单次请求的实际预算，留空按 105000">

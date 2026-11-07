@@ -170,11 +170,18 @@ func UpsertEndpoint(e Endpoint) error {
 	return writeEndpoints(list)
 }
 
-// DeleteEndpoint：删接口前要确认没有模型在用它，否则那些模型会突然失去地址
+// DeleteEndpoint：删接口前要确认没有模型挂在这个接口下 ——
+// 模型没了接口就没有地址，成了一堆配了窗口和模态却发不出去的条目。
+// 两层的引用都要查：models.json（模型层）和 profiles.json（配置层）。
 func DeleteEndpoint(name string) error {
+	for _, m := range LoadModels() {
+		if m.Endpoint == name {
+			return fmt.Errorf("还有模型挂在这个接口下（%s），先指到别的接口或删掉它", m.Name)
+		}
+	}
 	for _, p := range LoadProfiles() {
 		if p.Endpoint == name {
-			return fmt.Errorf("还有模型在用这个接口（%s），先改掉它们", p.Name)
+			return fmt.Errorf("还有配置在用这个接口（%s），先改掉它们", p.Name)
 		}
 	}
 	list := LoadEndpoints()
