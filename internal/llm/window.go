@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -105,20 +106,39 @@ func fetchWindow(baseURL, apiKey, model string) int {
 //
 // 各家字段命名不统一，这里做一次归一：
 //
-//	llama.cpp： meta.n_ctx、architecture.input_modalities
-//	DeepSeek 等云端：context_window、max_output_tokens、input_modalities、effort.*
+//	llama.cpp：            meta.n_ctx、architecture.input_modalities
+//	DeepSeek / OpenAI 系： context_window、max_output_tokens、input_modalities、effort.*
+//	OpenCode / OpenRouter：limit.context、limit.output、modalities.input、capabilities.reasoning.effort
 //
 // 官方 OpenAI 的 /v1/models 只给 {id, object, owned_by}，什么都不给；
-// OpenRouter 之类的聚合器给得最全。所以这里全部是可选的 —— 拿不到就留零值，
+// OpenRouter / OpenCode 之类的聚合器给得最全。所以这里全部是可选的 —— 拿不到就留零值，
 // 由用户手填，不能假设一定有。
 type ModelInfo struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name,omitempty"` // 显示名（有就带回）
 	ContextWindow int      `json:"context_window,omitempty"`
 	MaxOutput     int      `json:"max_tokens,omitempty"`
-	Input         []string `json:"input,omitempty"`         // 模态
+	Input         []string `json:"input,omitempty"`         // 模态，只留 text / image
 	EffortLevels  []string `json:"effort_levels,omitempty"` // 支持的思考强度
 	EffortDefault string   `json:"effort_default,omitempty"`
+}
+
+// normModalities：上游的模态可能写成 image/png、vision、image_url……
+// 模型层只认 text / image（ValidateModel 卡着），所以在这里就收敛掉，
+// 不然登记时会把 image/png 原样存进去、被自己的校验拒掉。
+func normModalities(in []string) []string {
+	out := []string{"text"}
+	seen := false
+	for _, x := range in {
+		switch {
+		case strings.HasPrefix(x, "image"), x == "vision", x == "image_url":
+			if !seen {
+				out = append(out, "image")
+				seen = true
+			}
+		}
+	}
+	return out
 }
 
 // ListModels：拉某个接口的模型清单和能拿到的一切能力。
@@ -128,7 +148,8 @@ func ListModels(baseURL, apiKey string) ([]ModelInfo, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(baseURL, "/")+"/models", nil)
+	url := strings.TrimRight(baseURL, "/") + "/models"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -138,10 +159,26 @@ func ListModels(baseURL, apiKey string) ([]ModelInfo, error) {
 	}
 	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
 	if err != nil {
-		return nil, err
+		// 连不上和"连上了但不认你"是两件事，界面上的处置完全不同
+		return nil, fmt.Errorf("连不上这个地址：%v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		// 4xx 的正文常常带原因（"not supported for format oa-compat" 之类），带一段回去；
+		// 401/403 和 404 单独说，因为它们的解法最确定
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		switch resp.StatusCode {
+		case 401, 403:
+			return nil, fmt.Errorf("API Key 不对或没权限（HTTP %d）", resp.StatusCode)
+		case 404:
+			return nil, fmt.Errorf("这个地址上没有 /models（HTTP 404），检查是不是少了 /v1")
+		}
+		if msg := strings.TrimSpace(string(snippet)); msg != "" {
+			if len(msg) > 120 {
+				msg = msg[:120] + "…"
+			}
+			return nil, fmt.Errorf("上游返回 %d：%s", resp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("上游返回 %d", resp.StatusCode)
 	}
 	var out struct {
@@ -162,10 +199,23 @@ func ListModels(baseURL, apiKey string) ([]ModelInfo, error) {
 				SupportedLevels []string `json:"supported_levels"`
 				DefaultLevel    string   `json:"default_level"`
 			} `json:"effort"`
+			// OpenCode / OpenRouter 风格
+			Limit struct {
+				Context int `json:"context"`
+				Output  int `json:"output"`
+			} `json:"limit"`
+			Modalities struct {
+				Input []string `json:"input"`
+			} `json:"modalities"`
+			Capabilities struct {
+				Reasoning struct {
+					Effort []string `json:"effort"`
+				} `json:"reasoning"`
+			} `json:"capabilities"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("这个地址返回的不是 /models 的 JSON：%v", err)
 	}
 	list := make([]ModelInfo, 0, len(out.Data))
 	for _, d := range out.Data {
@@ -176,11 +226,26 @@ func ListModels(baseURL, apiKey string) ([]ModelInfo, error) {
 		if m.ContextWindow == 0 {
 			m.ContextWindow = d.Meta.NCtx
 		}
+		if m.ContextWindow == 0 {
+			m.ContextWindow = d.Limit.Context
+		}
+		if m.MaxOutput == 0 {
+			m.MaxOutput = d.Limit.Output
+		}
 		m.Input = d.InputModality
 		if len(m.Input) == 0 {
 			m.Input = d.Architecture.InputModalities
 		}
+		if len(m.Input) == 0 {
+			m.Input = d.Modalities.Input
+		}
+		if len(m.Input) > 0 {
+			m.Input = normModalities(m.Input)
+		}
 		m.EffortLevels = d.Effort.SupportedLevels
+		if len(m.EffortLevels) == 0 {
+			m.EffortLevels = d.Capabilities.Reasoning.Effort
+		}
 		m.EffortDefault = d.Effort.DefaultLevel
 		list = append(list, m)
 	}

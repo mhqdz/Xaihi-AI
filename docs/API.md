@@ -72,13 +72,31 @@
 |---|---|---|
 | GET | `/api/endpoints` | 接口数组 |
 | POST | `/api/endpoints` | 新建或覆盖（同名即覆盖） |
+| POST | `/api/endpoints/probe` | **拿草稿试上游**：`{base_url, api_key?, provider?}` → `{models:[…], count}`；不通时 502 `{error}`。不落盘 |
 | DELETE | `/api/endpoints/{name}` | 还有模型挂在这个接口下、或还有配置在用它时 400 |
-| GET | `/api/endpoints/{name}/models` | 问一次上游 `/models`（只回 id 列表） |
+| GET | `/api/endpoints/{name}/models` | 已保存的接口问一次上游（只回 id 列表）。界面不再用它（改用 `probe`），留着给脚本 |
 | GET | `/api/sources` | 来源模板（`sources.json`，加一条就多一个服务商） |
 | PUT | `/api/sources` | 整份覆盖 |
 | GET | `/api/models` | 模型数组 |
 | POST | `/api/models` | `{endpoint, id, context_window?, max_tokens?, input?, effort_levels?}`，唯一键 `<endpoint>/<id>`（由后端算） |
 | DELETE | `/api/models/{name}` | 被配置引用时 400 |
+
+`probe` 与 `/api/apply` 的 `endpoint` 是两条路：前者**只问不写**（新建接口时字段填完就能
+当场验证 key 通不通），后者才落盘。
+
+内置模板（`sources.json` 不存在时用它；文件存在就以文件为准）：
+
+| key | 地址 |
+|---|---|
+| `local` | `http://127.0.0.1:18320/180/v1` |
+| `deepseek` | `https://api.deepseek.com/v1` |
+| `openai` | `https://api.openai.com/v1` |
+| `opencode` | `https://opencode.ai/zen/go/v1`（OpenCode Zen 的 Go 订阅；`/chat/completions` 与 `/models` 是 OpenAI 兼容，少数模型只走 Anthropic 的 `/messages`，那些在这儿发不出去） |
+| `custom` | 空，自己填 |
+
+**思考强度不设词表**：`reasoning_effort` 与 `effort_levels` 只校验形状（小写英文，
+可带数字 `_` `-`，≤16 字符）。各家叫法不一样（`minimal` / `xhigh` / `max`），
+agentd 原样转给上游，认不认是上游的事 —— 白名单式的校验只会在遇到新供应商时把人卡住。
 
 **`api_key` 是明文**：`GET /api/endpoints`（以及 `/api/profiles` 里遗留的 key）原样返回
 密钥，只在前端渲染成 `type=password`。这是有意为之 —— 单用户、家庭内网、没有鉴权系统；

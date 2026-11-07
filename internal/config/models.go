@@ -119,13 +119,33 @@ func ValidateModelWith(m Model, extraEndpoints map[string]bool) error {
 		}
 	}
 	for _, x := range m.EffortLevels {
-		switch x {
-		case "none", "low", "medium", "high", "max":
-		default:
-			return fmt.Errorf("effort_levels 里有不认识的档位 %q", x)
+		if !EffortLevelOK(x) {
+			return fmt.Errorf("effort_levels 里的 %q 不像档位名（小写英文，可带数字 _ -）", x)
 		}
 	}
 	return nil
+}
+
+// EffortLevelOK：档位名**不限定词表**。
+//
+// 各家叫法不一样：OpenAI 是 low|medium|high，DeepSeek 是 low|high|max，
+// OpenCode 还有 minimal|xhigh。agentd 只是把它原样转给上游，没有资格替上游
+// 决定它认哪些 —— 白名单式的校验只会在遇到新供应商时把人卡住。
+// 挡的是形状：空、带空格、大小写混杂，那些一定是手滑。
+func EffortLevelOK(s string) bool {
+	if s == "" || len(s) > 16 {
+		return false
+	}
+	for i, r := range s {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if i > 0 && ((r >= '0' && r <= '9') || r == '_' || r == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // ModelName 是唯一键的形式：<endpoint>/<id>。

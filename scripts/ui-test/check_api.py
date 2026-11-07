@@ -47,6 +47,10 @@ CASES = [
     ("/api/plugins", "GET", 405),
     ("/api/plugins", "DELETE", 405),
     ("/api/plugins/nope", "GET", 405),
+    # 草稿探测：只收 POST；空 body 是 400（地址为空），不会真去请求上游
+    ("/api/endpoints/probe", "GET", 405),
+    ("/api/endpoints/probe", "DELETE", 405),
+    ("/api/endpoints/probe", "POST", 400),
     ("/api/nonexistent", "GET", 404),
     # CSRF：带 body 的写请求必须 application/json（P0-4）。
     # text/plain 是 CORS 简单请求、不预检，浏览器能跨站发出来 —— 必须 415。
@@ -57,6 +61,7 @@ CASES = [
     ("/api/tools/bash", "PUT", 415, "text/plain"),
     ("/api/wake", "POST", 415, "text/plain"),
     ("/api/shots/cleanup", "POST", 415, "text/plain"),
+    ("/api/endpoints/probe", "POST", 415, "text/plain"),
     # 目录遍历：%2F 在 path.Clean 之后才解码，曾是整个数据库可下载（P0-3）
     ("/shots/..%2Fagentd.db", "GET", 404),
     ("/shots/..%2Fui.json", "GET", 404),

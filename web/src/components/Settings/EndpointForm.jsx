@@ -6,24 +6,39 @@ import { Section, Field } from './form'
 //
 // 这里只关心"接哪儿"：来源 / 名称 / 地址 / 凭据。
 // 用哪个模型、什么思考强度、system 提示，都是模型卡的事。
-// 选来源会把地址模板和协议预填进来（来源清单来自 sources.json，加一条就多一个，
-// 不用改代码）。
+//
+// 「来源模板」是**套用**而不是"填空"：切一个模板，地址和协议就换成那个模板的。
+// （曾经只填"空着的字段"，于是选了第一个模板之后再切别的什么都不会变 ——
+//  看起来就是选择器坏了。）
+//
+// 「可用模型」是**当场检验**：新建时地址(+key)填完自动问一次上游，
+// 通了显示模型清单、不通直接说原因（缺 key / 401 / 连不上）。
+// 手动按钮叫「更新信息」，改完地址或 key 再点一次即可。
+const PROBE_TEXT = {
+  idle: '还没检验',
+  waitkey: '填上 API Key 就会检验',
+  running: '正在问上游…'
+}
+
 export default function EndpointForm({ v, top }) {
   const e = v.editE
   if (!e) return null
   const isNew = !!e._new
   const set = (k, val) => v.setEditE({ ...e, [k]: val })
-  const models = v.endpointModels[e.name] || null
+  const probe = v.probe || { state: 'idle' }
+  const models = probe.models || []
   const pickSource = (key) => {
     const src = (v.sources || []).find(s => s.key === key)
-    if (!src) { set('source', ''); return }
     v.setEditE({
-      ...e, source: src.key,
-      // 只预填空着的字段，不覆盖用户已经写好的地址
-      base_url: e.base_url && e.base_url.trim() ? e.base_url : (src.base_url || ''),
-      provider: e.provider || src.provider || ''
+      ...e, source: key,
+      // 套用模板 = 地址和协议跟着换；选"不套模板"就是把它们清空
+      base_url: src ? (src.base_url || '') : '',
+      provider: src ? (src.provider || '') : ''
     })
   }
+  const status = probe.state === 'ok'
+    ? `${models.length} 个模型`
+    : (probe.state === 'error' ? '没通' : (PROBE_TEXT[probe.state] || PROBE_TEXT.idle))
   return (
     <Card kind="col-detail" top={top}
       title={isNew ? '新建接口' : ('接口 · ' + e.name)}
@@ -31,7 +46,7 @@ export default function EndpointForm({ v, top }) {
       onClose={() => v.closeEndpoint()}>
       <div className="card-bd">
         <Section>来源</Section>
-        <Field label="来源模板" hint="选了会把地址和协议预填进来；清单在 sources.json，可以自己加">
+        <Field label="来源模板" hint="切一个模板会把下面的地址和协议换成它的；清单在 sources.json，可以自己加">
           <select value={e.source || ''} onChange={ev => pickSource(ev.target.value)}>
             <option value="">（不套模板）</option>
             {(v.sources || []).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
@@ -62,13 +77,19 @@ export default function EndpointForm({ v, top }) {
 
         <Section>可用模型</Section>
         <div className="item static">
-          <span className="item-title">{models ? `${models.length} 个模型` : '还没拉取'}</span>
-          <button type="button" className="btn" disabled={isNew || !e.name}
-            onClick={() => v.fetchEndpointModels(e.name)}>拉取列表</button>
+          <span className="item-title">{status}</span>
+          <button type="button" className="btn" disabled={!e.base_url || probe.state === 'running'}
+            onClick={() => v.probeEndpoint()}>更新信息</button>
         </div>
-        {models ? (
-          <div className="ro-list">{models.length ? models.join('\n') : '这个接口没有返回任何模型'}</div>
-        ) : <div className="set-meta">接口保存后可以拉一次，确认地址和 key 是通的</div>}
+        {probe.state === 'error' ? (
+          <div className="probe-err">{probe.error}</div>
+        ) : null}
+        {probe.state === 'ok' ? (
+          <div className="ro-list">{models.length ? models.map(m => m.id).join('\n') : '这个接口没有返回任何模型'}</div>
+        ) : null}
+        <div className="set-meta">
+          通了就可以去「模型」那层登记：点开一个模型条目、问上游要列表、挑一个登记
+        </div>
 
         {!isNew ? (
           <div className="set-foot-actions">

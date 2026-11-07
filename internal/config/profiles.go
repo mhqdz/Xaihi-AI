@@ -229,10 +229,10 @@ func ValidateProfileWith(p Profile, extraModels map[string]bool) error {
 			return fmt.Errorf("要选一个模型（或接口）")
 		}
 	}
-	// max 也算合法档位：DeepSeek 的 /models 就报 low|high|max
-	if p.ReasoningEffort != "" && p.ReasoningEffort != "none" && p.ReasoningEffort != "low" &&
-		p.ReasoningEffort != "medium" && p.ReasoningEffort != "high" && p.ReasoningEffort != "max" {
-		return fmt.Errorf("reasoning_effort 只能是 none|low|medium|high|max")
+	// 档位只查形状不查词表：各家叫法不同（minimal / xhigh / max），
+	// 我们原样转给上游，认不认是上游的事
+	if p.ReasoningEffort != "" && !EffortLevelOK(p.ReasoningEffort) {
+		return fmt.Errorf("reasoning_effort 只能是英文小写档位名（如 low / high / max）")
 	}
 	return nil
 }

@@ -107,7 +107,9 @@ export function useSettings({ refresh }) {
   const [sources, setSources] = useState([])         // 来源模板（sources.json）
   const [editE, setEditE] = useState(null)           // 正在编辑的接口（2 级）
   const [editESnap, setEditESnap] = useState('')     // 打开接口卡时的快照
-  const [endpointModels, setEndpointModels] = useState({})  // 接口名 -> 模型列表
+  // 上游探测结果：{state: running|ok|error|waitkey, models, error, url}。
+  // 一次只开一张 2 级卡，所以一个对象够了，不用按接口名存。
+  const [probe, setProbe] = useState(null)
   const [models, setModels] = useState([])           // 模型层（属于某个接口）
   const [editM, setEditM] = useState(null)           // 正在编辑的模型（2 级）
   const [editMSnap, setEditMSnap] = useState('')     // 打开模型卡时的快照
@@ -147,6 +149,32 @@ export function useSettings({ refresh }) {
   }
   // 工具/配置重新拉一遍（改完插件、工具说明后）
   const reload = async () => { await Promise.all([loadTools(), loadSettings(), loadEndpoints()]) }
+
+  // 新建接口时"填完就检验"。
+  //
+  // 地址成形、并且（非本地地址的）key 也填了，就自动问一次上游 /models：
+  // 通不通、有没有模型、key 对不对，当场就知道，不用等存下来再按按钮。
+  // 防抖 700ms —— key 是一字一字敲的，每敲一下都发请求既慢又容易触发限流。
+  useEffect(() => {
+    const e = editE
+    if (!e) return
+    if (!e._new) {
+      // 已保存的接口：改过地址或 key 之后，上一次的检验结果就不再代表它了，先清掉。
+      // setProbe(null) 传的是同一个 null，React 会自己跳过，不会成环。
+      const snap = editESnap ? JSON.parse(editESnap) : null
+      if (snap && (snap.base_url !== e.base_url || (snap.api_key || '') !== (e.api_key || ''))) setProbe(null)
+      return
+    }
+    const url = (e.base_url || '').trim()
+    const key = (e.api_key || '').trim()
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) { setProbe(null); return }
+    // 本机地址不要求 key（llama.cpp / llava 之类本来就没有鉴权）
+    const local = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(url)
+    if (!key && !local) { setProbe({ state: 'waitkey' }); return }
+    setProbe({ state: 'running' })
+    const t = setTimeout(() => { probeEndpoint(e) }, 700)
+    return () => clearTimeout(t)
+  }, [editE && editE._new, editE && editE.base_url, editE && editE.api_key])
 
   // 挂载：载入 + 处理深链
   useEffect(() => {
@@ -450,16 +478,16 @@ export function useSettings({ refresh }) {
   // —— 接口（地址 + 凭据）——
   const pickEndpoint = (e) => {
     clearDetail()
-    setEditE({ ...e }); setEditESnap(snapOf(e))
+    setEditE({ ...e }); setEditESnap(snapOf(e)); setProbe(null)
   }
   const newEndpoint = () => {
     clearDetail()
     const e = { name: '', base_url: '', api_key: '', provider: '', source: '', _new: true }
-    setEditE(e); setEditESnap('')   // 和 newProfile 一样：新建卡天生是脏的（本来就有东西要存）
+    setEditE(e); setEditESnap(''); setProbe(null)   // 新建卡天生是脏的（本来就有东西要存）
   }
   const closeEndpoint = () => {
     if (editEDirty) { setNudge(n => n + 1); return }
-    setEditE(null)
+    setEditE(null); setProbe(null)
   }
   const deleteEndpoint = async () => {
     if (!editE) return
@@ -467,15 +495,26 @@ export function useSettings({ refresh }) {
     const r = await fetch('/api/endpoints/' + encodeURIComponent(editE.name), { method: 'DELETE' })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) { alert(j.error || '删除失败'); return }
-    setEditE(null); await loadEndpoints(); await refresh()
+    setEditE(null); setProbe(null); await loadEndpoints(); await refresh()
   }
-  // 拉某个接口下的模型列表（"选来源 → 自动匹配可用模型"）
-  const fetchEndpointModels = async (name) => {
-    const r = await api('/api/endpoints/' + encodeURIComponent(name) + '/models').catch(() => null)
-    if (!r) return []
-    if (r.error) { alert(r.error); return [] }
-    setEndpointModels(m => ({ ...m, [name]: r.models || [] }))
-    return r.models || []
+  // 拿**当前草稿**的地址和 key 去问一次上游 /models（不落盘）。
+  //
+  // 两处用它：新建接口填完 url(+key) 自动跑一次；「更新信息」按钮手动跑。
+  // 以前只有"先存下来，再按一个按钮拉列表"，于是 key 打错要等存完才知道。
+  const probeEndpoint = async (draft) => {
+    const e = draft || editE
+    if (!e) return null
+    const url = (e.base_url || '').trim()
+    if (!url) return null
+    const r = await api('/api/endpoints/probe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url: url, api_key: e.api_key || '', provider: e.provider || '' })
+    }).catch(() => ({ error: '请求没发出去（后端没响应）' }))
+    const next = r.error
+      ? { state: 'error', error: r.error, url }
+      : { state: 'ok', models: r.models || [], url }
+    setProbe(next)
+    return r
   }
 
   // —— 模型层（属于某接口；配置再引用它）——
@@ -614,8 +653,8 @@ export function useSettings({ refresh }) {
     drafts, draftsDirty, sheet, setSheet, committing, commitSheet, discardAll, pendingChanges,
     save, cancel, closeOne, reload, loadTasks, loadShotStats,
     openProfile, newProfile, pickTool, newPlugin, closeToolForm, pickTask,
-    endpoints, sources, editE, setEditE, editESnap, endpointModels, editEDirty,
-    pickEndpoint, newEndpoint, closeEndpoint, deleteEndpoint, fetchEndpointModels,
+    endpoints, sources, editE, setEditE, editESnap, editEDirty, probe,
+    pickEndpoint, newEndpoint, closeEndpoint, deleteEndpoint, probeEndpoint,
     models, editM, setEditM, editMDirty, discovered,
     pickModel, newModel, closeModel, deleteModel, discoverModels, registerModel, syncModel,
     openSystemEditor, openToolEditor,

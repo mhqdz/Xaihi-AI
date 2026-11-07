@@ -384,6 +384,10 @@ body{background:var(--paper);color:var(--ink);
 .card .field input[type=number]::-webkit-outer-spin-button,
 .card .field input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .card .field input:disabled{background:var(--c1);color:var(--c6);cursor:not-allowed}
+/* 表单里的禁用态由 .ro 自己表达（灰底 + --c6 文字），不要再叠 UA 那种整体调淡：
+   全局那条 input:disabled{opacity:.45} 会让灰框里的字比旁边的无框只读信息还淡，
+   同一个面板里"不能改"就有了两套深浅。按钮和开关保留那条（它们本来就该显灰）。 */
+.card .field input:disabled,.card .field select:disabled,.card .field textarea:disabled{opacity:1}
 /* 只读字段：和可编辑字段是同一个输入框、同一套尺寸，只加一个 .ro 修饰类。
    内置工具不能改的那几项走这里 —— 不另做一套"纯文本展示"的结构，
    否则两种工具的布局会越走越远。
@@ -401,7 +405,10 @@ body{background:var(--paper);color:var(--ink);
 .card .field .ro-val.mono{font-family:var(--mono);font-size:.7rem;color:var(--c6)}
 /* 只读的多行清单（接口下的模型名）：同样是纯信息，不套框；保留换行 */
 .card-bd .ro-list{font-family:var(--mono);font-size:.7rem;line-height:1.7;color:var(--c6);
-  white-space:pre-line;overflow-wrap:anywhere;margin:.1rem 0 .2rem}
+  white-space:pre-line;overflow-wrap:anywhere;margin:.1rem 0 .2em}
+/* 上游检验失败：不是字段错误、也不是整页错误，是一行附带说明，用告警色而不是纯红 */
+.card-bd .probe-err{font-size:.7rem;line-height:1.6;color:#9a5d43;overflow-wrap:anywhere;
+  margin:.15rem 0 .2rem}
 /* 点进 3 级卡片的入口（长文本）：长得像输入框，右边一个 ›。
    它确实能改，只是改在 3 级 —— 有框这一件事必须保住，
    否则和"只读信息"读起来没区别，而它俩的行为差着一整个层级。 */

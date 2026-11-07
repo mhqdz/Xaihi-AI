@@ -28,7 +28,7 @@ export default function ModelCard({ v, top }) {
       <div className="card-bd">
         <Section>归属</Section>
         <Field label="接口" hint="模型属于某个接口：同一串 id 在不同供应商那儿窗口和模态可能不一样">
-          <select value={m.endpoint || ''} disabled={!isNew}
+          <select className={isNew ? '' : 'ro'} value={m.endpoint || ''} readOnly={!isNew} disabled={!isNew}
             onChange={e => set('endpoint', e.target.value)}>
             {(v.endpoints || []).map(ep => <option key={ep.name} value={ep.name}>{ep.name}</option>)}
           </select>

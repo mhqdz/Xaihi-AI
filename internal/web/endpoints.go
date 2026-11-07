@@ -33,6 +33,38 @@ func (s *Server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// POST /api/endpoints/probe —— 用**还没保存**的地址和凭据试一次上游 /models。
+//
+// 新建接口时字段刚填完就能知道"通不通、有没有模型、缺不缺 key"，不用先存再拉：
+// 存完才发现 key 是错的，那个接口就白存一条、还得再删。
+// 和 GET /api/endpoints/{name}/models 的分工：这个走草稿（不落盘），
+// 那个走已保存的接口（「更新信息」按钮）。
+func (s *Server) handleEndpointProbe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]string{"error": "POST only"})
+		return
+	}
+	var in struct {
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"`
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(in.BaseURL) == "" {
+		writeJSON(w, 400, map[string]string{"error": "接口地址为空"})
+		return
+	}
+	found, err := llm.ListModels(in.BaseURL, in.APIKey)
+	if err != nil {
+		writeJSON(w, 502, map[string]any{"error": err.Error(), "models": []llm.ModelInfo{}, "count": 0})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"models": found, "count": len(found)})
+}
+
 func (s *Server) handleEndpointItem(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/endpoints/")
 	// /api/endpoints/<name>/models —— 拉这个接口下有哪些模型

@@ -261,6 +261,8 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/api/apply", s.handleApply)
 	mux.HandleFunc("/api/endpoints", s.handleEndpoints)
+	// 精确路径优先于 /api/endpoints/ 前缀：草稿探测不写盘
+	mux.HandleFunc("/api/endpoints/probe", s.handleEndpointProbe)
 	mux.HandleFunc("/api/endpoints/", s.handleEndpointItem)
 	mux.HandleFunc("/api/sources", s.handleSources)
 	mux.HandleFunc("/api/models", s.handleModels)

@@ -55,6 +55,10 @@ func defaultSources() []Source {
 		{Key: "local", Label: "本地 / llama.cpp", BaseURL: "http://127.0.0.1:18320/180/v1", Provider: ""},
 		{Key: "deepseek", Label: "DeepSeek", BaseURL: "https://api.deepseek.com/v1", Provider: "openai"},
 		{Key: "openai", Label: "OpenAI", BaseURL: "https://api.openai.com/v1", Provider: "openai"},
+		// OpenCode Zen 的 Go 订阅端点：/chat/completions 与 /models 是 OpenAI 兼容的
+		// （Bearer 鉴权），少数模型只走 Anthropic 的 /messages —— 那些在这儿发不出去，
+		// 界面上的「发现」会照实列出上游给的清单，能不能聊聊一下就知道了。
+		{Key: "opencode", Label: "OpenCode Zen（Go 订阅）", BaseURL: "https://opencode.ai/zen/go/v1", Provider: "openai"},
 		{Key: "custom", Label: "自定义", BaseURL: "", Provider: ""},
 	}
 }

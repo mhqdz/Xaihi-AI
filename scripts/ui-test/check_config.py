@@ -886,28 +886,70 @@ def endpoint_flow():
             .map(f=>f.querySelector('span')?.textContent.trim());""")
         check("接口卡有来源/名称/地址/密钥/协议", fields == ["来源模板", "名称", "接口地址", "API Key", "协议"], fields)
 
-        # 拉模型列表
-        s.js("const b=[...document.querySelectorAll('.col-detail .btn')].find(x=>/拉取列表/.test(x.textContent)); b&&b.click(); return !!b")
+        # 「更新信息」= 拿当前地址和 key 再问一次上游（原来的按钮叫「拉取列表」）
+        s.js("const b=[...document.querySelectorAll('.col-detail .btn')].find(x=>/更新信息/.test(x.textContent)); b&&b.click(); return !!b")
         time.sleep(2.5)
         got = s.js("const m=document.querySelector('.col-detail .ro-list'); return m? m.textContent.trim() : null;")
-        check("拉取列表能返回模型", isinstance(got, str) and len(got) > 0, (got or "")[:40])
-        check("拉取没有报错", s.js("return window.__alerts.length") == 0, s.js("return window.__alerts"))
+        check("更新信息能返回模型", isinstance(got, str) and len(got) > 0, (got or "")[:40])
+        check("更新信息没有报错", s.js("return document.querySelectorAll('.col-detail .probe-err').length") == 0,
+              s.js("return (document.querySelector('.col-detail .probe-err')||{}).textContent"))
 
-        # 新建接口 + 选来源预填
+        # 新建接口：模板要真的能换（切换后地址和协议都跟着变，选"不套模板"要清空）
         s.js("const b=[...document.querySelectorAll('.col-detail .back')][0]||document.querySelector('.card-back'); b&&b.click(); return 1")
         time.sleep(0.8)
         s.js("const b=[...document.querySelectorAll('.item-new')].find(x=>/新建接口/.test(x.textContent)); b&&b.click(); return !!b")
         time.sleep(1.0)
         check("新建接口卡打开", s.js("""const t=document.querySelector('.col-detail .ef-label-t');
             return !!t && /新建接口/.test(t.textContent);"""), "")
-        s.js("""const sel=[...document.querySelectorAll('.col-detail .field select')][0];
-          sel.value='deepseek'; sel.dispatchEvent(new Event('change',{bubbles:true})); return 1;""")
-        time.sleep(0.6)
-        pre = s.js("""const g=(l)=>{const f=[...document.querySelectorAll('.col-detail .field')]
-            .find(x=>(x.querySelector('span')||{}).textContent?.trim()===l); return f? f.querySelector('input,select'):null};
-          const a=g('接口地址'), p=g('协议'); return {url:a?a.value:'', prov:p?p.value:''};""")
+
+        def pick_tpl(key):
+            s.js("""const sel=[...document.querySelectorAll('.col-detail .field select')][0];
+              const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
+              set.call(sel, %s); sel.dispatchEvent(new Event('change',{bubbles:true})); return sel.value""" % json.dumps(key))
+            time.sleep(0.5)
+            return s.js("""const g=(l)=>{const f=[...document.querySelectorAll('.col-detail .field')]
+                .find(x=>(x.querySelector('span')||{}).textContent?.trim()===l); return f? f.querySelector('input,select'):null};
+              const a=g('接口地址'), p=g('协议'); return {url:a?a.value:'', prov:p?p.value:''};""")
+
+        pre = pick_tpl("deepseek")
         check("选来源会预填地址", pre.get("url") == "https://api.deepseek.com/v1", pre)
         check("选来源会预填协议", pre.get("prov") == "openai", pre)
+        # 关键回归：换模板必须真的换掉，而不是"只填空字段"（那样第一个之后就再也不动）
+        pre = pick_tpl("openai")
+        check("换模板会改地址", pre.get("url") == "https://api.openai.com/v1", pre)
+        pre = pick_tpl("opencode")
+        check("模板清单里有 OpenCode Zen（Go）",
+              pre.get("url") == "https://opencode.ai/zen/go/v1" and pre.get("prov") == "openai", pre)
+        pre = pick_tpl("local")
+        check("本地模板不带 key、协议为空", pre.get("url") == "http://127.0.0.1:18320/180/v1" and pre.get("prov") == "", pre)
+        pre = pick_tpl("")
+        check("选「不套模板」会清空地址和协议", pre.get("url") == "" and pre.get("prov") == "", pre)
+
+        # 新建时"填完就检验"：地址成形 + （远端还要 key）满足 → 自动问上游
+        st, eps_before = api("GET", "/api/endpoints")
+        pick_tpl("local")
+        time.sleep(2.2)
+        auto = s.js("""return {s:(document.querySelector('.col-detail .item.static .item-title')||{}).textContent,
+          list:(document.querySelector('.col-detail .ro-list')||{}).textContent}""")
+        check("新建接口填完自动检验上游", isinstance(auto.get("s"), str) and auto["s"].endswith("个模型"),
+              auto)
+        st, eps_after = api("GET", "/api/endpoints")
+        check("检验不会顺手把接口存下来", len(eps_after) == len(eps_before),
+              f"{len(eps_before)} → {len(eps_after)}")
+
+        # 远端地址没填 key：不报错，只是提示"填了才检验"
+        pick_tpl("opencode")
+        time.sleep(0.6)
+        check("远端地址缺 key 时不乱发请求",
+              "API Key" in (s.js("return (document.querySelector('.col-detail .item.static .item-title')||{}).textContent") or ""),
+              s.js("return (document.querySelector('.col-detail .item.static .item-title')||{}).textContent"))
+        # 填个假 key：报错要指出是 key 的问题，而不是一句"没通"
+        s.js("""const el=[...document.querySelectorAll('.col-detail .field')].find(f=>/API Key/.test(f.textContent)).querySelector('input');
+          const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+          set.call(el,'sk-bogus-0000'); el.dispatchEvent(new Event('input',{bubbles:true})); return 1""")
+        time.sleep(3.5)
+        err = s.js("return (document.querySelector('.col-detail .probe-err')||{}).textContent")
+        check("key 不对时说清是 key 的问题", isinstance(err, str) and ("API Key" in err or "401" in err), err)
 
         # 撞名要拒绝（服务端）
         st, _ = api("POST", "/api/endpoints", {"name": ep["name"], "base_url": "http://x/v1"})
