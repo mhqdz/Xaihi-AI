@@ -92,7 +92,10 @@
 | `deepseek` | `https://api.deepseek.com/v1` |
 | `openai` | `https://api.openai.com/v1` |
 | `opencode` | `https://opencode.ai/zen/go/v1`（OpenCode Zen 的 Go 订阅；`/chat/completions` 与 `/models` 是 OpenAI 兼容，少数模型只走 Anthropic 的 `/messages`，那些在这儿发不出去） |
-| `custom` | 空，自己填 |
+
+「自己填」不占一个模板项：界面上第一项「（不套模板）」就是它，两件事一个意思。
+`source` 只是"上次选了哪个模板"的记号，手工改过地址就会清掉（不然选择器还写着
+`OpenAI`、下面是别家的地址）。
 
 **思考强度不设词表**：`reasoning_effort` 与 `effort_levels` 只校验形状（小写英文，
 可带数字 `_` `-`，≤16 字符）。各家叫法不一样（`minimal` / `xhigh` / `max`），

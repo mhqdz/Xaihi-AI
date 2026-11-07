@@ -49,7 +49,10 @@ func nowStamp() string { return time.Now().Format("20060102-150405") }
 func endpointsPath() string { return DataPath("endpoints.json") }
 func sourcesPath() string   { return DataPath("sources.json") }
 
-// 内置来源：sources.json 不存在时用这一份，用户改文件就能覆盖
+// 内置来源：sources.json 不存在时用这一份，用户改文件就能覆盖。
+//
+// 不再有 "custom / 自定义" 这一项：它和界面上的「（不套模板）」是同一件事
+// （空地址 + 空协议），摆两个语义相同的选项只会让人在选择器前停一下。
 func defaultSources() []Source {
 	return []Source{
 		{Key: "local", Label: "本地 / llama.cpp", BaseURL: "http://127.0.0.1:18320/180/v1", Provider: ""},
@@ -59,7 +62,6 @@ func defaultSources() []Source {
 		// （Bearer 鉴权），少数模型只走 Anthropic 的 /messages —— 那些在这儿发不出去，
 		// 界面上的「发现」会照实列出上游给的清单，能不能聊聊一下就知道了。
 		{Key: "opencode", Label: "OpenCode Zen（Go 订阅）", BaseURL: "https://opencode.ai/zen/go/v1", Provider: "openai"},
-		{Key: "custom", Label: "自定义", BaseURL: "", Provider: ""},
 	}
 }
 

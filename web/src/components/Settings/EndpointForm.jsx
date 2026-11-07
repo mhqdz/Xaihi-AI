@@ -26,6 +26,9 @@ export default function EndpointForm({ v, top }) {
   const isNew = !!e._new
   const set = (k, val) => v.setEditE({ ...e, [k]: val })
   const probe = v.probe || { state: 'idle' }
+  // 存下来的 source 可能是个已经没有对应模板的键（旧数据里的 "custom"）：
+  // 那时选择器应该显示「不套模板」，而不是一片空白
+  const tplVal = (v.sources || []).some(s => s.key === e.source) ? (e.source || '') : ''
   const models = probe.models || []
   const pickSource = (key) => {
     const src = (v.sources || []).find(s => s.key === key)
@@ -47,7 +50,7 @@ export default function EndpointForm({ v, top }) {
       <div className="card-bd">
         <Section>来源</Section>
         <Field label="来源模板" hint="切一个模板会把下面的地址和协议换成它的；清单在 sources.json，可以自己加">
-          <select value={e.source || ''} onChange={ev => pickSource(ev.target.value)}>
+          <select value={tplVal} onChange={ev => pickSource(ev.target.value)}>
             <option value="">（不套模板）</option>
             {(v.sources || []).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
@@ -62,8 +65,9 @@ export default function EndpointForm({ v, top }) {
             onChange={ev => set('name', ev.target.value)} />
         </Field>
         <Field label="接口地址" hint="填到 /v1 为止，不带 /chat/completions">
+          {/* 手工改地址就等于脱离了模板：不然选择器还写着 "OpenAI"，下面是别家的地址 */}
           <input value={e.base_url || ''} placeholder="http://127.0.0.1:18320/180/v1"
-            onChange={ev => set('base_url', ev.target.value)} />
+            onChange={ev => v.setEditE({ ...e, base_url: ev.target.value, source: '' })} />
         </Field>
         <Field label="API Key" hint="留空则回落全局配置里的 key">
           <input type="password" value={e.api_key || ''} onChange={ev => set('api_key', ev.target.value)} />
