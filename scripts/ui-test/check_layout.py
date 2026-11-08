@@ -117,8 +117,27 @@ pw = s.js("""const col=document.querySelector('.col'), pr=document.querySelector
   if(!pr) return null;
   return {col: Math.round(col.getBoundingClientRect().width), prose: Math.round(pr.getBoundingClientRect().width)}""")
 check("正文宽度跟随阅读栏（不再被 640 卡住）", pw and pw["prose"] > pw["col"] * 0.9, str(pw))
+
+# 正文离卡片边框的距离（不是页面边距）：36px，卡片拉满时文字不贴边
+pad = s.js("""const m=document.querySelector('.msg'); if(!m) return null;
+  const cs=getComputedStyle(m); return {l:+parseFloat(cs.paddingLeft).toFixed(1), r:+parseFloat(cs.paddingRight).toFixed(1)}""")
+check("卡片内边距 36px（正文与边框的距离）", pad and pad["l"] == 36 and pad["r"] == 36, str(pad))
+
+# 拖动线（列左缘 -22px）不能和左边栏的边叠在一起
+gap = s.js("""const col=document.querySelector('.col'), dr=document.querySelector('.drawer');
+  const cl=Math.round(col.getBoundingClientRect().left);
+  return {lineX: cl-22, drawerRight: Math.round(dr.getBoundingClientRect().right),
+          gap: (cl-22)-Math.round(dr.getBoundingClientRect().right)}""")
+check("拖动线不压左边栏（间隔 ≥ 8px）", gap and gap["gap"] >= 8, str(gap))
 s.js("localStorage.setItem('colW','960'); return 1")
 s.close()
-s.js("localStorage.setItem('colW','960'); return 1")
-s.close()
+
+# 窄屏（<1400）：正文栏宽度固定，卡片内边距不跟着变（保持 .85rem）
+s2 = Session(900, 1000)
+req("POST", f"/session/{s2.id}/window/rect", {"width": 900, "height": 1000})
+s2.get(BASE + "/?conv=51"); time.sleep(2.0)
+pad_n = s2.js("const m=document.querySelector('.msg'); return m ? +parseFloat(getComputedStyle(m).paddingLeft).toFixed(1) : null")
+check("窄屏卡片内边距固定 13.6（不随栏宽变）", pad_n == 13.6, str(pad_n))
+s2.close()
+
 print("失败:", "、".join(FAIL) if FAIL else "无")

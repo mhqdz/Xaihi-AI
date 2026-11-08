@@ -102,7 +102,10 @@ body{background:var(--paper);color:var(--ink);
 .guideline{position:absolute;top:0;bottom:0;left:var(--lineX,0);width:1px;background:var(--line);
   opacity:var(--lineA,0);pointer-events:none;z-index:3;
   mask-image:linear-gradient(180deg,transparent,#000 calc(var(--lineY,0px) - 70px),#000 calc(var(--lineY,0px) + 70px),transparent)}
-.thread{flex:1;overflow-y:auto;padding:1.1rem clamp(.5rem,1.2vw,1rem) .8rem}
+/* 正文/输入框/状态行的左右留白。下限 34 是硬需求：拖动阅读栏那条竖线画在
+   "列左缘再往左 22px"，留不够就会和左边栏的边（抽屉右缘 6px 热区）撞在一起。 */
+.stage{--page-gutter:max(clamp(.5rem,1.2vw,1rem), 34px)}
+.thread{flex:1;overflow-y:auto;padding:1.1rem var(--page-gutter) .8rem}
 /* 上限同时受"偏好宽度"和"可用宽度"约束：窗口比偏好窄时按容器收，
    变宽时再放回去（不靠 JS 改偏好值，否则窗口一缩就永久变窄了） */
 .col{max-width:min(var(--colw,960px),100%);margin-inline:auto}
@@ -125,7 +128,16 @@ body{background:var(--paper);color:var(--ink);
 .empty .tips code{background:#fff;border:1px solid var(--line);padding:0 .3rem}
 
 /* 消息 */
-.msg{display:flex;flex-direction:column;margin:0 0 .9rem;padding:.85rem;background:rgba(255,255,255,.86);border:1px solid rgba(58,65,66,.1)}
+/* 正文离卡片边框的距离（不是页面边距）。
+   上下固定 .85rem；左右随卡片宽度长：
+     最窄（列 560）→ .85rem（13.6px，增长部分 0）
+     1167 以上    → 36px（封顶，再宽也不加，免得显出空洞）
+   3.69% - 7.06px 正好穿过这两点：560×3.69%-7.06≈13.6、1167×3.69%-7.06≈36。 */
+.msg{display:flex;flex-direction:column;margin:0 0 .9rem;
+  padding:.85rem clamp(.85rem, calc(3.69% - 7.06px), 36px);
+  background:rgba(255,255,255,.86);border:1px solid rgba(58,65,66,.1)}
+/* 窄屏（<1400px）的正文栏宽度是固定的，不会"拖宽后显满"，所以不跟着变 */
+@media (max-width:1399px){ .msg{padding:.85rem} }
 .msg.user{border-left:3px solid var(--signal)}
 .msg.tool{background:rgba(236,241,239,.75);border-left:3px solid var(--line)}
 .msg .mhead{display:flex;align-items:center;gap:.7rem;margin-bottom:.35rem}
@@ -153,8 +165,8 @@ body{background:var(--paper);color:var(--ink);
 .tools .out{margin:.25rem 0 0;white-space:pre-wrap;max-height:11rem;overflow:auto;font-size:.78em;color:var(--ink2)}
 
 /* 输入区 */
-.status{width:min(var(--colw,60rem),calc(100% - 2*clamp(.5rem,1.2vw,1rem)));margin-inline:auto;padding:0 0 .3rem;font-size:.72rem;color:var(--ink3);min-height:1.2rem}
-.composer{width:min(var(--colw,60rem),calc(100% - 2*clamp(.5rem,1.2vw,1rem)));margin:0 auto 1.2rem;
+.status{width:min(var(--colw,60rem),calc(100% - 2*var(--page-gutter)));margin-inline:auto;padding:0 0 .3rem;font-size:.72rem;color:var(--ink3);min-height:1.2rem}
+.composer{width:min(var(--colw,60rem),calc(100% - 2*var(--page-gutter)));margin:0 auto 1.2rem;
   border:1px solid var(--line);background:var(--panel);position:relative}
 .composer .row1{display:flex;align-items:center;gap:.6rem;padding:.4rem .6rem;border-bottom:1px solid var(--line);font-size:.72rem;color:var(--ink3)}
 .composer .pick{position:relative;display:inline-flex;align-items:center;cursor:pointer}
