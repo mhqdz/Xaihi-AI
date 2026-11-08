@@ -111,9 +111,12 @@ back = s.js("""const c=document.querySelector('.col'), st=document.querySelector
 check("缩小再放大后列宽能长回来", back and back["col"] == mm["col"],
       f"{mm['col']} → {small} → {back['col']}")
 
-# 列宽吃光留白时，右侧标尺要让位（否则刻度压在正文上）
-tight = s.js("return getComputedStyle(document.querySelector('.side')).display")
-check("列宽铺满时右侧标尺隐藏", tight == "none", tight)
+# 正文必须跟着列宽走：endfield 的 .ef-prose 自带 max-width:40rem（640px），
+# 不覆盖的话栏拖到 1400，正文仍停在 640，右边全是白
+pw = s.js("""const col=document.querySelector('.col'), pr=document.querySelector('.msg .ef-prose');
+  if(!pr) return null;
+  return {col: Math.round(col.getBoundingClientRect().width), prose: Math.round(pr.getBoundingClientRect().width)}""")
+check("正文宽度跟随阅读栏（不再被 640 卡住）", pw and pw["prose"] > pw["col"] * 0.9, str(pw))
 s.js("localStorage.setItem('colW','960'); return 1")
 s.close()
 s.js("localStorage.setItem('colW','960'); return 1")
