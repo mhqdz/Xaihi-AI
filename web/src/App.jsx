@@ -212,6 +212,7 @@ export default function App() {
   })
   const [sideW, setSideW] = useState(() => Number(localStorage.getItem('sideW')) || 250)
   const [colW, setColW] = useState(() => Number(localStorage.getItem('colW')) || 960)
+  const [stageW, setStageW] = useState(0)
   const colDrag = useRef(null)
   const stageRef = useRef(null)
   const setOpenRef = useRef(false)
@@ -279,6 +280,16 @@ export default function App() {
     if (narrow) setInputH(h => (h > 52 ? 52 : h))
   }, [narrow])
 
+
+  // 舞台宽度：两侧留白按它的比例算（窗口/抽屉/窄屏变化都要重算）
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setStageW(el.clientWidth))
+    ro.observe(el)
+    setStageW(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
 
   // 右上角小三角：拖动调整输入框高度（替代原生右下角 resize ✓）
   const startResize = (e) => {
@@ -383,11 +394,13 @@ export default function App() {
   // 拖动上限必须和渲染用同一套数：maxW = 舞台 - 2×gutter(max)。
   const COL_MIN = 560
   const COL_SPAN = 840                     // 560 → 1400 映射成 t 的 0 → 1
-  const gutterMax = (stage) => 34 + Math.min(48, stage * 0.03)
+  const GUTTER_BASE = 34                   // 拖动线要的地方
+  const GUTTER_RATIO = 0.18                // 最宽时每侧再加"舞台宽 × 这个比例"
   const colMax = () => {
     const el = stageRef.current
     if (!el) return 1400
-    return Math.max(COL_MIN, Math.round(el.clientWidth - gutterMax(el.clientWidth) * 2))
+    const stage = el.clientWidth
+    return Math.max(COL_MIN, Math.round(stage - (GUTTER_BASE + stage * GUTTER_RATIO) * 2))
   }
   const startColDrag = (e) => {
     e.preventDefault()
@@ -1086,8 +1099,10 @@ export default function App() {
 
         <main className="stage" ref={stageRef} style={{
           '--colw': colW + 'px',
-          // t：列宽 560 → 0，1400 → 1。CSS 用它算两侧留白（--page-gutter）
-          '--col-t': Math.min(1, Math.max(0, (colW - COL_MIN) / COL_SPAN)).toFixed(3)
+          // 两侧留白 = 34 + 舞台×0.18 × t；t 随列宽从 0（560）到 1（1400）线性。
+          // 一处算清，正文 / 输入框 / 状态行都用这个值（CSS 里只有一个 --page-gutter）。
+          '--page-gutter': (GUTTER_BASE + (stageW || 1200) * GUTTER_RATIO *
+            Math.min(1, Math.max(0, (colW - COL_MIN) / COL_SPAN))).toFixed(1) + 'px'
         }}
           onMouseMove={onStageMove} onMouseLeave={onStageLeave} onMouseDown={onStageDown}>
         {(() => {
