@@ -99,6 +99,13 @@ check("阅读栏拖到最大会铺满可用宽度", mm and mm["col"] > mm["stage
 check("阅读栏没有超出舞台", mm and mm["col"] <= mm["stage"], str(mm))
 check("正文与输入框右缘对齐", mm and mm["cr"] == mm["pr"], str(mm))
 
+# 拖动线（列左缘 -22px）不能和左边栏的边叠在一起：抽屉右缘有 6px 热区
+gap = s.js("""const col=document.querySelector('.col'), dr=document.querySelector('.drawer');
+  const cl=Math.round(col.getBoundingClientRect().left);
+  const drw=Math.round(dr.getBoundingClientRect().right);
+  return {lineX: cl-22, drawerRight: drw, gap: (cl-22)-drw}""")
+check("拖动线不压左边栏（间隔 ≥ 8px）", gap and gap["gap"] >= 8, str(gap))
+
 # 关键回归：窗口缩小再放大，列宽必须回到原来的宽度。
 # 曾经在 resize 里 setColW(min(colW, 可用))，于是缩一次就永久变窄（棘轮）。
 req("POST", f"/session/{s.id}/window/rect", {"width": 1200, "height": 1000})

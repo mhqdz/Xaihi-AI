@@ -376,11 +376,15 @@ export default function App() {
   // 上限是**舞台的可用宽度**，不是写死的数字：以前钳在 1400，屏幕更宽时
   // 拖到 1400 就再也不动，看起来像"文本被设了最大宽度"。可用宽度由
   // .thread 的 padding 决定（左右各 1rem 以内），这里各留 8px 余量。
+  // 两侧留白的最小值：拖动线画在"列左缘再往左 22px"，留不够就会压到左边栏的边上
+  // （抽屉右缘有 6px 的热区，标尺也在右缘），所以每侧至少 34：线落在 12px 处。
+  const COL_GUTTER = 34
   const colMax = () => {
     const el = stageRef.current
     if (!el) return 1400
     const pad = Math.min(16, Math.max(8, el.clientWidth * 0.012))
-    return Math.max(560, Math.round(el.clientWidth - pad * 2))
+    const gutter = Math.max(pad, COL_GUTTER)
+    return Math.max(560, Math.round(el.clientWidth - gutter * 2))
   }
   const startColDrag = (e) => {
     e.preventDefault()
