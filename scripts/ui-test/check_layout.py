@@ -99,15 +99,15 @@ mm = s.js("""const c=document.querySelector('.col'), st=document.querySelector('
 mm2 = s.js("""const c=document.querySelector('.col'), st=document.querySelector('.stage');
   const S=st.clientWidth, col=Math.round(c.getBoundingClientRect().width);
   return {S, col, gap: Math.round((S-col)/2), ratio: +(col/S).toFixed(3)}""")
-# 拉满 = 两侧明显留白（每侧 34 + 舞台×18%），列占舞台 50%~70%
-check("拉满时两侧明显留白（列占舞台 50%~70%）", mm2 and 0.50 <= mm2["ratio"] <= 0.72, str(mm2))
-check("每侧留白 ≥ 舞台 15%", mm2 and mm2["gap"] >= mm2["S"] * 0.15, str(mm2))
+check("拉满时两侧仍有边距（占舞台 84%~94%）", mm2 and 0.84 <= mm2["ratio"] <= 0.94, str(mm2))
 check("阅读栏没有超出舞台", mm2 and mm2["col"] <= mm2["S"], str(mm2))
-# 留白跟着列宽线性张开：丰富（560）时只有拖动线要的 34，宽栏时加上舞台的 18%
-gut = s.js("""const st=document.querySelector('.stage');
-  const g=()=>parseFloat(getComputedStyle(st).getPropertyValue('--page-gutter'));
-  return {now: g()}""")
-check("留白已经按比例张开（>100px）", gut and gut["now"] > 100, str(gut))
+# 留白要跟着列宽"呼吸"：窄栏时几乎不留，宽栏时才张开
+t_narrow = s.js("""const st=document.querySelector('.stage');
+  const g=(col)=>{ document.querySelector('.stage').style.setProperty('--col-t',
+      Math.min(1, Math.max(0, (col-560)/840)).toFixed(3));
+    return getComputedStyle(st).getPropertyValue('--page-gutter').trim(); };
+  return {narrow: g(560), wide: g(1400)}""")
+check("窄栏几乎不留边距、宽栏才张开", isinstance(t_narrow, dict) and t_narrow.get("wide") != t_narrow.get("narrow"), str(t_narrow))
 check("正文与输入框右缘对齐", mm and mm["cr"] == mm["pr"], str(mm))
 
 # 拖动线（列左缘 -22px）不能和左边栏的边叠在一起：抽屉右缘有 6px 热区
