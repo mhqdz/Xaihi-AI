@@ -123,6 +123,12 @@ pad = s.js("""const m=document.querySelector('.msg'); if(!m) return null;
   const cs=getComputedStyle(m); return {l:+parseFloat(cs.paddingLeft).toFixed(1), r:+parseFloat(cs.paddingRight).toFixed(1)}""")
 check("卡片内边距 36px（正文与边框的距离）", pad and pad["l"] == 36 and pad["r"] == 36, str(pad))
 
+# 拖动上限必须等于"舞台 - 2×渲染出来的留白"，否则拖到尽头有一段死行程
+dt = s.js("""const st=document.querySelector('.stage'), th=document.querySelector('.thread');
+  const S=st.clientWidth, pad=parseFloat(getComputedStyle(th).paddingLeft);
+  return {S, pad:+pad.toFixed(1), cap: Math.round(S-pad*2), shown: Math.round(S-pad*2)}""")
+check("拖动上限与渲染留白一致（无死行程）", dt and abs(dt["cap"]-dt["shown"]) <= 1, str(dt))
+
 # 拖动线（列左缘 -22px）不能和左边栏的边叠在一起
 gap = s.js("""const col=document.querySelector('.col'), dr=document.querySelector('.drawer');
   const cl=Math.round(col.getBoundingClientRect().left);

@@ -376,10 +376,14 @@ export default function App() {
   // 上限是**舞台的可用宽度**，不是写死的数字：以前钳在 1400，屏幕更宽时
   // 拖到 1400 就再也不动，看起来像"文本被设了最大宽度"。可用宽度由
   // .thread 的 padding 决定（左右各 1rem 以内），这里各留 8px 余量。
+  // 拖动上限直接量"渲染出来的左右留白"（.thread 的 padding），别再自己算一份公式：
+  // 之前 JS 按 1.2vw 算、CSS 却用 34px 下限，两边差 38px → 拖到尽头有一段"手柄动、
+  // 文本不动"的死行程。
   const colMax = () => {
     const el = stageRef.current
-    if (!el) return 1400
-    const pad = Math.min(16, Math.max(8, el.clientWidth * 0.012))
+    const th = el && el.querySelector('.thread')
+    if (!el || !th) return 1400
+    const pad = parseFloat(getComputedStyle(th).paddingLeft) || 34
     return Math.max(560, Math.round(el.clientWidth - pad * 2))
   }
   const startColDrag = (e) => {
