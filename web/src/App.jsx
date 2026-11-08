@@ -212,6 +212,7 @@ export default function App() {
   })
   const [sideW, setSideW] = useState(() => Number(localStorage.getItem('sideW')) || 250)
   const [colW, setColW] = useState(() => Number(localStorage.getItem('colW')) || 960)
+  const [stageW, setStageW] = useState(0)
   const colDrag = useRef(null)
   const stageRef = useRef(null)
   const setOpenRef = useRef(false)
@@ -268,20 +269,26 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('colW', String(colW)) }, [colW])
 
-  // 窗口（或窄屏布局）变了之后，存下来的阅读栏宽度可能已经超过现在能给的宽度：
-  // 收回来，否则拖动手柄有一段"拖了但文本不动"的死行程。
-  useEffect(() => {
-    const fit = () => setColW(w => Math.min(w, colMax()))
-    fit()
-    window.addEventListener('resize', fit)
-    return () => window.removeEventListener('resize', fit)
-  }, [narrow])
+  // 窗口变小**不去改** colW（那是用户拖出来的偏好）：一旦在这里把值收窄，
+  // 窗口再放大就回不去了 —— 上次就是这么让阅读栏卡在 1060 的。
+  // 显示由 CSS 兜底（max-width:min(var(--colw),100%)），拖动时再按当时
+  // 可用的宽度收口。
 
   useEffect(() => { localStorage.setItem('inputH', String(inputH)) }, [inputH])
   // 竖屏：输入框默认更矮（宽屏保持原高度；切到竖屏时把过高的收回来）
   useEffect(() => {
     if (narrow) setInputH(h => (h > 52 ? 52 : h))
   }, [narrow])
+
+  // 舞台宽度（只用于判断"右侧标尺还有没有位置"）：窗口/抽屉/窄屏变化都会触发
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setStageW(el.clientWidth))
+    ro.observe(el)
+    setStageW(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
 
   // 右上角小三角：拖动调整输入框高度（替代原生右下角 resize ✓）
   const startResize = (e) => {
@@ -1093,7 +1100,11 @@ export default function App() {
           )
         })()}
           {msgs.length ? <i className="guideline" aria-hidden="true" /> : null}
-        <div className="side">
+        {/* 列宽把两侧留白吃光时，右侧标尺会压到正文上：干脆不显示。
+            留 48px 是为了让刻度（44px 宽）仍然落在空白里。 */}
+        <div className="side" style={{
+          display: (stageW && (stageW - Math.min(colW, Math.max(560, stageW - 32))) / 2 < 48) ? 'none' : undefined
+        }}>
           <div className="title" onClick={() => scrollToRound(peekIdx)}
             title={'跳到第 ' + (peekIdx + 1) + ' 轮'}>
             <span className="no">{String(peekAbs).padStart(2,'0')}</span>

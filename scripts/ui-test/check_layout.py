@@ -91,10 +91,31 @@ s.shot('/tmp/uitest/layout_narrow.png')
 req("POST", f"/session/{s.id}/window/rect", {"width": 2000, "height": 1000})
 s.js("localStorage.setItem('colW','3000'); return 1")
 s.get(BASE + "/?conv=51"); time.sleep(2.2)
-mm = s.js("""const c=document.querySelector('.col'), st=document.querySelector('.stage');
-  return {col: Math.round(c.getBoundingClientRect().width), stage: st.clientWidth}""")
+mm = s.js("""const c=document.querySelector('.col'), st=document.querySelector('.stage'),
+      cp=document.querySelector('.composer');
+  return {col: Math.round(c.getBoundingClientRect().width), stage: st.clientWidth,
+          cr: Math.round(c.getBoundingClientRect().right), pr: Math.round(cp.getBoundingClientRect().right)}""")
 check("阅读栏拖到最大会铺满可用宽度", mm and mm["col"] > mm["stage"] * 0.9, str(mm))
 check("阅读栏没有超出舞台", mm and mm["col"] <= mm["stage"], str(mm))
+check("正文与输入框右缘对齐", mm and mm["cr"] == mm["pr"], str(mm))
+
+# 关键回归：窗口缩小再放大，列宽必须回到原来的宽度。
+# 曾经在 resize 里 setColW(min(colW, 可用))，于是缩一次就永久变窄（棘轮）。
+req("POST", f"/session/{s.id}/window/rect", {"width": 1200, "height": 1000})
+s.get(BASE + "/?conv=51"); time.sleep(1.6)
+small = s.js("return Math.round(document.querySelector('.col').getBoundingClientRect().width)")
+req("POST", f"/session/{s.id}/window/rect", {"width": 2000, "height": 1000})
+s.get(BASE + "/?conv=51"); time.sleep(1.6)
+back = s.js("""const c=document.querySelector('.col'), st=document.querySelector('.stage');
+  return {col: Math.round(c.getBoundingClientRect().width), stage: st.clientWidth}""")
+check("缩小再放大后列宽能长回来", back and back["col"] == mm["col"],
+      f"{mm['col']} → {small} → {back['col']}")
+
+# 列宽吃光留白时，右侧标尺要让位（否则刻度压在正文上）
+tight = s.js("return getComputedStyle(document.querySelector('.side')).display")
+check("列宽铺满时右侧标尺隐藏", tight == "none", tight)
+s.js("localStorage.setItem('colW','960'); return 1")
+s.close()
 s.js("localStorage.setItem('colW','960'); return 1")
 s.close()
 print("失败:", "、".join(FAIL) if FAIL else "无")
