@@ -212,6 +212,8 @@ export default function App() {
   })
   const [sideW, setSideW] = useState(() => Number(localStorage.getItem('sideW')) || 250)
   const [colW, setColW] = useState(() => Number(localStorage.getItem('colW')) || 960)
+  // 舞台宽度：阅读栏的**显示宽度**要按它算上限（不能只在拖动时算，
+  // 否则 localStorage 里的旧值会绕过上限，拉满照样贴边）
   const [stageW, setStageW] = useState(0)
   const colDrag = useRef(null)
   const stageRef = useRef(null)
@@ -281,7 +283,7 @@ export default function App() {
   }, [narrow])
 
 
-  // 舞台宽度：两侧留白按它的比例算（窗口/抽屉/窄屏变化都要重算）
+
   useEffect(() => {
     const el = stageRef.current
     if (!el) return
@@ -392,16 +394,16 @@ export default function App() {
   // 所以"拉满"是"有边距的满"，不是顶到屏幕边。
   //
   // 拖动上限必须和渲染用同一套数：maxW = 舞台 - 2×gutter(max)。
+  // 阅读栏的宽度上限。两侧留白 = 34px（拖动线要的地方）+ 舞台宽 × 18%，
+  // 所以窗口越宽，允许的栏宽相对越窄、留白越大 —— "拉满"不是顶到边，
+  // 而是留着一段边距。注意留白是**居中**产生的：栏宽 ≤ 上限，剩下的自动平分到两侧。
   const COL_MIN = 560
-  const COL_SPAN = 840                     // 560 → 1400 映射成 t 的 0 → 1
-  const GUTTER_BASE = 34                   // 拖动线要的地方
-  const GUTTER_RATIO = 0.18                // 最宽时每侧再加"舞台宽 × 这个比例"
-  const colMax = () => {
-    const el = stageRef.current
-    if (!el) return 1400
-    const stage = el.clientWidth
-    return Math.max(COL_MIN, Math.round(stage - (GUTTER_BASE + stage * GUTTER_RATIO) * 2))
-  }
+  const GUTTER_BASE = 34
+  const GUTTER_RATIO = 0.18
+  const capFor = (stage) => stage > 0
+    ? Math.max(COL_MIN, Math.round(stage - (GUTTER_BASE + stage * GUTTER_RATIO) * 2))
+    : 1400
+  const colMax = () => capFor(stageRef.current ? stageRef.current.clientWidth : 0)
   const startColDrag = (e) => {
     e.preventDefault()
     const max = colMax()
@@ -1098,11 +1100,9 @@ export default function App() {
         </button>
 
         <main className="stage" ref={stageRef} style={{
-          '--colw': colW + 'px',
-          // 两侧留白 = 34 + 舞台×0.18 × t；t 随列宽从 0（560）到 1（1400）线性。
-          // 一处算清，正文 / 输入框 / 状态行都用这个值（CSS 里只有一个 --page-gutter）。
-          '--page-gutter': (GUTTER_BASE + (stageW || 1200) * GUTTER_RATIO *
-            Math.min(1, Math.max(0, (colW - COL_MIN) / COL_SPAN))).toFixed(1) + 'px'
+          // 显示宽度 = min(偏好, 上限)。上限随舞台宽度走，所以窗口越宽、留白越大；
+          // 窗口变小时显示收窄，但偏好值不动（放大回来还能长回去）
+          '--colw': Math.min(colW, capFor(stageW)) + 'px'
         }}
           onMouseMove={onStageMove} onMouseLeave={onStageLeave} onMouseDown={onStageDown}>
         {(() => {
