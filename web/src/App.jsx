@@ -376,18 +376,15 @@ export default function App() {
   // 上限是**舞台的可用宽度**，不是写死的数字：以前钳在 1400，屏幕更宽时
   // 拖到 1400 就再也不动，看起来像"文本被设了最大宽度"。可用宽度由
   // .thread 的 padding 决定（左右各 1rem 以内），这里各留 8px 余量。
-  // 阅读栏的两侧留白：34px 打底（拖动线画在列左缘 -22px，留不够会和左边栏撞车），
-  // 另外随列宽再长 min(48px, 3vw)。拖到最宽时每侧就是 34 + 那块，
-  // 所以"拉满"是"有边距的满"，不是顶到屏幕边。
-  //
-  // 拖动上限必须和渲染用同一套数：maxW = 舞台 - 2×gutter(max)。
-  const COL_MIN = 560
-  const COL_SPAN = 840                     // 560 → 1400 映射成 t 的 0 → 1
-  const gutterMax = (stage) => 34 + Math.min(48, stage * 0.03)
+  // 两侧留白的最小值：拖动线画在"列左缘再往左 22px"，留不够就会压到左边栏的边上
+  // （抽屉右缘有 6px 的热区，标尺也在右缘），所以每侧至少 34：线落在 12px 处。
+  const COL_GUTTER = 34
   const colMax = () => {
     const el = stageRef.current
     if (!el) return 1400
-    return Math.max(COL_MIN, Math.round(el.clientWidth - gutterMax(el.clientWidth) * 2))
+    const pad = Math.min(16, Math.max(8, el.clientWidth * 0.012))
+    const gutter = Math.max(pad, COL_GUTTER)
+    return Math.max(560, Math.round(el.clientWidth - gutter * 2))
   }
   const startColDrag = (e) => {
     e.preventDefault()
@@ -1084,11 +1081,7 @@ export default function App() {
           </svg>
         </button>
 
-        <main className="stage" ref={stageRef} style={{
-          '--colw': colW + 'px',
-          // t：列宽 560 → 0，1400 → 1。CSS 用它算两侧留白（--page-gutter）
-          '--col-t': Math.min(1, Math.max(0, (colW - COL_MIN) / COL_SPAN)).toFixed(3)
-        }}
+        <main className="stage" ref={stageRef} style={{ '--colw': colW + 'px' }}
           onMouseMove={onStageMove} onMouseLeave={onStageLeave} onMouseDown={onStageDown}>
         {(() => {
           const me = convs.find(c => c.ID === convId)
