@@ -103,12 +103,11 @@ mm2 = s.js("""const c=document.querySelector('.col'), st=document.querySelector(
 check("拉满时两侧明显留白（列占舞台 50%~70%）", mm2 and 0.50 <= mm2["ratio"] <= 0.72, str(mm2))
 check("每侧留白 ≥ 舞台 15%", mm2 and mm2["gap"] >= mm2["S"] * 0.15, str(mm2))
 check("阅读栏没有超出舞台", mm2 and mm2["col"] <= mm2["S"], str(mm2))
-# 留白来自"列宽上限收窄 + 居中"：上限 = 舞台 - 2×(34 + 舞台×18%)
-cap = s.js("""const st=document.querySelector('.stage'), c=document.querySelector('.col');
-  const S=st.clientWidth, col=Math.round(c.getBoundingClientRect().width);
-  const want=Math.max(560, Math.round(S-(34+S*0.18)*2));
-  return {S, col, cap:want, gap:Math.round((S-col)/2)}""")
-check("列宽被上限卡住（不再 > 上限）", cap and cap["col"] <= cap["cap"], str(cap))
+# 留白跟着列宽线性张开：丰富（560）时只有拖动线要的 34，宽栏时加上舞台的 18%
+gut = s.js("""const st=document.querySelector('.stage');
+  const g=()=>parseFloat(getComputedStyle(st).getPropertyValue('--page-gutter'));
+  return {now: g()}""")
+check("留白已经按比例张开（>100px）", gut and gut["now"] > 100, str(gut))
 check("正文与输入框右缘对齐", mm and mm["cr"] == mm["pr"], str(mm))
 
 # 拖动线（列左缘 -22px）不能和左边栏的边叠在一起：抽屉右缘有 6px 热区
