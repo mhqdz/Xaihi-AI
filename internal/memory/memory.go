@@ -20,10 +20,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"kbapp/core/entry"
 )
 
 // 一条记忆的元数据字段
@@ -44,7 +45,7 @@ const (
 // 正文上限：一条记忆不是一篇文章，超过这个就不是"一句话能记的事"
 const MaxBodyRunes = 2000
 
-var reFM = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n`)
+
 
 // Entry 是一条记忆。Name 是文件名（不含 .md），也用于 forget。
 type Entry struct {
@@ -90,20 +91,10 @@ func (s *Store) scopes() []string {
 
 // ---------- 解析与序列化 ----------
 
+// parse 复用 kb 的 core/entry：两边是同一套 front matter 格式，
+// 以后改格式只改一处（这也是抽 core 的意义）。
 func parse(text string) (map[string]string, string) {
-	m := map[string]string{}
-	loc := reFM.FindStringSubmatchIndex(text)
-	if loc == nil {
-		return m, text
-	}
-	for _, line := range strings.Split(text[loc[2]:loc[3]], "\n") {
-		if strings.HasPrefix(line, " ") || !strings.Contains(line, ":") {
-			continue
-		}
-		kv := strings.SplitN(line, ":", 2)
-		m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
-	}
-	return m, text[loc[1]:]
+	return entry.ParseFM(text)
 }
 
 func format(fields map[string]string, body string) string {
