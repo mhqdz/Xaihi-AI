@@ -10,12 +10,6 @@ const TOOL_GROUPS = [
   { key: 'image', label: '看屏幕/看图', needs: 'vision', hint: '能接收图像' },
 ]
 
-// 某个工具是不是"要开持久化会话"的那类（关开关时用来清理）
-function needsPersistent(toolList, name) {
-  const t = (toolList || []).find(x => x.name === name)
-  return t && (t.category === 'memory' || t.category === 'hook')
-}
-
 // 配置卡（第二级：详细配置）
 //
 // 两层结构：这里既说"用哪个模型"，也存"这个模型是什么"（窗口/输出/模态/档位）。
@@ -32,7 +26,21 @@ export default function ModelForm({ v, narrow, top }) {
   const editP = v.editP
   if (!editP) return null
   const isNew = !!editP._new
-  const set = (k, val) => v.setEditP({ ...editP, [k]: val })
+  // 能力或开关变了，勾着但用不了的工具要跟着摘掉。
+  // 否则界面是"灰着但勾着"，一保存就被后端校验拒 —— 用户看到的和存下的不一致。
+  const prune = (p) => {
+    const hasImg = (p.input || []).includes('image')
+    const persist = !!p.persistent
+    const keep = (p.tools || '').split(',').map(x => x.trim()).filter(Boolean).filter(n => {
+      const t = (v.toolList || []).find(x => x.name === n)
+      if (!t) return true // 不认识的（插件）先留着，别误删
+      if (t.category === 'image' && !hasImg) return false
+      if ((t.category === 'memory' || t.category === 'hook') && !persist) return false
+      return true
+    })
+    return { ...p, tools: keep.join(',') }
+  }
+  const set = (k, val) => v.setEditP(prune({ ...editP, [k]: val }))
   const tools = (editP.tools || '').split(',').map(x => x.trim()).filter(Boolean)
   const lst = (v.modelList || {})[editP.endpoint] || null
   const found = (lst && lst.models) || []
@@ -50,24 +58,24 @@ export default function ModelForm({ v, narrow, top }) {
   const onModel = (val) => {
     const m = found.find(x => x.id === val)
     if (!m) { set('model', val); return }
-    v.setEditP({
+    v.setEditP(prune({
       ...editP, model: val,
       context_window: m.context_window || editP.context_window || '',
       max_tokens_out: m.max_tokens || editP.max_tokens_out || '',
       input: m.input && m.input.length ? m.input : (editP.input && editP.input.length ? editP.input : ['text']),
       effort_levels: m.effort_levels && m.effort_levels.length ? m.effort_levels : (editP.effort_levels || [])
-    })
+    }))
   }
   // 用上游现在的值覆盖这四项（不选中也能按，比如手写过 id 之后）
   const pullCaps = () => {
     if (!cur) return
-    v.setEditP({
+    v.setEditP(prune({
       ...editP,
       context_window: cur.context_window || editP.context_window || '',
       max_tokens_out: cur.max_tokens || editP.max_tokens_out || '',
       input: cur.input && cur.input.length ? cur.input : editP.input,
       effort_levels: cur.effort_levels && cur.effort_levels.length ? cur.effort_levels : editP.effort_levels
-    })
+    }))
   }
   const levels = (editP.effort_levels || []).length
     ? ['none', ...editP.effort_levels.filter(x => x !== 'none')]
@@ -168,11 +176,7 @@ export default function ModelForm({ v, narrow, top }) {
         <SwitchRow label="持久化会话"
           hint="记忆与钩子工具需要它；纯执行用的配置别开"
           checked={!!editP.persistent}
-          onChange={x => {
-            // 关掉时把依赖它的工具一起摘掉，免得留下一份保存必被拒的配置
-            if (!x) set('tools', tools.filter(n => !needsPersistent(v.toolList, n)).join(','))
-            set('persistent', x)
-          }} />
+          onChange={x => set('persistent', x)} />
 
         <Section>可用工具</Section>
         {/* 工具按分类分组：记忆/钩子要先开「持久化会话」，图像类要有看图能力。
