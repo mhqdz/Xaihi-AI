@@ -2,6 +2,20 @@ import React from 'react'
 import Card from './Card'
 import { Section, Field, LinkRow, ChoiceGrid, SwitchRow, TagInput } from './form'
 
+// 工具分组：和 internal/toolmeta 的分类对应。needs 说明"这一组要什么才能选"。
+const TOOL_GROUPS = [
+  { key: 'core', label: '常规工具' },
+  { key: 'memory', label: '记忆工具', needs: 'persistent', hint: '打开持久化会话' },
+  { key: 'hook', label: '钩子工具', needs: 'persistent', hint: '打开持久化会话' },
+  { key: 'image', label: '看屏幕/看图', needs: 'vision', hint: '能接收图像' },
+]
+
+// 某个工具是不是"要开持久化会话"的那类（关开关时用来清理）
+function needsPersistent(toolList, name) {
+  const t = (toolList || []).find(x => x.name === name)
+  return t && (t.category === 'memory' || t.category === 'hook')
+}
+
 // 配置卡（第二级：详细配置）
 //
 // 两层结构：这里既说"用哪个模型"，也存"这个模型是什么"（窗口/输出/模态/档位）。
@@ -24,6 +38,10 @@ export default function ModelForm({ v, narrow, top }) {
   const found = (lst && lst.models) || []
   const cur = found.find(m => m.id === editP.model) || null
   const hasImage = (editP.input || []).includes('image')
+  // 选中人格的预览（下拉下面显示一小段，确认选对了）
+  const personaPreview = editP.persona
+    ? ((v.personas || []).find(p => p.name === editP.persona) || {}).preview
+    : null
   const toggleImage = () => {
     const cur2 = editP.input || ['text']
     set('input', hasImage ? cur2.filter(x => x !== 'image') : [...new Set([...cur2, 'image'])])
@@ -139,15 +157,44 @@ export default function ModelForm({ v, narrow, top }) {
             onChange={e => set('compact_pct', Number(e.target.value) || 0)} />
         </Field>
 
+        <Section>人格与持久化</Section>
+        <Field label="人格" hint="personas/&lt;名字&gt;.md；留空 = 不用人格">
+          <select value={editP.persona || ''} onChange={e => set('persona', e.target.value)}>
+            <option value="">（不用人格）</option>
+            {(v.personas || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+        </Field>
+        {personaPreview ? <div className="field-hint">{personaPreview}</div> : null}
+        <SwitchRow label="持久化会话"
+          hint="记忆与钩子工具需要它；纯执行用的配置别开"
+          checked={!!editP.persistent}
+          onChange={x => {
+            // 关掉时把依赖它的工具一起摘掉，免得留下一份保存必被拒的配置
+            if (!x) set('tools', tools.filter(n => !needsPersistent(v.toolList, n)).join(','))
+            set('persistent', x)
+          }} />
+
         <Section>可用工具</Section>
-        <ChoiceGrid
-          label="勾选这个模型能调用的工具"
-          options={(v.toolList || []).map(t => ({ value: t.name, label: t.name, hint: t.description || '' }))}
-          selected={tools}
-          onToggle={name => set('tools', tools.includes(name)
-            ? tools.filter(x => x !== name).join(',')
-            : [...tools, name].join(','))}
-          />
+        {/* 工具按分类分组：记忆/钩子要先开「持久化会话」，图像类要有看图能力。
+            不合法的选项不是隐藏，而是灰掉 —— 让人看见"为什么不能选"。 */}
+        {TOOL_GROUPS.map(g => {
+          const opts = (v.toolList || []).filter(t => (t.category || 'core') === g.key)
+          if (!opts.length) return null
+          const blocked = g.needs === 'persistent' ? !editP.persistent
+            : g.needs === 'vision' ? !hasImage : false
+          return (
+            <ChoiceGrid key={g.key}
+              label={g.label + (blocked ? '（先' + g.hint + '）' : '')}
+              options={opts.map(t => ({
+                value: t.name, label: t.name, hint: t.description || '', disabled: blocked,
+              }))}
+              selected={tools}
+              onToggle={name => set('tools', tools.includes(name)
+                ? tools.filter(x => x !== name).join(',')
+                : [...tools, name].join(','))}
+              />
+          )
+        })}
 
         <Section>提示词</Section>
         <LinkRow label="system" value={editP.system} onClick={v.openSystemEditor} />

@@ -96,6 +96,7 @@ export function useSettings({ refresh }) {
   const [editOriginal, setEditOriginal] = useState('')
   const [editSnap, setEditSnap] = useState('')
   const [toolList, setToolList] = useState([])
+  const [personas, setPersonas] = useState([])  // 可插拔人格（名字 + 预览）
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
@@ -131,6 +132,10 @@ export function useSettings({ refresh }) {
     setEndpoints((await api('/api/endpoints').catch(() => [])) || [])
     setSources((await api('/api/sources').catch(() => [])) || [])
   }
+  const loadPersonas = async () => {
+    setPersonas((await api('/api/personas').catch(() => [])) || [])
+  }
+
   const loadTools = async () => {
     setToolList((await api('/api/tools').catch(() => [])) || [])
     // 哪些插件没加载上、为什么。以前只有日志里有，界面上表现为"它不见了"
@@ -142,7 +147,7 @@ export function useSettings({ refresh }) {
     setSettings(s); setSetSnap(JSON.stringify(s))
   }
   // 工具/配置重新拉一遍（改完插件、工具说明后）
-  const reload = async () => { await Promise.all([loadTools(), loadSettings(), loadEndpoints()]) }
+  const reload = async () => { await Promise.all([loadTools(), loadSettings(), loadEndpoints(), loadPersonas()]) }
 
   // 新建接口时"填完就检验"。
   //
@@ -597,7 +602,7 @@ export function useSettings({ refresh }) {
   return {
     showSet, setShowSet,
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
-    toolList, toolIssues, toolForm, setToolForm, toolFormDirty, toolEdit, setToolEdit,
+    toolList, toolIssues, personas, toolForm, setToolForm, toolFormDirty, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     shotInfo,
     formDirty, editorDirty, settingsDirty, anyDirty, nudge,

@@ -188,6 +188,43 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·forget·list
 （handoff_fail 只在子会话里，不在列表里暴露）。
 
+
+### 人格（personas）与「持久化会话」
+
+人格是**可插拔的文本**：`~/.data/xaihi/personas/<名字>.md`。profile 用 `persona` 字段引用，
+多个 profile 引用同一份 = 同一个她换不同模型，记忆因此是共同的。
+
+```
+GET /api/personas        → [{name, preview}]（配置卡的下拉用它）
+profile.persona          "xaihi"（空 = 不用人格）
+profile.persistent       true（持久化会话：允许记忆/钩子工具，且注入记忆）
+```
+
+拼装顺序：**人格 → profile.system（任务指令）→ 记忆 → 已知事实 → 摘要**。
+记忆只在 `persistent=true` 时注入（纯执行用的 profile 不该带着她的记忆）。
+
+保存时的校验（UI 会禁用不合法的选项，这里再兜一层）：
+
+| 情况 | 结果 |
+|---|---|
+| 引用不存在的人格 / 名字带路径分隔符 | 拒绝 |
+| `tools` 里有 memory_*/hook_* 但 `persistent=false` | 拒绝：「需要先打开持久化会话」 |
+| `persistent=true` 但没选人格 | 拒绝：「人格决定记忆属于谁」 |
+| `tools` 里有 image 类（screenshot/view_image）但 `input` 不含 image | 拒绝：「模型不能接收图像」 |
+
+### 工具分类
+
+`/api/tools` 每项带 `category`（core / memory / hook / image）和 `needs`（如 `vision`）。
+配置卡按这四组展示；memory/hook 组在 `persistent` 关时灰掉，image 组在不能看图时灰掉
+（**灰掉而不是隐藏** —— 让人看见"为什么不能选"）。
+
+### 钩子工具（agent 自己设闹钟）
+
+`hook_add` / `hook_list` / `hook_rm`：和 CLI 写同一套 `hooks/*.json`，区别是入口在对话里。
+
+- `hook_add(name, prompt, mode?, quota?, cooldown?)` 会把**当前会话 id** 写进 `conv_id`；
+- 触发时写回那个会话；会话不存在/没绑定 → 落到收件箱（观察会话）。
+
 ### 触发器：本地 socket（**不在 TCP 上**）
 
 **判断"什么时候醒"不归 agent 管。** 定时、进程出现/消失、文件变化都是确定性的，

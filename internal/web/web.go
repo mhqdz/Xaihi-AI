@@ -226,6 +226,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/wake", s.handleWake)
 	mux.HandleFunc("/api/tasks", s.handleTasks)
 	mux.HandleFunc("/api/tasks/", s.handleTasks)
+	// GET /api/personas：可插拔人格（名字 + 预览），配置卡的下拉用它
+	mux.HandleFunc("/api/personas", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, 405, map[string]string{"error": "GET only"})
+			return
+		}
+		names := config.ListPersonas()
+		out := make([]map[string]any, 0, len(names))
+		for _, n := range names {
+			body, _ := config.LoadPersona(n)
+			preview := body
+			if r := []rune(preview); len(r) > 160 {
+				preview = string(r[:160]) + "…"
+			}
+			out = append(out, map[string]any{"name": n, "preview": preview})
+		}
+		writeJSON(w, 200, out)
+	})
 	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})
@@ -242,7 +260,9 @@ func (s *Server) Handler() http.Handler {
 			out = append(out, map[string]any{"name": sp.Name, "description": sp.Description,
 				"params": sp.Params, "required": sp.Required, "command": sp.Command,
 				"source": sp.Source, "path": sp.Path,
-				"timeout_ms": sp.TimeoutMs, "persistent": sp.Persistent})
+				"timeout_ms": sp.TimeoutMs, "persistent": sp.Persistent,
+				// 配置界面按分类分组、按开关/能力禁用，靠这两个字段
+				"category": sp.Category, "needs": sp.Needs})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i]["name"].(string) < out[j]["name"].(string) })
 		writeJSON(w, 200, out)

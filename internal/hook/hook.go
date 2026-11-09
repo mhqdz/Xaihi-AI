@@ -47,6 +47,9 @@ type Def struct {
 	Prompt      string `json:"prompt"`
 	QuotaPerDay int    `json:"quota_per_day"`
 	CooldownS   int    `json:"cooldown_s"`
+	// ConvID：钩子属于哪个会话（在哪儿交代的事，就在哪儿回话）。
+	// 0 = 收件箱（没有绑定的会话，比如 CLI 建的）。
+	ConvID int64 `json:"conv_id,omitempty"`
 }
 
 // QuotaOrDefault / CooldownOrDefault：给 CLI 展示用（0 表示默认）
@@ -355,8 +358,12 @@ func Write(dir string, d Def) error {
 	}
 	// 用固定字段顺序手写，保证 diff 干净（json.Marshal 的 map 顺序不稳定）
 	var b strings.Builder
-	fmt.Fprintf(&b, "{\n  \"name\": %q,\n  \"mode\": %q,\n  \"prompt\": %q,\n  \"quota_per_day\": %d,\n  \"cooldown_s\": %d\n}\n",
+	fmt.Fprintf(&b, "{\n  \"name\": %q,\n  \"mode\": %q,\n  \"prompt\": %q,\n  \"quota_per_day\": %d,\n  \"cooldown_s\": %d",
 		d.Name, d.Mode, d.Prompt, d.QuotaPerDay, d.CooldownS)
+	if d.ConvID > 0 {
+		fmt.Fprintf(&b, ",\n  \"conv_id\": %d", d.ConvID)
+	}
+	b.WriteString("\n}\n")
 	tmp := filepath.Join(dir, "."+d.Name+".tmp")
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
 		return err

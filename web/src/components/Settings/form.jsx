@@ -84,8 +84,10 @@ export function ChoiceGrid({ label, options, selected, onToggle, hint }) {
         {options.map(o => {
           const on = selected.includes(o.value)
           return (
-            <label key={o.value} title={o.hint || ''} className={'choice' + (on ? ' on' : '')}>
-              <input type="checkbox" checked={on} onChange={() => onToggle(o.value)} />
+            <label key={o.value} title={o.hint || ''}
+              className={'choice' + (on ? ' on' : '') + (o.disabled ? ' ro' : '')}>
+              <input type="checkbox" checked={on} disabled={!!o.disabled}
+                onChange={() => { if (!o.disabled) onToggle(o.value) }} />
               <span>{o.label}</span>
             </label>
           )

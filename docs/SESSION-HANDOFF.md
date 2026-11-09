@@ -61,7 +61,31 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 - 钩子产出**倾向写回创建它的会话**（选项 A，尚未实现）。
 - profile 可编辑，mem 可选，人格文件先不管（按需选择/拷贝）。
 
-## 五、正在做：工具分类（一半）
+## 五、已完成：人格可插拔 + 工具分类 + 钩子工具
+
+**A 人格可插拔**（已完成）
+- `config/personas.go`：`LoadPersona/ListPersonas/SavePersona`，目录 `<data>/personas/<名字>.md`
+- `Profile.Persona` + `Profile.Persistent` 字段
+- `agent.New` 把人格拼在 `System` 前（`estimateChars`/`guardSystem` 看到的是最终内容）
+- 记忆只在 `Persistent=true` 时注入（两处拼装点）
+- 校验：人格必须存在；memory/hook 工具要 persistent；image 工具要 input 含 image；
+  persistent 必须有人格
+- 前端：配置卡「人格与持久化」段（下拉 + 预览 + 开关），关开关时自动摘掉依赖它的工具
+
+**B 工具分类**（已完成）
+- `/api/tools` 带 `category`/`needs`；前端按 core/memory/hook/image 四组渲染，不满足条件的**灰掉**
+- `/api/personas` 列表接口
+
+**C 钩子工具**（已完成）
+- `hook_add/hook_list/hook_rm`，复用 `internal/hook` 的 Write/Remove/LoadDir
+- `hook.Def.ConvID`：工具创建时绑当前会话，触发写回；没绑/会话没了 → 收件箱
+- 单测：`TestHookTools`（落盘、绑会话、list、rm、非法名字）
+
+**D 收口**（已完成）
+- 触发写回绑定会话（`convExists` 兜底）
+- 像素基线已重拍，`pixel_diff.py compare` 6/6
+
+## 五之二、旧的"工具分类（一半）"记录（已被上面取代）
 
 已完成：
 

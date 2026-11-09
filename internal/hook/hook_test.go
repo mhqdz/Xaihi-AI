@@ -214,3 +214,25 @@ func TestValidateFields(t *testing.T) {
 		t.Error("负冷却应该被拒")
 	}
 }
+
+// conv_id 要能落盘并读回（钩子绑会话）
+func TestWriteConvID(t *testing.T) {
+	dir := t.TempDir()
+	d := Def{Name: "bound", Prompt: "盯着 steam", QuotaPerDay: 3, CooldownS: 2, ConvID: 42}
+	if err := Write(dir, d); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	defs, _ := LoadDir(dir)
+	if len(defs) != 1 || defs[0].ConvID != 42 {
+		t.Fatalf("conv_id 没落盘：%+v", defs)
+	}
+	// 不绑会话时不该写这个字段（保持文件干净）
+	d2 := Def{Name: "free", Prompt: "p"}
+	if err := Write(dir, d2); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "free.json"))
+	if strings.Contains(string(b), "conv_id") {
+		t.Errorf("没绑会话却写了 conv_id：%s", b)
+	}
+}

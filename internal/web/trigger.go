@@ -20,9 +20,15 @@ import (
 // 由 main 调用（观察器也要用它触发内置事件），之后用 SetHooks 交给 Server。
 func (s *Server) NewHooks(dir string) *hook.Manager {
 	m := hook.New(dir, func(ctx context.Context, d hook.Def, text string) error {
-		conv, err := s.watchConv()
-		if err != nil {
-			return err
+		// 绑了会话就写回那个会话（在哪儿交代的事，就在哪儿回话）；
+		// 没绑、或者那个会话已经没了，落到收件箱。
+		conv := d.ConvID
+		if conv <= 0 || !s.convExists(conv) {
+			c, err := s.watchConv()
+			if err != nil {
+				return err
+			}
+			conv = c
 		}
 		s.runTurn(ctx, conv, text, "trigger:"+d.Name)
 		return nil
@@ -38,7 +44,18 @@ func (s *Server) NewHooks(dir string) *hook.Manager {
 // SetHooks 把管理器交给触发层（只挂在 unix socket 上，不上 TCP）
 func (s *Server) SetHooks(m *hook.Manager) { s.hk = m }
 
-// watchConv 找（或建）「观察」会话
+// convExists：绑定的会话还在不在（归档/删了就兜底到收件箱）
+func (s *Server) convExists(id int64) bool {
+	if id <= 0 {
+		return false
+	}
+	if _, err := s.st.Get(fmt.Sprint(id)); err != nil {
+		return false
+	}
+	return true
+}
+
+// watchConv 找（或建）「观察」会话（钩子没绑会话时的收件箱）
 func (s *Server) watchConv() (int64, error) {
 	list, err := s.st.List()
 	if err != nil {

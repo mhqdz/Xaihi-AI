@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"syscall"
+
+	"xaihi/internal/toolmeta"
 )
 
 // Profile = 模型 + 思考强度 + 提示词 + 工具集。前端通过 CRUD 管理，解码/校验都在 Go。
@@ -19,11 +21,17 @@ type Profile struct {
 	// 窗口/模态/档位这些"模型事实"就存在这份配置里 —— 读的时候只看它，
 	// 不去问上游、也不查缓存：配置文件必须能离线解析出完整参数。
 	// 新建时由"选模型"自动填（下拉拉到的能力），上游没报的就让人自己填。
-	Model           string   `json:"model"`
-	APIKey          string   `json:"api_key,omitempty"`          // 空=用全局 cfg.APIKey；云端填自己的 key
-	Provider        string   `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
-	ReasoningEffort string   `json:"reasoning_effort,omitempty"` // none|low|medium|high
-	System          string   `json:"system"`
+	Model           string `json:"model"`
+	APIKey          string `json:"api_key,omitempty"`          // 空=用全局 cfg.APIKey；云端填自己的 key
+	Provider        string `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // none|low|medium|high
+	System          string `json:"system"`
+	// Persona：引用 personas/<名字>.md（可插拔的人格）。空 = 不用人格。
+	// 多个 profile 引用同一份人格 = 同一个"她"换不同模型；记忆也就成了共同的。
+	Persona string `json:"persona,omitempty"`
+	// Persistent：持久化会话 —— 打开才允许选记忆/钩子工具，
+	// 也才把记忆注入提示词（纯执行用的 profile 不该带着她的记忆）。
+	Persistent      bool     `json:"persistent,omitempty"`
 	Tools           []string `json:"tools"`
 	KeepMessages    int      `json:"keep_messages,omitempty"`
 	Summarizer      string   `json:"summarizer,omitempty"`        // 用哪个 profile 写摘要；空=自己
@@ -228,6 +236,34 @@ func ValidateProfileWith(p Profile, extraEndpoints map[string]bool) error {
 	}
 	if p.MaxTokensOut < 0 {
 		return fmt.Errorf("输出上限不能是负数")
+	}
+	// 人格：引用必须真的存在（名字即文件名，不允许路径分隔符）
+	if p.Persona != "" {
+		if !reNameOK.MatchString(p.Persona) {
+			return fmt.Errorf("人格名只能用 a-z0-9_-（最多 32 字）：%q", p.Persona)
+		}
+		if _, err := LoadPersona(p.Persona); err != nil {
+			return fmt.Errorf("找不到人格 %q（%s）", p.Persona, PersonasDir())
+		}
+	}
+	// 工具与开关/能力的一致性：界面会禁用不合法的组合，这里再兜一层，
+	// 免得通过 API 写进一份"看着能跑、用起来缺件"的配置。
+	hasImage := false
+	for _, x := range p.Input {
+		if x == "image" {
+			hasImage = true
+		}
+	}
+	for _, name := range p.Tools {
+		if toolmeta.NeedsPersistent(name) && !p.Persistent {
+			return fmt.Errorf("工具 %s 需要先打开「持久化会话」", name)
+		}
+		if toolmeta.NeedsVision(name) && !hasImage {
+			return fmt.Errorf("工具 %s 需要模型能接收图像（input 里加 image）", name)
+		}
+		if p.Persistent && p.Persona == "" {
+			return fmt.Errorf("「持久化会话」需要先选一份人格（人格决定记忆属于谁）")
+		}
 	}
 	for _, x := range p.EffortLevels {
 		if !EffortLevelOK(x) {

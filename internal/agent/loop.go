@@ -220,7 +220,11 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 			logx.Info("compact conv=%s msgs=%d->%d chars=%d->%d budget=%d keep=%d",
 				c.ID, before, len(msgs), beforeChars, afterChars, a.compactAt(), keep)
 		}
-		memText := a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
+		// 记忆只在持久化会话里注入：纯执行用的 profile 不该带着"她"的记忆
+		memText := ""
+		if a.profile.Persistent {
+			memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
+		}
 		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 			sys := a.profile.System
 			// 顺序：人格 → 记忆 → 已知事实（越易变越靠后，KV cache 才能多命中）
@@ -411,7 +415,8 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 					a.OnToolStart(call.Function.Name, call.Function.Arguments)
 				}
 				t0 := time.Now()
-				res, err := spec.Run(ctx, args, &tools.Env{Messages: c.Messages, SpawnTask: a.SpawnTask, FailTask: a.FailTask, Memory: a.mem})
+				res, err := spec.Run(ctx, args, &tools.Env{Messages: c.Messages, SpawnTask: a.SpawnTask, FailTask: a.FailTask,
+					Memory: a.mem, ConvID: convIDOf(c)})
 				ms := time.Since(t0).Milliseconds()
 				toolMs[i] = ms
 				logx.Info("tool.run name=%s ms=%d", call.Function.Name, ms)
@@ -740,7 +745,11 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	}
 	msgs, _ := toWire(c.Messages, reg)
 	msgs = compact(msgs, keep, a.compactAt())
-	if memText := a.mem.Render(memory.BudgetFor(a.profile.ContextWindow)); a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
+	memText := ""
+	if a.profile.Persistent {
+		memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
+	}
+	if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 		sys := a.profile.System
 		if memText != "" {
 			if strings.TrimSpace(sys) != "" {
@@ -759,4 +768,10 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 		}
 	}
 	return total, a.maxChars()
+}
+
+// convIDOf：会话 id 转 int64（工具要用它绑钩子）
+func convIDOf(c *store.Conversation) int64 {
+	n, _ := strconv.ParseInt(c.ID, 10, 64)
+	return n
 }

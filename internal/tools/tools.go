@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -19,9 +20,10 @@ import (
 	"xaihi/internal/logx"
 
 	"time"
+	"xaihi/internal/hook"
 	"xaihi/internal/memory"
-	"xaihi/internal/toolmeta"
 	"xaihi/internal/store"
+	"xaihi/internal/toolmeta"
 )
 
 // shotQuota 由 main 注入：看屏幕的每日配额（返回"还有没有额度"和"今天已用几张"）。
@@ -40,25 +42,27 @@ type Env struct {
 	FailTask func(reason, evidence string) (string, error)
 	// Memory：长期记忆（跨会话）；为 nil 时记忆工具不可用
 	Memory *memory.Store
+	// ConvID：当前会话（钩子绑会话用：在哪个会话里说"盯着X"，就在那个会话里提醒）
+	ConvID int64
 }
 
 type Spec struct {
 	Name        string
 	Description string
-	Source      string         // builtin（Go 内置）或 plugin（外置插件）
-	Path        string         // 插件清单路径（builtin 为空）
-	Command     []string       // 插件启动命令（builtin 为空；配置界面要回显它才能编辑）
-	TimeoutMs   int            // 插件声明的超时（0 = 内置/默认）
-	Persistent  bool           // 是否常驻进程
+	Source      string   // builtin（Go 内置）或 plugin（外置插件）
+	Path        string   // 插件清单路径（builtin 为空）
+	Command     []string // 插件启动命令（builtin 为空；配置界面要回显它才能编辑）
+	TimeoutMs   int      // 插件声明的超时（0 = 内置/默认）
+	Persistent  bool     // 是否常驻进程
 	// Category：工具分类（core / memory / hook / image），配置界面按它分组，
 	// 也用它决定"这个工具要不要先开某个 profile 开关"。
 	Category string
 	// Needs：需要的模型能力（目前只有 vision = 能接收图像）。
 	// profile 的 input 不含 image 时，这类工具不该被选上。
-	Needs []string
-	Params      map[string]any // JSON Schema properties
-	Required    []string
-	Run         func(ctx context.Context, args map[string]any, env *Env) (any, error)
+	Needs    []string
+	Params   map[string]any // JSON Schema properties
+	Required []string
+	Run      func(ctx context.Context, args map[string]any, env *Env) (any, error)
 }
 
 // 最近一次 Registry() 里插件加载失败的说明。
@@ -123,6 +127,18 @@ func Registry() map[string]*Spec {
 			Params: map[string]any{
 				"name": map[string]any{"type": "string", "description": "记忆名字（memory_list 里的 name）"},
 			}, Required: []string{"name"}, Run: runMemoryForget},
+		{Name: "hook_add", Category: toolmeta.Hook, Description: "给她设一个「闹钟」：以后由外部事件（或定时）触发时，她会在某个会话里被叫醒。" +
+			"参数 name（小写字母数字连字符）、prompt（叫醒时看到的话）、mode（speak 说话 / silent 只做事）、" +
+			"quota（每天最多几次，默认 10）、cooldown（秒，默认 3）。不会立刻执行，只是注册。",
+			Params: map[string]any{"name": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"},
+				"mode": map[string]any{"type": "string"}, "quota": map[string]any{"type": "integer"},
+				"cooldown": map[string]any{"type": "integer"}}, Required: []string{"name", "prompt"},
+			Run: runHookAdd},
+		{Name: "hook_list", Category: toolmeta.Hook,
+			Description: "列出已注册的钩子（名字/模式/配额/冷却/属于哪个会话）", Run: runHookList},
+		{Name: "hook_rm", Category: toolmeta.Hook, Description: "删掉一个钩子",
+			Params: map[string]any{"name": map[string]any{"type": "string"}}, Required: []string{"name"},
+			Run: runHookRemove},
 		{Name: "memory_list", Category: toolmeta.Memory, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
 			"回答「你记得什么」或准备忘掉某条之前用。",
 			Params: map[string]any{}, Run: runMemoryList},
@@ -185,6 +201,21 @@ func SchemaJSON(reg map[string]*Spec) []map[string]any {
 		})
 	}
 	return out
+}
+
+// intArg 读一个整型参数（JSON 解出来是 float64），缺省或非法时用 def
+func intArg(args map[string]any, k string, def int) int {
+	switch v := args[k].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n
+		}
+	}
+	return def
 }
 
 func str(args map[string]any, k string) string {
@@ -559,4 +590,75 @@ func runMemoryList(ctx context.Context, args map[string]any, env *Env) (any, err
 		fmt.Fprintf(&b, "%s  [%s] %s\n    %s\n", e.Name, kind, e.Created(), e.Body)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// ---------- 钩子（触发器）----------
+//
+// 和 CLI 走同一套文件（hooks/*.json），只是入口不同：这里让 agent 在对话里
+// 把"盯着 steam，玩久了提醒我"直接变成一条钩子，不用人去跑命令。
+// 文件仍由 xaihi 维护（Write 负责校验与原子写），热重载 5 秒内生效。
+
+func hookDir() string { return config.DataPath("hooks") }
+
+func runHookAdd(_ context.Context, args map[string]any, env *Env) (any, error) {
+	name := strings.TrimSpace(str(args, "name"))
+	prompt := strings.TrimSpace(str(args, "prompt"))
+	mode := strings.TrimSpace(str(args, "mode"))
+	if mode == "" {
+		mode = hook.ModeSpeak
+	}
+	d := hook.Def{
+		Name: name, Prompt: prompt, Mode: mode,
+		QuotaPerDay: intArg(args, "quota", 0),
+		CooldownS:   intArg(args, "cooldown", 0),
+		ConvID:      env.ConvID, // 绑到当前会话：在哪儿交代的，就在哪儿回话
+	}
+	if err := hook.Write(hookDir(), d); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "已注册钩子 %s（%s，配额 %d/天，冷却 %ds）", d.Name, d.Mode,
+		d.QuotaOrDefault(), d.CooldownOrDefault())
+	if d.ConvID > 0 {
+		b.WriteString(fmt.Sprintf("，触发时写回会话 #%d", d.ConvID))
+	}
+	b.WriteString("\n它不会立刻执行 —— 由外部事件触发（cron / 脚本 / 观察器）。5 秒内生效。")
+	return b.String(), nil
+}
+
+func runHookList(_ context.Context, _ map[string]any, _ *Env) (any, error) {
+	defs, _ := hook.LoadDir(hookDir())
+	if len(defs) == 0 {
+		return "（还没有钩子）", nil
+	}
+	var b strings.Builder
+	for _, d := range defs {
+		fmt.Fprintf(&b, "- %s  %s  配额 %d/天  冷却 %ds  会话 %s\n    %s\n",
+			d.Name, d.Mode, d.QuotaOrDefault(), d.CooldownOrDefault(),
+			convText(d.ConvID), oneLineTxt(d.Prompt))
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func runHookRemove(_ context.Context, args map[string]any, _ *Env) (any, error) {
+	name := strings.TrimSpace(str(args, "name"))
+	if err := hook.Remove(hookDir(), name); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return "已删除钩子 " + name + "（5 秒内生效）", nil
+}
+
+func convText(id int64) string {
+	if id <= 0 {
+		return "收件箱"
+	}
+	return fmt.Sprintf("#%d", id)
+}
+
+func oneLineTxt(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 60 {
+		return string(r[:60]) + "…"
+	}
+	return s
 }

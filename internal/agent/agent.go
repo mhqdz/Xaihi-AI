@@ -42,6 +42,16 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	if profile.Model == "" {
 		profile.Model = cfg.Model
 	}
+	// 人格可插拔：personas/<name>.md 拼在任务指令前面。
+	// 拼在这里而不是拼装时，是因为"人格 + 指令"之后就不该再分开看了 ——
+	// 也保证 estimateChars / guardSystem 看到的是最终内容。
+	if persona, err := config.LoadPersona(profile.Persona); err == nil && persona != "" {
+		if strings.TrimSpace(profile.System) != "" {
+			profile.System = persona + "\n\n" + profile.System
+		} else {
+			profile.System = persona
+		}
+	}
 	// 地址和密钥来自 profile 引用的接口（老数据没迁移时 Resolve 会逐级回落）
 	r := profile.Resolve()
 	// 跟随上游的配置：这一轮开始前先看一眼现在的能力。
