@@ -185,7 +185,15 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 
 `GET /api/tools` → 每个工具含 `name / description / params / source / path`：
 
-内置工具：bash / screenshot / recall / view_image / spawn_task（handoff_fail 只在子会话里，不在列表里暴露）。
+内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·forget·list
+（handoff_fail 只在子会话里，不在列表里暴露）。
+
+**长期记忆**（`internal/memory`）：一条记忆 = `~/.data/agentd/memory/global/<id>.md`，
+front matter 是 `id / created / scope / kind / status / source`，正文人能直接改。
+每轮请求把 active 记忆按 token 预算（默认 6000）拼进 system prompt：挑的时候从新到旧、
+**拼的时候排回升序**（顺序不稳定会让上游 KV 缓存全部作废）。`memory_forget` 只标
+`archived`（文件留着，可恢复），真删是人工的 `Purge`。和 kb 的分工：**需要一直在场的
+→ 记忆；只是可能有用 → kb**。
 
 ```json
 [{"name":"bash","source":"builtin","path":"","timeout_ms":0,"persistent":false},

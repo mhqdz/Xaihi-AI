@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"unicode/utf8"
 
+	"agentd/internal/memory"
 	"agentd/internal/store"
 	"time"
 )
@@ -29,6 +30,8 @@ type Env struct {
 	SpawnTask func(kind string, card map[string]any) (int64, error)
 	// FailTask：子会话汇报失败事实（父会话不给这个工具）
 	FailTask func(reason, evidence string) (string, error)
+	// Memory：长期记忆（跨会话）；为 nil 时记忆工具不可用
+	Memory *memory.Store
 }
 
 type Spec struct {
@@ -86,6 +89,21 @@ func Registry() map[string]*Spec {
 				"reason":   map[string]any{"type": "string", "description": "一句话事实，如 CUDA OOM"},
 				"evidence": map[string]any{"type": "string", "description": "证据：命令、退出码、日志路径"},
 			}, Required: []string{"reason"}, Run: runHandoffFail},
+		{Name: "memory_save", Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
+			"只记「需要一直在场」的东西：偏好、关系、约定、关键经历。事实/资料类不要写这里，写 kb。" +
+			"一条只写一件事，一句话能说清；写多了会挤掉别的记忆。",
+			Params: map[string]any{
+				"body": map[string]any{"type": "string", "description": "正文：一句话，不加标题"},
+				"kind": map[string]any{"type": "string", "description": "偏好 / 约定 / 经历 / 事实（默认记录）"},
+			}, Required: []string{"body"}, Run: runMemorySave},
+		{Name: "memory_forget", Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
+			"name 用 memory_list 返回的名字。",
+			Params: map[string]any{
+				"name": map[string]any{"type": "string", "description": "记忆名字（memory_list 里的 name）"},
+			}, Required: []string{"name"}, Run: runMemoryForget},
+		{Name: "memory_list", Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
+			"回答「你记得什么」或准备忘掉某条之前用。",
+			Params: map[string]any{}, Run: runMemoryList},
 		{Name: "recall", Description: "在**本会话**历史里检索（不跨会话）。默认在消息正文里按关键词 OR 匹配，返回命中的片段与序号。" +
 			"需要正则时加 re=true（Go RE2 语法，示例: (鹈鹕|pelican).*(车|bike)）。" +
 			"想看某条附近上下文用 around=<序号>。level=raw 才返回整段原文（贵，慎用）。" +
@@ -463,4 +481,55 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 		{"type": "text", "text": fmt.Sprintf("图片：%s（%d KB）", p, st.Size()/1024)},
 		{"type": "image", "url": "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)},
 	}, nil
+}
+
+// ---------- 长期记忆 ----------
+
+func runMemorySave(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env.Memory == nil {
+		return "✗ 记忆不可用（没有记忆根目录）", nil
+	}
+	body, _ := args["body"].(string)
+	kind, _ := args["kind"].(string)
+	if strings.TrimSpace(kind) == "" {
+		kind = "记录"
+	}
+	e, err := env.Memory.Save("", kind, "", body)
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return fmt.Sprintf("已记住（%s，%s）", e.Name, e.Created()), nil
+}
+
+func runMemoryForget(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env.Memory == nil {
+		return "✗ 记忆不可用", nil
+	}
+	name, _ := args["name"].(string)
+	if err := env.Memory.Forget(name); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return "已忘掉 " + name + "（文件还留着，改回 active 就能恢复）", nil
+}
+
+func runMemoryList(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env.Memory == nil {
+		return "✗ 记忆不可用", nil
+	}
+	es, err := env.Memory.List()
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	if len(es) == 0 {
+		return "（还没有记忆）", nil
+	}
+	var b strings.Builder
+	for _, e := range es {
+		kind := e.Field("kind")
+		if kind == "" {
+			kind = "记录"
+		}
+		fmt.Fprintf(&b, "%s  [%s] %s\n    %s\n", e.Name, kind, e.Created(), e.Body)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }

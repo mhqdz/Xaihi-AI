@@ -220,7 +220,8 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 			logx.Info("compact conv=%s msgs=%d->%d chars=%d->%d budget=%d keep=%d",
 				c.ID, before, len(msgs), beforeChars, afterChars, a.compactAt(), keep)
 		}
-		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 {
+		memText := a.mem.Render(0)
+		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 			sys := a.profile.System
 			if len(c.KV) > 0 {
 				sys += "\n\n[已知事实]\n"
@@ -232,6 +233,12 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				for _, k := range keys {
 					sys += "- " + k + ": " + c.KV[k] + "\n"
 				}
+			}
+			if memText != "" {
+				if strings.TrimSpace(sys) != "" {
+					sys += "\n\n"
+				}
+				sys += memText
 			}
 			pfx := make([]llm.Message, 0, 2)
 			pfx = append(pfx, llm.Message{Role: "system", Content: sys})
@@ -407,7 +414,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 					a.OnToolStart(call.Function.Name, call.Function.Arguments)
 				}
 				t0 := time.Now()
-				res, err := spec.Run(ctx, args, &tools.Env{Messages: c.Messages, SpawnTask: a.SpawnTask, FailTask: a.FailTask})
+				res, err := spec.Run(ctx, args, &tools.Env{Messages: c.Messages, SpawnTask: a.SpawnTask, FailTask: a.FailTask, Memory: a.mem})
 				ms := time.Since(t0).Milliseconds()
 				toolMs[i] = ms
 				logx.Info("tool.run name=%s ms=%d", call.Function.Name, ms)
@@ -717,8 +724,15 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	}
 	msgs, _ := toWire(c.Messages, reg)
 	msgs = compact(msgs, keep, a.compactAt())
-	if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 {
-		msgs = append([]llm.Message{{Role: "system", Content: a.profile.System}}, msgs...)
+	if memText := a.mem.Render(0); a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
+		sys := a.profile.System
+		if memText != "" {
+			if strings.TrimSpace(sys) != "" {
+				sys += "\n\n"
+			}
+			sys += memText
+		}
+		msgs = append([]llm.Message{{Role: "system", Content: sys}}, msgs...)
 	}
 	total := 0
 	for _, m := range msgs {

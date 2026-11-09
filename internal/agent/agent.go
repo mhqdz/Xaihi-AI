@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentd/internal/config"
+	"agentd/internal/memory"
 	"agentd/internal/llm"
 	"agentd/internal/store"
 )
@@ -34,6 +35,7 @@ type Agent struct {
 	FailTask  func(reason, evidence string) (string, error)
 	st        store.Store
 	profile   config.Profile
+	mem       *memory.Store
 }
 
 func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
@@ -67,10 +69,16 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	if key == "" {
 		key = cfg.APIKey
 	}
-	return &Agent{cfg: cfg, llm: llm.New(base, key), st: st, profile: profile}
+	// 记忆：全局一层（跨项目累积）；项目层目录已支持，等有"项目"这个概念再启用
+	mem := memory.New(memory.DefaultRoot(config.DataDir()))
+	return &Agent{cfg: cfg, llm: llm.New(base, key), st: st, profile: profile, mem: mem}
 }
 
 func (a *Agent) Profile() config.Profile { return a.profile }
+
+// Memory 给 web 层/工具用（记忆是跨会话的，不挂在某一次 agent 实例上才合理，
+// 但早期先跟着 agent 走，等拆插件时再提到进程级）。
+func (a *Agent) Memory() *memory.Store { return a.mem }
 
 // ModelID 是发给上游的模型名（profile.model 现在是复合键，不能直接发）
 func (a *Agent) ModelID() string { return a.profile.Resolve().ModelID }
