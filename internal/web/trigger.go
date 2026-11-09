@@ -35,7 +35,7 @@ func (s *Server) NewHooks(dir string) *hook.Manager {
 	return m
 }
 
-// SetHooks 把管理器交给 HTTP 层（/api/trigger）
+// SetHooks 把管理器交给触发层（只挂在 unix socket 上，不上 TCP）
 func (s *Server) SetHooks(m *hook.Manager) { s.hk = m }
 
 // watchConv 找（或建）「观察」会话
@@ -60,10 +60,18 @@ func (s *Server) watchConv() (int64, error) {
 	return id, nil
 }
 
-// POST /api/trigger  {"hook":"名字","data":{…}}
+// TriggerMux 是"只给本地进程"的触发端点。
 //
-// 给外部脚本用：cron / inotifywait / systemd timer / 你自己的 shell 都行，
-// 判断在哪醒不归 agent 管，它只负责"被叫醒之后做什么"。
+// **故意不在 TCP 上**：触发 = 让 agent 带着 bash 跑一轮，而 18400 端口没有鉴权。
+// 挂在 unix socket 上，权限就是文件权限（0600），浏览器、局域网、别的容器都够不着。
+// cron / systemd timer / inotifywait / 你的 shell 都是本地进程，本来就该走这里。
+func (s *Server) TriggerMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/trigger", s.handleTrigger)
+	return mux
+}
+
+// POST /api/trigger  {"hook":"名字","data":{…}}  —— 仅 unix socket
 func (s *Server) handleTrigger(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, map[string]string{"error": "只支持 POST"})

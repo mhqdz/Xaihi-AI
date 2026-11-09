@@ -188,19 +188,24 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·forget·list
 （handoff_fail 只在子会话里，不在列表里暴露）。
 
-### 触发器：`POST /api/trigger`
+### 触发器：本地 socket（**不在 TCP 上**）
 
 **判断"什么时候醒"不归 agent 管。** 定时、进程出现/消失、文件变化都是确定性的，
 交给 cron / systemd timer / inotifywait / 你自己的脚本；它们调这个接口，agentd 只负责
 「被叫醒之后做什么」。
 
 ```bash
-curl -s -X POST 127.0.0.1:18400/api/trigger \
-  -H 'Content-Type: application/json' \
-  -d '{"hook":"game-exit","data":{"app":"steam"}}'
-# 或者用 CLI（agent 自己在 bash 工具里也能用）：
 agentd trigger game-exit --data '{"app":"steam"}'
+# 需要从脚本里直接打协议的话，用 socket（不是端口）：
+curl -s --unix-socket ~/.data/agentd/agentd.sock \
+  -X POST http://unix/api/trigger -H 'Content-Type: application/json' \
+  -d '{"hook":"game-exit","data":{"app":"steam"}}'
 ```
+
+**为什么不在 TCP 上**：触发 = 让 agent 带着 `bash` 跑一轮，而 `18400` 端口没有鉴权
+（见 AUDIT.md 的 R-1）。挂在 unix socket 上，权限就等于文件权限（`0600`）——
+浏览器、局域网、别的容器都够不着；而 cron / systemd timer / inotifywait / 你的 shell
+本来就是本地进程，本来就该走这里。TCP 上访问 `/api/trigger` 返回 404。
 
 | 情况 | 状态码 |
 |---|---|

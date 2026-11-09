@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -134,6 +135,22 @@ func main() {
 		} else {
 			logx.Warn("观察器初始化失败: %v", err)
 		}
+		// 触发端点只挂在 unix socket 上（TCP 端口没鉴权，不能给它加"让 agent 干活"的入口）
+		sock := config.DataPath("agentd.sock")
+		_ = os.Remove(sock) // 上次异常退出的残留
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			logx.Warn("触发 socket 起不来（trigger 命令将不可用）: %v", err)
+		} else {
+			_ = os.Chmod(sock, 0o600)
+			go func() {
+				if err := http.Serve(ln, s.TriggerMux()); err != nil && err != http.ErrServerClosed {
+					logx.Warn("触发 socket 退出: %v", err)
+				}
+			}()
+			logx.Info("触发端点 %s（仅本地 socket）", sock)
+		}
+
 		srv := &http.Server{Addr: addr, Handler: s.Handler()}
 		fmt.Fprintf(os.Stderr, "agentd %s · model=%s · http://%s\n", version, cfg.Model, addr)
 		// 优雅停机：先把进行中的轮次取消（它们会落库半截内容 + 中断说明），再退出
@@ -225,12 +242,19 @@ func main() {
 				i++
 			}
 		}
-		addr := os.Getenv("AGENTD_ADDR")
-		if addr == "" {
-			addr = "127.0.0.1:18400"
+		sock := os.Getenv("AGENTD_SOCK")
+		if sock == "" {
+			sock = config.DataPath("agentd.sock")
 		}
 		body, _ := json.Marshal(map[string]any{"hook": name, "data": data})
-		resp, err := http.Post("http://"+addr+"/api/trigger", "application/json", bytes.NewReader(body))
+		// 走 unix socket：触发是"让 agent 干活"，不开 TCP 口子
+		cl := &http.Client{Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", sock)
+			},
+		}}
+		resp, err := cl.Post("http://unix/api/trigger", "application/json", bytes.NewReader(body))
 		if err != nil {
 			fatal(err)
 		}
