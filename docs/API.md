@@ -189,6 +189,23 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 （handoff_fail 只在子会话里，不在列表里暴露）。
 
 
+### 网关要求的会话头（`session_header`）
+
+有些网关要每个请求带一个**稳定的会话 id** 做路由/提示缓存，否则直接 400
+（OpenCode Go 就是：`MissingSessionID`，要 `x-opencode-session`）。
+profile 里加一行即可：
+
+```json
+{ "name": "Xaihi", "endpoint": "Opencode Go", "model": "deepseek-v4.1-flash",
+  "session_header": "x-opencode-session" }
+```
+
+发出去的请求会带 `x-opencode-session: <会话 id>`（同一个会话每轮都是同一个值，
+跨会话不同）。留空就不发，普通上游不受影响。
+
+同时所有请求都带 `User-Agent: xaihi/<版本>` —— 网关明确要求"标注自己，
+别用通用 SDK 名"，否则流量会被当成滥用。
+
 ### 人格（personas）与「持久化会话」
 
 人格是**可插拔的文本**：`~/.data/xaihi/personas/<名字>.md`。profile 用 `persona` 字段引用，

@@ -81,7 +81,9 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	}
 	// 记忆：全局一层（跨项目累积）；项目层目录已支持，等有"项目"这个概念再启用
 	mem := memory.New(memory.DefaultRoot(config.DataDir()))
-	return &Agent{cfg: cfg, llm: llm.New(base, key), st: st, profile: profile, mem: mem}
+	cl := llm.New(base, key)
+	cl.SessionHeader = profile.SessionHeader
+	return &Agent{cfg: cfg, llm: cl, st: st, profile: profile, mem: mem}
 }
 
 func (a *Agent) Profile() config.Profile { return a.profile }

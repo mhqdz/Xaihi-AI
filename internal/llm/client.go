@@ -59,10 +59,19 @@ type Stats struct {
 	PredictedPerSec  float64
 }
 
+// UserAgent：标识自己（opencode 之类的网关明确要求"别用通用 SDK 名"）。
+// main 启动时设成 xaihi/<版本>；测试里保持 dev。
+var UserAgent = "xaihi/dev"
+
 type Client struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
+	// SessionHeader / SessionID：有些网关（比如 OpenCode Go）要求每个对话
+	// 带一个稳定的会话 id 做路由与缓存（头名如 x-opencode-session）。
+	// SessionHeader 为空就不发 —— 普通上游不受影响。
+	SessionHeader string
+	SessionID     string
 
 	mu    sync.Mutex
 	stats Stats
@@ -111,6 +120,10 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", UserAgent)
+	if c.SessionHeader != "" && c.SessionID != "" {
+		req.Header.Set(c.SessionHeader, c.SessionID)
+	}
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}

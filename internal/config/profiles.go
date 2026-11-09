@@ -21,8 +21,11 @@ type Profile struct {
 	// 窗口/模态/档位这些"模型事实"就存在这份配置里 —— 读的时候只看它，
 	// 不去问上游、也不查缓存：配置文件必须能离线解析出完整参数。
 	// 新建时由"选模型"自动填（下拉拉到的能力），上游没报的就让人自己填。
-	Model           string `json:"model"`
-	APIKey          string `json:"api_key,omitempty"`          // 空=用全局 cfg.APIKey；云端填自己的 key
+	Model  string `json:"model"`
+	APIKey string `json:"api_key,omitempty"` // 空=用全局 cfg.APIKey；云端填自己的 key
+	// SessionHeader：请求头名，值是"这个会话"的稳定 id（如 x-opencode-session）。
+	// OpenCode Go 这类网关要它做路由/提示缓存；留空 = 不发这个头。
+	SessionHeader   string `json:"session_header,omitempty"`
 	Provider        string `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // none|low|medium|high
 	System          string `json:"system"`

@@ -37,6 +37,8 @@ var version = "0.0.1-p0"
 
 func main() {
 	cfg := config.Load()
+	// 上游看得到我们是谁（而不是 Go-http-client/1.1）：OpenCode 这类网关明确要求
+	llm.UserAgent = "xaihi/" + version
 	// 日志：写 <data_dir>/xaihi.log（同时打 stderr）
 	if err := logx.Init(cfg.DataDir); err != nil {
 		fmt.Fprintf(os.Stderr, "日志初始化失败：%v（仅 stderr）\n", err)

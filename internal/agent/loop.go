@@ -140,6 +140,9 @@ func (a *Agent) flushInterjects(c *store.Conversation) {
 // SendWithTools 带上工具跑一轮（含多轮工具调用）。并行执行同一轮里的多个工具。
 func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text string,
 	onDelta func(content, reasoning string), onTool func(name, args string, result any, ms int64)) error {
+	// 会话 id 作为网关要的"稳定会话"（如 x-opencode-session）：
+	// 同一个会话每轮都带同一个值，跨轮才谈得上路由与提示缓存。
+	a.llm.SessionID = c.ID
 	reg := tools.Registry()
 	if len(a.profile.Tools) > 0 {
 		for name := range reg {
