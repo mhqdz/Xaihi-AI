@@ -237,6 +237,12 @@ export default function App() {
   const suppressTimer = useRef(null)
   const drag = useRef(null)
   const [convId, setConvId] = useState(null)
+  // 观察会话（kind=watch）的已读位置：存条数，用来算"有几条新的"
+  const [watchSeen, setWatchSeenRaw] = useState(() => Number(localStorage.getItem('watchSeen')) || 0)
+  const setWatchSeen = (n) => { setWatchSeenRaw(n); localStorage.setItem('watchSeen', String(n)) }
+  // 持久化会话（触发器写进来的那个）：列表里 kind=watch 的那条
+  const watchConv = convs.find(c => c.Kind === 'watch')
+  const watchUnread = watchConv ? Math.max(0, (watchConv.N || 0) - watchSeen) : 0
   const [title, setTitle] = useState('新会话')
   const [msgs, setMsgs] = useState([])
   const visible = msgs.filter(m => m.role !== 'tool')   // 工具结果不计入轮次 ✓
@@ -1019,6 +1025,16 @@ export default function App() {
           >
           <span className="edge" onMouseDown={startDrag} aria-hidden="true" />
           <div className="ef-figs drawer-figs">
+            {/* 持久化会话（观察）的入口：她主动说话都写在这里。
+                数字是"自上次打开以来新增的条数"，点了就跳过去并清零。 */}
+            {watchConv ? (
+              <a className={'watch-fig' + (watchUnread > 0 ? ' unread' : '')}
+                title={'观察会话：她主动说话的地方' + (watchUnread > 0 ? '（' + watchUnread + ' 条新的）' : '')}
+                onClick={() => { openConv(watchConv.ID); setWatchSeen(watchConv.N || 0) }}>
+                <FigCell value={watchUnread > 0 ? watchUnread : (watchConv.N || 0)} />
+                <span>观察</span>
+              </a>
+            ) : null}
             <a className={tab === 'live' ? 'on' : ''} onClick={() => setTab('live')}
                title="只看会话"><FigCell value={convs.length} /><span>会话</span></a>
             <a className={tab === 'archive' ? 'on' : ''} onClick={() => setTab('archive')}
@@ -1066,7 +1082,7 @@ export default function App() {
           </div>
           <div className="drawer-foot">
             <button className="foot-btn wide-hide" onClick={() => settingsUI.setShowSet(true)} title="设置">设置</button>
-            <span className="foot-mark">WORKSPACE / AGENT</span>
+            <span className="foot-mark">WORKSPACE / XAIHI-AI</span>
           </div>
         </aside>
         <button className={'side-toggle' + (sideOpen ? '' : ' collapsed')}
@@ -1125,7 +1141,7 @@ export default function App() {
             onWheel={e => { if (e.deltaY < 0) stickRef.current = false }}>
             {msgs.length === 0 ? (
               <div className="col empty">
-                <div className="eyebrow">LOCAL AGENT CONSOLE</div>
+                <div className="eyebrow">XAIHI-AI CONSOLE</div>
                 <h1>选一个 profile，说一句话<br /><em>剩下的交给它：调工具、读屏幕、查知识库</em></h1>
                 <p className="lead">过程会留在左侧记录里；工具输出、思考链、截图都会附在回复下面。</p>
                 <div className="panel ef-panel cut-tl">
@@ -1273,7 +1289,7 @@ export default function App() {
         ) : null}
         <aside className="rail" inert={settingsUI.showSet ? '' : undefined}>
           <span className={'jdot' + (busy ? ' busy' : '')} />
-          <span className="vt">AGENT EXECUTE</span>
+          <span className="vt">XAIHI-AI</span>
           <span className="rn" title="滚轮切换轮次"
             onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setPeek({ open: true, idx: curIdx(), top: r.top + r.height / 2 }) }}
             onMouseLeave={() => setPeek({ open: false, idx: -1, top: 0 })}
