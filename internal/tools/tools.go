@@ -20,6 +20,7 @@ import (
 
 	"time"
 	"xaihi/internal/memory"
+	"xaihi/internal/toolmeta"
 	"xaihi/internal/store"
 )
 
@@ -49,6 +50,12 @@ type Spec struct {
 	Command     []string       // 插件启动命令（builtin 为空；配置界面要回显它才能编辑）
 	TimeoutMs   int            // 插件声明的超时（0 = 内置/默认）
 	Persistent  bool           // 是否常驻进程
+	// Category：工具分类（core / memory / hook / image），配置界面按它分组，
+	// 也用它决定"这个工具要不要先开某个 profile 开关"。
+	Category string
+	// Needs：需要的模型能力（目前只有 vision = 能接收图像）。
+	// profile 的 input 不含 image 时，这类工具不该被选上。
+	Needs []string
 	Params      map[string]any // JSON Schema properties
 	Required    []string
 	Run         func(ctx context.Context, args map[string]any, env *Env) (any, error)
@@ -72,15 +79,23 @@ func LoadWarnings() []string {
 
 func Registry() map[string]*Spec {
 	m := map[string]*Spec{}
+	defer func() {
+		// 没标分类的一律 core（插件默认也是 core）
+		for _, sp := range m {
+			if sp.Category == "" {
+				sp.Category = toolmeta.Core
+			}
+		}
+	}()
 	for _, s := range []*Spec{
 		{Name: "bash", Description: "在本机执行一条 shell 命令（默认 180 秒超时，到点杀整个进程组）。",
 			Params: map[string]any{"command": map[string]any{"type": "string", "description": "完整 shell 命令"},
 				"timeout": map[string]any{"type": "integer", "description": "超时秒数，默认 180，最大 600"}},
 			Required: []string{"command"}, Run: runBash},
-		{Name: "screenshot", Description: "截屏并返回文字说明 + 截屏原图（模型能看到像素）。用于判断窗口内容/排版/报错。",
+		{Name: "screenshot", Category: toolmeta.Image, Needs: []string{"vision"}, Description: "截屏并返回文字说明 + 截屏原图（模型能看到像素）。用于判断窗口内容/排版/报错。",
 			Params: map[string]any{"question": map[string]any{"type": "string", "description": "可留空；留空只返回截图，填了也不会回显"}},
 			Run:    runScreenshot},
-		{Name: "view_image", Description: "打开本机的一张图片给模型看（png/jpg/webp/gif，≤8MB）。" +
+		{Name: "view_image", Category: toolmeta.Image, Needs: []string{"vision"}, Description: "打开本机的一张图片给模型看（png/jpg/webp/gif，≤8MB）。" +
 			"用于验收渲染产物、查看截图文件；支持 ~/ 开头和通配符（取第一个匹配）。",
 			Params: map[string]any{
 				"path": map[string]any{"type": "string", "description": "图片路径（绝对路径或 ~/…）"},
@@ -96,19 +111,19 @@ func Registry() map[string]*Spec {
 				"reason":   map[string]any{"type": "string", "description": "一句话事实，如 CUDA OOM"},
 				"evidence": map[string]any{"type": "string", "description": "证据：命令、退出码、日志路径"},
 			}, Required: []string{"reason"}, Run: runHandoffFail},
-		{Name: "memory_save", Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
+		{Name: "memory_save", Category: toolmeta.Memory, Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
 			"只记「需要一直在场」的东西：偏好、关系、约定、关键经历。事实/资料类不要写这里，写 kb。" +
 			"一条只写一件事，一句话能说清；写多了会挤掉别的记忆。",
 			Params: map[string]any{
 				"body": map[string]any{"type": "string", "description": "正文：一句话，不加标题"},
 				"kind": map[string]any{"type": "string", "description": "偏好 / 约定 / 经历 / 事实（默认记录）"},
 			}, Required: []string{"body"}, Run: runMemorySave},
-		{Name: "memory_forget", Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
+		{Name: "memory_forget", Category: toolmeta.Memory, Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
 			"name 用 memory_list 返回的名字。",
 			Params: map[string]any{
 				"name": map[string]any{"type": "string", "description": "记忆名字（memory_list 里的 name）"},
 			}, Required: []string{"name"}, Run: runMemoryForget},
-		{Name: "memory_list", Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
+		{Name: "memory_list", Category: toolmeta.Memory, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
 			"回答「你记得什么」或准备忘掉某条之前用。",
 			Params: map[string]any{}, Run: runMemoryList},
 		{Name: "recall", Description: "在**本会话**历史里检索（不跨会话）。默认在消息正文里按关键词 OR 匹配，返回命中的片段与序号。" +
