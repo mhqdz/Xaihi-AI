@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"agentd/internal/config"
-	"agentd/internal/memory"
 	"agentd/internal/llm"
+	"agentd/internal/memory"
 	"agentd/internal/store"
 )
 

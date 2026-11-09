@@ -188,6 +188,41 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·forget·list
 （handoff_fail 只在子会话里，不在列表里暴露）。
 
+### 触发器：`POST /api/trigger`
+
+**判断"什么时候醒"不归 agent 管。** 定时、进程出现/消失、文件变化都是确定性的，
+交给 cron / systemd timer / inotifywait / 你自己的脚本；它们调这个接口，agentd 只负责
+「被叫醒之后做什么」。
+
+```bash
+curl -s -X POST 127.0.0.1:18400/api/trigger \
+  -H 'Content-Type: application/json' \
+  -d '{"hook":"game-exit","data":{"app":"steam"}}'
+# 或者用 CLI（agent 自己在 bash 工具里也能用）：
+agentd trigger game-exit --data '{"app":"steam"}'
+```
+
+| 情况 | 状态码 |
+|---|---|
+| 触发成功（**立刻返回**，模型在后台跑） | 200 `{ok:true,msg}` |
+| 冷却中（默认 3 秒，防脚本抖动） | 409 |
+| 今天配额用完（默认每钩子 10 次） | 409 |
+| 没有这个钩子 / 没有 hook 字段 | 404 / 400 |
+
+钩子定义放 `~/.data/agentd/hooks/<名字>.json`，**没有"什么时候"这个字段**：
+
+```json
+{"name":"game-exit","mode":"speak","prompt":"我从游戏退出来了。",
+ "quota_per_day":10,"cooldown_s":3}
+```
+
+- `mode: speak` 说话；`silent` 只做事不主动开口（提示会写在上下文里）。
+- 触发后写进一个固定的「观察」会话（`kind=watch`），不碰正在聊的会话。
+- 上下文里一定带 `[触发器 <名字>] 数据：{…}`，否则模型不知道为什么被叫醒。
+
+**防失控只靠配额**（不做深度限制）：每天每钩子 10 次，用完当天不再响应。
+链条再长也会自己停。
+
 **长期记忆**（`internal/memory`）：一条记忆 = `~/.data/agentd/memory/global/<id>.md`，
 front matter 是 `id / created / scope / kind / status / source`，正文人能直接改。
 每轮请求把 active 记忆按 token 预算（默认 6000）拼进 system prompt：挑的时候从新到旧、

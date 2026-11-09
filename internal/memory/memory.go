@@ -45,8 +45,6 @@ const (
 // 正文上限：一条记忆不是一篇文章，超过这个就不是"一句话能记的事"
 const MaxBodyRunes = 2000
 
-
-
 // Entry 是一条记忆。Name 是文件名（不含 .md），也用于 forget。
 type Entry struct {
 	Name   string

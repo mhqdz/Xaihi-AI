@@ -23,6 +23,7 @@ import (
 	"agentd/internal/agent"
 	"agentd/internal/config"
 	"agentd/internal/handoff"
+	"agentd/internal/hook"
 	"agentd/internal/store"
 	"agentd/internal/tools"
 )
@@ -39,6 +40,7 @@ type Server struct {
 	st          store.Store
 	ho          *handoff.Manager
 	hst         *store.SQLiteStore
+	hk          *hook.Manager
 }
 
 func New(cfg config.Config, a *agent.Agent, st store.Store) *Server {
@@ -59,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 		dir := http.Dir(config.DataPath("shots"))
 		http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 	})
+	mux.HandleFunc("/api/trigger", s.handleTrigger)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})

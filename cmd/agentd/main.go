@@ -9,8 +9,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -95,6 +98,7 @@ func main() {
 		if err := s.InitHandoff(cfg.DataDir); err != nil {
 			logx.Warn("handoff 初始化失败: %v", err)
 		}
+		s.InitHooks(config.DataPath("hooks"))
 		// 能力缓存只在打开下拉/点刷新时更新，长期不开面板的配置会一直用很旧的数字：
 		// 启动后台补一次过期的（不阻塞启动，失败只记日志）
 		go s.WarmModelCaches(24 * time.Hour)
@@ -129,6 +133,35 @@ func main() {
 		}()
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fatal(err)
+		}
+	case "trigger":
+		if len(args) == 0 {
+			fatal(fmt.Errorf("用法: agentd trigger <钩子名> [--data '{\"k\":\"v\"}']"))
+		}
+		name := args[0]
+		data := map[string]any{}
+		for i := 1; i < len(args); i++ {
+			if (args[i] == "--data" || args[i] == "-d") && i+1 < len(args) {
+				if err := json.Unmarshal([]byte(args[i+1]), &data); err != nil {
+					fatal(fmt.Errorf("--data 不是合法 JSON: %v", err))
+				}
+				i++
+			}
+		}
+		addr := os.Getenv("AGENTD_ADDR")
+		if addr == "" {
+			addr = "127.0.0.1:18400"
+		}
+		body, _ := json.Marshal(map[string]any{"hook": name, "data": data})
+		resp, err := http.Post("http://"+addr+"/api/trigger", "application/json", bytes.NewReader(body))
+		if err != nil {
+			fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		fmt.Println(strings.TrimSpace(string(out)))
+		if resp.StatusCode != 200 {
+			os.Exit(1)
 		}
 	case "version":
 		fmt.Println("agentd " + version)
