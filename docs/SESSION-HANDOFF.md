@@ -51,7 +51,8 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 
 - 正式名 **Xaihi-AI**；数据目录也改名了。
 - **记忆是全局的**（跨项目累积），不按项目。
-- **Xaihi = 人格文件 + 记忆**；"会话只是跟她说话的窗口"。所以"只允许一个观察会话"的特殊性**要去掉**（尚未做）。
+- **Xaihi = profile 的人格（`profile.System`）+ 全局记忆**；"会话只是跟她说话的窗口"。所以"只允许一个观察会话"的特殊性**要去掉**（尚未做）。
+  人格**不是**全局一份，而是跟着 profile 走（同一 profile 下的所有会话共用）。**不拆成独立文件**（2026-11-10 用户确认）。
 - 持久化会话作为 **profile 的可选项**：打开后才能选记忆/钩子工具。
 - 图像类工具按**模型能力**判断（`profile.input` 含 image 才给 `screenshot`/`view_image`）。
 - 触发器：**注册走 CLI**（本地 shell 权限）、**触发走 unix socket**（不开 TCP）、钩子文件由 agentd 维护（人/agent 不手写）。
@@ -138,5 +139,6 @@ cd scripts/ui-test && python3 check_config.py
 1. 收尾"工具分类"（第五节 1–3）：后端校验 + 前端分组禁用 —— 用户当前最想要。
 2. `hook_*` 工具 + 钩子绑会话（第五节 4–5）。
 3. 去掉唯一观察会话（第五节 6）。
-4. 人格文件（全局一份，如 `~/.data/xaihi/persona.md`，注入 system prompt 最前）。
+4. ~~人格文件~~（已否）：人格就是 `profile.System`，不拆文件。拼装顺序见 `internal/agent/loop.go:225`
+   （人格 → 已知事实 → 记忆 → 摘要），人格天然在最前、最稳定，KV cache 已经是最优。
 5. 重拍像素基线。
