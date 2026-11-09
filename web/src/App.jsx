@@ -243,6 +243,15 @@ export default function App() {
   // 持久化会话（触发器写进来的那个）：列表里 kind=watch 的那条
   const watchConv = convs.find(c => c.Kind === 'watch')
   const watchUnread = watchConv ? Math.max(0, (watchConv.N || 0) - watchSeen) : 0
+  // 活跃天数：库里最早一条消息到今天（第 1 天算 1）
+  const [firstAt, setFirstAt] = useState(null)
+  const [watchIntro, setWatchIntro] = useState(false)
+  useEffect(() => {
+    api('/api/health').then(d => setFirstAt(d.first_at || null)).catch(() => {})
+  }, [])
+  const activeDays = firstAt
+    ? Math.max(1, Math.floor((Date.now() - new Date(firstAt).getTime()) / 86400000) + 1)
+    : 0
   const [title, setTitle] = useState('新会话')
   const [msgs, setMsgs] = useState([])
   const visible = msgs.filter(m => m.role !== 'tool')   // 工具结果不计入轮次 ✓
@@ -1027,14 +1036,17 @@ export default function App() {
           <div className="ef-figs drawer-figs">
             {/* 持久化会话（观察）的入口：她主动说话都写在这里。
                 数字是"自上次打开以来新增的条数"，点了就跳过去并清零。 */}
-            {/* 常驻显示：还没有观察会话时就是 00，点不动（潜到 .dim） */}
-            <a className={'watch-fig' + (watchUnread > 0 ? ' unread' : '') + (watchConv ? '' : ' dim')}
+            {/* 第一块是门面：上面 Xaihi（当 logo 用），下面是活跃天数。
+                点它进观察会话；还没有就进引导页（不是灰掉点不动）。 */}
+            <a className={'watch-fig' + (watchUnread > 0 ? ' unread' : '')}
               title={watchConv
                 ? ('观察会话：她主动说话的地方' + (watchUnread > 0 ? '（' + watchUnread + ' 条新的）' : ''))
-                : '观察会话：还没有（触发器第一次运行时自动创建）'}
-              onClick={() => { if (watchConv) { openConv(watchConv.ID); setWatchSeen(watchConv.N || 0) } }}>
-              <FigCell value={watchUnread > 0 ? watchUnread : (watchConv ? (watchConv.N || 0) : 0)} />
-              <span>观察</span>
+                : '还没有观察会话 —— 点这里看怎么创建'}
+              onClick={() => {
+                if (watchConv) { openConv(watchConv.ID); setWatchSeen(watchConv.N || 0) } else { setWatchIntro(true) }
+              }}>
+              <span className="logo">Xaihi</span>
+              <span className="days">{activeDays} 天</span>
             </a>
             <a className={tab === 'live' ? 'on' : ''} onClick={() => setTab('live')}
                title="只看会话"><FigCell value={convs.length} /><span>会话</span></a>
@@ -1100,6 +1112,19 @@ export default function App() {
 
         <main className="stage" ref={stageRef} style={{ '--colw': colW + 'px' }}
           onMouseMove={onStageMove} onMouseLeave={onStageLeave} onMouseDown={onStageDown}>
+        {/* 还没有观察会话时点左栏第一块，进这里（不是灰掉点不动） */}
+        {watchIntro ? (
+          <div className="watch-intro" onClick={() => setWatchIntro(false)}>
+            <div className="wi-card" onClick={e => e.stopPropagation()}>
+              <div className="eyebrow">OBSERVE</div>
+              <h2>还没有观察会话</h2>
+              <p>触发器第一次叫醒她时，这里会自动出现一个会话。也可以现在试一次：</p>
+              <pre>{'xaihi hook add t1 --prompt "测试" --quota 3\nsleep 6 && xaihi trigger t1'}</pre>
+              <p className="dim">建好后左栏第一块显示「Xaihi · N 天」，有未读时变深。</p>
+              <button className="btn" onClick={() => setWatchIntro(false)}>知道了</button>
+            </div>
+          </div>
+        ) : null}
         {(() => {
           const me = convs.find(c => c.ID === convId)
           if (!me || !me.ParentID) return null

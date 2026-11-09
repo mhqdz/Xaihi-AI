@@ -60,6 +60,8 @@ type Store interface {
 	Restore(id string) error
 	Delete(id string, hard bool) error
 	NextID() string
+	// FirstAt：库里最早一条消息的时间（前端算活跃天数）；没有数据时返回零值
+	FirstAt() (time.Time, error)
 
 	// 流式预分配：先占一行（status=running），之后按 seq 回填内容。
 	// 不支持增量的实现（JSONStore）可以返回错误，调用方会退回“结束时一次性 Save”。
@@ -228,4 +230,19 @@ func (s *JSONStore) List() ([]*Conversation, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
+}
+
+// FirstAt（JSONStore）：扫一遍会话，取最早的消息时间。
+func (s *JSONStore) FirstAt() (time.Time, error) {
+	list, err := s.List()
+	if err != nil {
+		return time.Time{}, err
+	}
+	var first time.Time
+	for _, c := range list {
+		if !c.CreatedAt.IsZero() && (first.IsZero() || c.CreatedAt.Before(first)) {
+			first = c.CreatedAt
+		}
+	}
+	return first, nil
 }

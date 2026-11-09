@@ -328,3 +328,24 @@ func (s *SQLiteStore) Delete(id string, hard bool) error {
 
 var _ Store = (*SQLiteStore)(nil)
 var _ = llm.ToolCall{}
+
+// FirstAt：最早一条消息/会话的时间（前端拿它算"活跃天数"）。
+// 用 messages 的最小 created_at —— 比 conversations 更准：迁移、导入的库也算。
+func (s *SQLiteStore) FirstAt() (time.Time, error) {
+	// created_at 是 TEXT，驱动不会自动转 time.Time —— 扫成字符串再解析。
+	// 两种格式都要认：Go 侧写入的是 RFC3339，SQLite 的 datetime('now') 是空格分隔。
+	raw := ""
+	_ = s.db.QueryRow(`SELECT COALESCE(MIN(created_at),'') FROM messages`).Scan(&raw)
+	if raw == "" {
+		_ = s.db.QueryRow(`SELECT COALESCE(MIN(created_at),'') FROM conversations`).Scan(&raw)
+	}
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, nil
+}

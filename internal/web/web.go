@@ -62,11 +62,16 @@ func (s *Server) Handler() http.Handler {
 		http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		firstAt, _ := s.st.FirstAt()
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": true, "model": s.cfg.Model, "base_url": s.cfg.BaseURL})
+		body := map[string]any{"ok": true, "model": s.cfg.Model, "base_url": s.cfg.BaseURL}
+		if !firstAt.IsZero() {
+			body["first_at"] = firstAt.Format(time.RFC3339)
+		}
+		writeJSON(w, 200, body)
 	})
 	mux.HandleFunc("/api/convs", s.handleConvs)
 	mux.HandleFunc("/api/conv/", s.handleConv)

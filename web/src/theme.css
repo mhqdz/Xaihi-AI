@@ -1593,3 +1593,22 @@ pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
 .drawer-figs .watch-fig.unread{color:var(--sage-d)}
 .drawer-figs .watch-fig.dim{opacity:.45;cursor:default}
 .drawer-figs .watch-fig.unread .fig{color:var(--sage-d)}
+
+/* 左栏四块统计：不许选中复制（它们是状态显示，不是文本） */
+.drawer-figs{-webkit-user-select:none;user-select:none}
+
+/* 第一块是门面：Xaihi 当 logo（字号收在方块宽度里），下面是活跃天数 */
+.watch-fig .logo{font-size:1.1rem;font-weight:700;line-height:1.35;letter-spacing:-.045em;white-space:nowrap}
+.watch-fig .days{font-size:.62rem;letter-spacing:.14em;color:var(--c5)}
+
+/* 还没有观察会话时点第一块出现的引导页 */
+.watch-intro{position:absolute;inset:0;z-index:6;display:grid;place-items:center;
+  background:color-mix(in srgb, var(--paper) 78%, transparent)}
+.wi-card{width:min(34rem, calc(100% - 2rem));padding:1.1rem 1.3rem;border:1px solid var(--line);
+  background:var(--panel);display:grid;gap:.55rem}
+.wi-card h2{margin:0;font-size:1.02rem;letter-spacing:.02em}
+.wi-card p{margin:0;font-size:.78rem;line-height:1.6;color:var(--ink2)}
+.wi-card pre{margin:0;padding:.5rem .6rem;background:var(--paper);border:1px solid var(--line);
+  font-size:.72rem;overflow:auto}
+.wi-card .dim{color:var(--ink3);font-size:.72rem}
+.wi-card .btn{justify-self:start;margin-top:.2rem}
