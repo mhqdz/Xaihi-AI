@@ -23,6 +23,7 @@ import (
 
 	"agentd/internal/agent"
 	"agentd/internal/config"
+	"agentd/internal/hook"
 	"agentd/internal/llm"
 	"agentd/internal/logx"
 	"agentd/internal/store"
@@ -149,6 +150,66 @@ func main() {
 		}()
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fatal(err)
+		}
+	case "hook":
+		dir := config.DataPath("hooks")
+		sub := ""
+		if len(args) > 0 {
+			sub = args[0]
+		}
+		switch sub {
+		case "list", "":
+			defs, _ := hook.LoadDir(dir)
+			if len(defs) == 0 {
+				fmt.Println("（还没有钩子）")
+				return
+			}
+			for _, d := range defs {
+				fmt.Printf("%-16s %-7s 配额 %d/天  冷却 %ds  %s\n",
+					d.Name, d.Mode, d.QuotaOrDefault(), d.CooldownOrDefault(), oneLine(d.Prompt))
+			}
+		case "add":
+			if len(args) < 2 {
+				fatal(fmt.Errorf("用法: agentd hook add <名字> --prompt \"…\" [--mode speak|silent] [--quota 10] [--cooldown 3]"))
+			}
+			name := args[1]
+			d := hook.Def{Name: name, Mode: "speak"}
+			for i := 2; i < len(args); i++ {
+				val := func(k string) string {
+					if i+1 < len(args) {
+						return args[i+1]
+					}
+					return ""
+				}
+				switch args[i] {
+				case "--prompt", "-p":
+					d.Prompt = val("")
+					i++
+				case "--mode":
+					d.Mode = val("")
+					i++
+				case "--quota":
+					fmt.Sscanf(val(""), "%d", &d.QuotaPerDay)
+					i++
+				case "--cooldown":
+					fmt.Sscanf(val(""), "%d", &d.CooldownS)
+					i++
+				}
+			}
+			if err := hook.Write(dir, d); err != nil {
+				fatal(err)
+			}
+			fmt.Printf("已写入钩子 %s（%s，配额 %d/天）—— 5 秒内自动生效\n", d.Name, d.Mode, d.QuotaOrDefault())
+		case "rm", "remove":
+			if len(args) < 2 {
+				fatal(fmt.Errorf("用法: agentd hook rm <名字>"))
+			}
+			if err := hook.Remove(dir, args[1]); err != nil {
+				fatal(err)
+			}
+			fmt.Printf("已删除钩子 %s（5 秒内生效）\n", args[1])
+		default:
+			fatal(fmt.Errorf("用法: agentd hook [list | add <名字> --prompt … | rm <名字>]"))
 		}
 	case "trigger":
 		if len(args) == 0 {
@@ -321,4 +382,13 @@ func main() {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "✗", err)
 	os.Exit(1)
+}
+
+// oneLine 把 prompt 压成一行给 list 用
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len([]rune(s)) > 40 {
+		s = string([]rune(s)[:40]) + "…"
+	}
+	return s
 }

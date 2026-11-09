@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,10 @@ type Def struct {
 	QuotaPerDay int    `json:"quota_per_day"`
 	CooldownS   int    `json:"cooldown_s"`
 }
+
+// QuotaOrDefault / CooldownOrDefault：给 CLI 展示用（0 表示默认）
+func (d Def) QuotaOrDefault() int    { return d.quota() }
+func (d Def) CooldownOrDefault() int { return int(d.cooldown() / time.Second) }
 
 func (d Def) quota() int {
 	if d.QuotaPerDay > 0 {
@@ -304,4 +309,83 @@ func (m *Manager) Used(name string) int {
 	defer m.mu.Unlock()
 	m.rollover()
 	return m.counts[name]
+}
+
+// ---------- 注册（由 agentd 维护文件，不让人/agent 手写 JSON） ----------
+
+var reName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// Validate 校验一个待注册的钩子。名字限定小写字母数字连字符 —
+// 它同时是文件名，绝不允许出现路径分隔符。
+func Validate(d Def) error {
+	if !reName.MatchString(d.Name) {
+		return fmt.Errorf("名字只能用 a-z0-9_-（最多 32 字）：%q", d.Name)
+	}
+	if strings.TrimSpace(d.Prompt) == "" {
+		return fmt.Errorf("prompt 不能为空")
+	}
+	if d.Mode == "" {
+		d.Mode = ModeSpeak
+	}
+	if d.Mode != ModeSpeak && d.Mode != ModeSilent {
+		return fmt.Errorf("mode 只能是 speak 或 silent：%q", d.Mode)
+	}
+	if d.QuotaPerDay == 0 {
+		d.QuotaPerDay = DefaultQuota
+	}
+	if d.QuotaPerDay < 1 || d.QuotaPerDay > 200 {
+		return fmt.Errorf("quota_per_day 要在 1..200：%d", d.QuotaPerDay)
+	}
+	if d.CooldownS == 0 {
+		d.CooldownS = int(DefaultCooldown / time.Second)
+	}
+	if d.CooldownS < 0 || d.CooldownS > 3600 {
+		return fmt.Errorf("cooldown_s 要在 0..3600：%d", d.CooldownS)
+	}
+	return nil
+}
+
+// Write 落盘一个钩子（agentd 负责格式与校验；服务端 5 秒内自动重载）。
+func Write(dir string, d Def) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := Validate(d); err != nil {
+		return err
+	}
+	// 用固定字段顺序手写，保证 diff 干净（json.Marshal 的 map 顺序不稳定）
+	var b strings.Builder
+	fmt.Fprintf(&b, "{\n  \"name\": %q,\n  \"mode\": %q,\n  \"prompt\": %q,\n  \"quota_per_day\": %d,\n  \"cooldown_s\": %d\n}\n",
+		d.Name, d.Mode, d.Prompt, d.QuotaPerDay, d.CooldownS)
+	tmp := filepath.Join(dir, "."+d.Name+".tmp")
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, d.Name+".json"))
+}
+
+// Remove 删除一个钩子（文件由 agentd 管，删也走这里）
+func Remove(dir, name string) error {
+	if !reName.MatchString(name) {
+		return fmt.Errorf("名字不合法：%q", name)
+	}
+	p := filepath.Join(dir, name+".json")
+	if _, err := os.Stat(p); err != nil {
+		return fmt.Errorf("没有这个钩子：%s", name)
+	}
+	return os.Remove(p)
+}
+
+// LoadDir 只读地列出一份定义（CLI list 用，不经过服务端）
+func LoadDir(dir string) ([]Def, []string) {
+	m := &Manager{Dir: dir, defs: map[string]Def{}}
+	for _, w := range m.Load() {
+		_ = w
+	}
+	out := make([]Def, 0, len(m.defs))
+	for _, d := range m.defs {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }

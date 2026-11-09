@@ -209,19 +209,31 @@ agentd trigger game-exit --data '{"app":"steam"}'
 | 今天配额用完（默认每钩子 10 次） | 409 |
 | 没有这个钩子 / 没有 hook 字段 | 404 / 400 |
 
-**注册与触发是两件事，也刻意用两种通道**：
+**注册与触发是两件事，用两种通道**：
 
 | | 注册（配置层） | 触发（运行层） |
 |---|---|---|
-| 怎么做 | 写 `~/.data/agentd/hooks/<名字>.json` | `POST /api/trigger` / `agentd trigger` |
-| 需要什么权限 | 文件系统（= 你的 shell） | 只连本机端口 |
-| 什么时候生效 | 5 秒内自动重载，**不用重启** | 立刻（异步跑一轮） |
+| 怎么做 | `agentd hook add …` / `hook rm` | `POST /api/trigger` / `agentd trigger` |
+| 需要什么权限 | **本地 shell** | 只连本机端口 |
+| 生效时机 | 5 秒内自动重载 | 立刻（异步跑一轮） |
 
-**不提供"注册" HTTP 接口**是有意的：那等于任何能访问 `127.0.0.1:18400` 的程序
-都能给 agent 装一个永久钩子，是一条提权路径。写文件则天然需要本机权限，而且
-每笔改动都出现在 `git diff` 里 —— 能改的人是你，改了什么你翻一眼就知道。
+**注册只走 CLI，不提供 HTTP 接口**：任何能访问 `127.0.0.1:18400` 的程序都能调
+`/api/trigger`，如果注册也走 HTTP，那就等于它们能给 agent 装一个永久钩子 —— 一条提权路径。
+CLI 需要的是本地 shell 权限，边界清楚得多。
 
-钩子定义放 `~/.data/agentd/hooks/<名字>.json`，**没有"什么时候"这个字段**：
+**文件归 agentd 维护**（和 `kb` 的 `.kbx` 一个规矩：工具写的，人不手改）：
+
+```bash
+agentd hook add game-exit --prompt "我从游戏退出来了。看看有没有该提醒我的。" \
+  --mode speak --quota 10 --cooldown 3
+agentd hook list
+agentd hook rm game-exit
+```
+
+它负责校验（名字只能是 `a-z0-9_-`，因为名字就是文件名；配额 1..200；冷却 0..3600）、
+按固定字段顺序写 JSON（diff 干净）、5 秒内热重载。
+
+落盘后长这样（`~/.data/agentd/hooks/<名字>.json`），**没有"什么时候"这个字段**：
 
 ```json
 {"name":"game-exit","mode":"speak","prompt":"我从游戏退出来了。",

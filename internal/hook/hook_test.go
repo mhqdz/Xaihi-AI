@@ -157,3 +157,60 @@ func TestWatchDirReload(t *testing.T) {
 	}
 	t.Fatal("热重载没生效")
 }
+
+// 注册：校验 + 落盘 + 再读出来是同一个东西
+func TestWriteAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	d := Def{Name: "game-exit", Mode: ModeSilent, Prompt: "我从游戏出来了", QuotaPerDay: 5, CooldownS: 2}
+	if err := Write(dir, d); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	defs, _ := LoadDir(dir)
+	if len(defs) != 1 {
+		t.Fatalf("应该读回 1 个，得到 %d", len(defs))
+	}
+	got := defs[0]
+	if got.Name != d.Name || got.Mode != d.Mode || got.Prompt != d.Prompt || got.QuotaPerDay != 5 {
+		t.Errorf("读回不一致：%+v", got)
+	}
+	// 删掉
+	if err := Remove(dir, "game-exit"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if defs, _ := LoadDir(dir); len(defs) != 0 {
+		t.Errorf("删完还有：%v", defs)
+	}
+	if err := Remove(dir, "game-exit"); err == nil {
+		t.Error("删不存在的钩子应该报错")
+	}
+}
+
+// 名字即文件名：绝不允许路径分隔符
+func TestValidateName(t *testing.T) {
+	dir := t.TempDir()
+	bad := []string{"../evil", "a/b", "A-B", "", "有中文", strings.Repeat("x", 40)}
+	for _, n := range bad {
+		if err := Write(dir, Def{Name: n, Prompt: "p"}); err == nil {
+			t.Errorf("%q 应该被拒", n)
+		}
+	}
+	if err := Write(dir, Def{Name: "ok-name_1", Prompt: "p"}); err != nil {
+		t.Errorf("合法名字被拒: %v", err)
+	}
+}
+
+func TestValidateFields(t *testing.T) {
+	dir := t.TempDir()
+	if err := Write(dir, Def{Name: "x", Prompt: "  "}); err == nil {
+		t.Error("空 prompt 应该被拒")
+	}
+	if err := Write(dir, Def{Name: "x", Prompt: "p", Mode: "loud"}); err == nil {
+		t.Error("非法 mode 应该被拒")
+	}
+	if err := Write(dir, Def{Name: "x", Prompt: "p", QuotaPerDay: 999}); err == nil {
+		t.Error("超配额上限应该被拒")
+	}
+	if err := Write(dir, Def{Name: "x", Prompt: "p", CooldownS: -1}); err == nil {
+		t.Error("负冷却应该被拒")
+	}
+}
