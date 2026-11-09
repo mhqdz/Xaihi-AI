@@ -149,6 +149,17 @@ export default function ModelForm({ v, narrow, top }) {
           onChange={list => set('effort_levels', list)} hint="留空不限" />
         <SwitchRow label="跟随上游" hint="每轮对话前重新问一次能力"
           checked={!!editP.auto_caps} onChange={x => set('auto_caps', x)} />
+        <Section>请求头</Section>
+        <Field label="会话头" hint="网关要的会话 id 头名（如 x-opencode-session）；值自动=会话 id，留空不发">
+          <input value={editP.session_header || ''} placeholder="x-opencode-session"
+            onChange={e => set('session_header', e.target.value)} />
+        </Field>
+        <Field label="自定义请求头" hint="每行一条 Key: Value；值只能用 ASCII。授权/UA/会话头由程序设，这里覆盖不了">
+          <textarea className="plugin-cmd" rows={3} value={editP.headersText || ''}
+            placeholder={'X-Api-Version: 2025-01-01\nX-Title: xaihi'}
+            onChange={e => set('headersText', e.target.value)} />
+        </Field>
+
         {cur ? (
           <div className="field-hint">
             上游 {cur.context_window || '—'} · {cur.max_tokens || '—'} ·{' '}

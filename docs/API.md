@@ -206,6 +206,16 @@ profile 里加一行即可：
 同时所有请求都带 `User-Agent: xaihi/<版本>` —— 网关明确要求"标注自己，
 别用通用 SDK 名"，否则流量会被当成滥用。
 
+**自定义请求头**（`headers`，对象）：给这个接口额外带的固定头，配置卡里按
+「每行一条 `Key: Value`」编辑。值只能用 ASCII（HTTP 头本身的限制）。
+
+```json
+{ "headers": { "X-Api-Version": "2025-01-01", "X-Title": "xaihi" } }
+```
+
+`Content-Type` / `User-Agent` / 会话头 / `Authorization` 由程序设置，自定义头
+**覆盖不了**它们（否则一个手滑就把认证写坏了）。
+
 ### 人格（personas）与「持久化会话」
 
 人格是**可插拔的文本**：`~/.data/xaihi/personas/<名字>.md`。profile 用 `persona` 字段引用，

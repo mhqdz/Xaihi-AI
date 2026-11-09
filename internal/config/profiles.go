@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
 	"syscall"
@@ -25,10 +26,13 @@ type Profile struct {
 	APIKey string `json:"api_key,omitempty"` // 空=用全局 cfg.APIKey；云端填自己的 key
 	// SessionHeader：请求头名，值是"这个会话"的稳定 id（如 x-opencode-session）。
 	// OpenCode Go 这类网关要它做路由/提示缓存；留空 = 不发这个头。
-	SessionHeader   string `json:"session_header,omitempty"`
-	Provider        string `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
-	ReasoningEffort string `json:"reasoning_effort,omitempty"` // none|low|medium|high
-	System          string `json:"system"`
+	SessionHeader string `json:"session_header,omitempty"`
+	// Headers：给这个接口额外带的固定请求头（比如网关要求的 X-Api-Version）。
+	// 授权、Content-Type、User-Agent、会话头由程序自己设，这里覆盖不了。
+	Headers         map[string]string `json:"headers,omitempty"`
+	Provider        string            `json:"provider,omitempty"`         // ""=本地/兼容(发 reasoning 扩展) | "openai"=只发标准字段
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"` // none|low|medium|high
+	System          string            `json:"system"`
 	// Persona：引用 personas/<名字>.md（可插拔的人格）。空 = 不用人格。
 	// 多个 profile 引用同一份人格 = 同一个"她"换不同模型；记忆也就成了共同的。
 	Persona string `json:"persona,omitempty"`
@@ -240,6 +244,14 @@ func ValidateProfileWith(p Profile, extraEndpoints map[string]bool) error {
 	if p.MaxTokensOut < 0 {
 		return fmt.Errorf("输出上限不能是负数")
 	}
+	for k := range p.Headers {
+		if !reHeaderKey.MatchString(k) {
+			return fmt.Errorf("请求头名字不合法：%q", k)
+		}
+	}
+	if p.SessionHeader != "" && !reHeaderKey.MatchString(p.SessionHeader) {
+		return fmt.Errorf("会话头名字不合法：%q", p.SessionHeader)
+	}
 	// 人格：引用必须真的存在（名字即文件名，不允许路径分隔符）
 	if p.Persona != "" {
 		if !reNameOK.MatchString(p.Persona) {
@@ -340,3 +352,6 @@ func EffortLevelOK(s string) bool {
 	}
 	return true
 }
+
+// 请求头名：字母数字和连字符（HTTP token 的子集，够用且挡得住换行注入）
+var reHeaderKey = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)

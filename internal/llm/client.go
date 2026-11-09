@@ -72,6 +72,8 @@ type Client struct {
 	// SessionHeader 为空就不发 —— 普通上游不受影响。
 	SessionHeader string
 	SessionID     string
+	// Headers：额外固定头（由 profile 配），内置头优先，覆盖不了
+	Headers map[string]string
 
 	mu    sync.Mutex
 	stats Stats
@@ -118,6 +120,11 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	// 自定义头先设，内置的（Content-Type/UA/会话/授权）后设 —— 用户配的头
+	// 不能覆盖这几个，否则一个手滑就把认证弄坏了
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", UserAgent)

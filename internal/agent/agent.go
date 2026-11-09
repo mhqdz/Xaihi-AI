@@ -83,6 +83,7 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	mem := memory.New(memory.DefaultRoot(config.DataDir()))
 	cl := llm.New(base, key)
 	cl.SessionHeader = profile.SessionHeader
+	cl.Headers = profile.Headers
 	return &Agent{cfg: cfg, llm: cl, st: st, profile: profile, mem: mem}
 }
 

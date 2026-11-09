@@ -10,6 +10,20 @@ export const snapOf = (p) => { if (!p) return ''; const { _new, ...rest } = p; r
 // 工具表单里"用户能改的内容"。isNew / source / path / originalName / oldName
 // 是元数据，改它们不算用户改动。
 const TOOL_FIELDS = ['name', 'category', 'description', 'command', 'timeoutMs', 'persistent', 'paramsText', 'requiredText']
+// 自定义请求头在界面上用「Key: Value 每行一条」编辑，存的是对象。
+export const headersToText = (h) => Object.entries(h || {})
+  .map(([k, v]) => k + ': ' + v).join('\n')
+export const textToHeaders = (t) => {
+  const o = {}
+  for (const line of String(t || '').split('\n')) {
+    const i = line.indexOf(':')
+    if (i <= 0) continue
+    const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim()
+    if (k) o[k] = v
+  }
+  return o
+}
+
 export const toolSnap = (f) => {
   if (!f) return ''
   const o = {}
@@ -20,7 +34,8 @@ export const toolSnap = (f) => {
 const BLANK_SETTINGS = { tool_rounds_enabled: true, tool_rounds: 8 }
 const NEW_PROFILE = {
   _new: true, name: '', endpoint: '', model: '',
-  reasoning_effort: 'high', tools: '', system: ''
+  reasoning_effort: 'high', tools: '', system: '',
+  session_header: '', headersText: ''
 }
 const NEW_PLUGIN = {
   isNew: true, name: '', category: '', description: '', command: '', timeoutMs: 20000,
@@ -32,10 +47,12 @@ const NEW_PLUGIN = {
 const FIELD_LABELS = {
   name: '名称', base_url: '接口地址', api_key: 'API Key', model: '模型',
   reasoning_effort: '思考强度', tools: '可用工具', system: 'system 提示',
-  keep_messages: '保留消息数', context_window: '上下文窗口', compact_pct: '压缩阈值'
+  keep_messages: '保留消息数', context_window: '上下文窗口', compact_pct: '压缩阈值',
+  session_header: '会话头', headersText: '自定义请求头', persona: '人格',
+  persistent: '持久化会话', input: '输入模态', effort_levels: '思考档位'
 }
 const TOOL_LABELS = {
-  name: '名称', description: '说明', command: '命令', timeoutMs: '超时(ms)',
+  name: '名称', description: '说明', session_header: '会话头', headers: '请求头', command: '命令', timeoutMs: '超时(ms)',
   persistent: '常驻进程', paramsText: 'JSON Schema', requiredText: '必填参数'
 }
 // 接口 / 模型两层的字段名。三层结构里这两层以前只有"打开看看"，
@@ -186,7 +203,7 @@ export function useSettings({ refresh }) {
         const list = await api('/api/profiles').catch(() => [])
         const pr = (list || []).find(x => x.name === pn)
         if (pr) {
-          const v = { ...pr, tools: (pr.tools || []).join(',') }
+          const v = { ...pr, tools: (pr.tools || []).join(','), headersText: headersToText(pr.headers) }
           setEditP(v); setEditSnap(snapOf(v))     // 深链打开即"干净"，不该一进来就是脏的
           const fld = q.get('field')              // ?field=system 直接打开提示编辑
           if (fld) { setEditOriginal(pr[fld] || ''); setEditField(fld) }
@@ -325,7 +342,8 @@ export function useSettings({ refresh }) {
         return {
           kind: 'profile', name: c.next.name,
           data: {
-            ...body,
+            ...(() => { const { headersText, ...rest } = body
+              return { ...rest, headers: textToHeaders(headersText) } })(),
             // 数字字段统一转一遍：输入框给的是字符串，后端按 int 解，
             // 空字符串要变成 0（"没填"），而不是让 JSON 解码直接失败
             context_window: Number(body.context_window) || 0,
@@ -460,7 +478,7 @@ export function useSettings({ refresh }) {
     const d = drafts[pr.name]
     if (d) { setEditP(d.data); setEditSnap(d.base) }
     else {
-      const v = { ...pr, tools: (pr.tools || []).join(',') }
+      const v = { ...pr, tools: (pr.tools || []).join(','), headersText: headersToText(pr.headers) }
       setEditP(v); setEditSnap(snapOf(v))
     }
   }
