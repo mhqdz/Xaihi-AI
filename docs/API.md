@@ -214,9 +214,22 @@ profile.persistent       true（持久化会话：允许记忆/钩子工具，�
 
 ### 工具分类
 
-`/api/tools` 每项带 `category`（core / memory / hook / image）和 `needs`（如 `vision`）。
-配置卡按这四组展示；memory/hook 组在 `persistent` 关时灰掉，image 组在不能看图时灰掉
-（**灰掉而不是隐藏** —— 让人看见"为什么不能选"）。
+`/api/tools` 每项带 `category`（**中文分组名**）和 `needs`。分组不预注册：
+
+| 分组 | 内容 | 约束 |
+|---|---|---|
+| 会话 | bash / recall / spawn_task | — |
+| 知识 | kb_* / web_* | — |
+| 视图 | screenshot / view_image | 要 `input` 含 image |
+| 持久化 | memory_* / hook_* | 要 `persistent` |
+| 扩展 | 插件没声明分组时的兜底 | — |
+
+插件清单里写 `"category": "绘图"` 这种新分组名，界面会**自动出现那一组**
+（排在预置顺序之后、按名字排），不需要任何注册表。约束按分组判定：视图组要能看图、
+持久化组要开持久化会话 —— 插件只要选对分组就自动获得同样的约束。
+
+分组名用中文是安全的：Go 源码 / JSON / HTTP 全是 UTF-8，也不拿它当文件名或 URL 参数。
+配置卡里不满足约束的组会**灰掉而不是隐藏** —— 让人看见"为什么不能选"。
 
 ### 钩子工具（agent 自己设闹钟）
 

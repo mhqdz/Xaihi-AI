@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
 	"time"
+	"xaihi/internal/toolmeta"
 )
 
 // 外置插件：~/.data/xaihi/tools.d/*.json
@@ -35,6 +37,8 @@ type manifest struct {
 	TimeoutMs   int               `json:"timeoutMs"`
 	Persistent  bool              `json:"persistent"` // true = 常驻进程，JSON-RPC over stdio
 	Env         map[string]string `json:"env"`
+	// Category：分组名（中文，例如「绘图」）。留空 → 「扩展」。
+	Category string `json:"category,omitempty"`
 }
 
 // LoadPlugins 读取插件目录，返回可直接使用的 Spec（Run 走一次性进程调用）。
@@ -88,8 +92,12 @@ func LoadPlugins(dir string) (map[string]*Spec, []string) {
 					desc = m.Description
 				}
 				proc, toolName := p, name
+				cat := strings.TrimSpace(m.Category)
+				if cat == "" {
+					cat = toolmeta.GroupExt
+				}
 				out[name] = &Spec{
-					Name: name, Description: desc, Params: params, Required: req,
+					Name: name, Category: cat, Description: desc, Params: params, Required: req,
 					Source: "plugin", Path: path,
 					Run: func(ctx context.Context, args map[string]any, _ *Env) (any, error) {
 						for _, k := range req {
@@ -103,8 +111,13 @@ func LoadPlugins(dir string) (map[string]*Spec, []string) {
 			}
 			continue
 		}
+		cat := strings.TrimSpace(m.Category)
+		if cat == "" {
+			cat = toolmeta.GroupExt
+		}
 		sp := &Spec{
 			Name:        m.Name,
+			Category:    cat,
 			Description: m.Description,
 			Params:      m.Params,
 			Required:    m.Required,

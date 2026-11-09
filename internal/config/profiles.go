@@ -255,10 +255,10 @@ func ValidateProfileWith(p Profile, extraEndpoints map[string]bool) error {
 		}
 	}
 	for _, name := range p.Tools {
-		if toolmeta.NeedsPersistent(name) && !p.Persistent {
+		if toolmeta.NeedsPersistentTool(name) && !p.Persistent {
 			return fmt.Errorf("工具 %s 需要先打开「持久化会话」", name)
 		}
-		if toolmeta.NeedsVision(name) && !hasImage {
+		if toolmeta.NeedsVisionTool(name) && !hasImage {
 			return fmt.Errorf("工具 %s 需要模型能接收图像（input 里加 image）", name)
 		}
 		if p.Persistent && p.Persona == "" {

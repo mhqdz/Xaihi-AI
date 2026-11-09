@@ -26,13 +26,16 @@ type PluginDraft struct {
 	// 文件还叫最初的 rn_a.json，列表里显示的可能是 rn_b，这次改成 rn_c。
 	OldName string `json:"oldName,omitempty"`
 
-	Description string            `json:"description"`
-	Command     []string          `json:"command"`
-	TimeoutMs   int               `json:"timeoutMs"`
-	Persistent  bool              `json:"persistent"`
-	Params      map[string]any    `json:"params"`
-	Required    []string          `json:"required"`
-	Env         map[string]string `json:"env"`
+	Description string   `json:"description"`
+	Command     []string `json:"command"`
+	TimeoutMs   int      `json:"timeoutMs"`
+	Persistent  bool     `json:"persistent"`
+	// Category：分组名（中文，例如「绘图」）。留空归到「扩展」。
+	// 分组不需要预先注册 —— 界面按"出现过的分组"动态渲染。
+	Category string            `json:"category,omitempty"`
+	Params   map[string]any    `json:"params"`
+	Required []string          `json:"required"`
+	Env      map[string]string `json:"env"`
 }
 
 var pluginNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,40}$`)

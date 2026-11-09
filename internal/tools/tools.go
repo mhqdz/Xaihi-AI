@@ -87,7 +87,7 @@ func Registry() map[string]*Spec {
 		// 没标分类的一律 core（插件默认也是 core）
 		for _, sp := range m {
 			if sp.Category == "" {
-				sp.Category = toolmeta.Core
+				sp.Category = toolmeta.GroupChat
 			}
 		}
 	}()
@@ -96,10 +96,10 @@ func Registry() map[string]*Spec {
 			Params: map[string]any{"command": map[string]any{"type": "string", "description": "完整 shell 命令"},
 				"timeout": map[string]any{"type": "integer", "description": "超时秒数，默认 180，最大 600"}},
 			Required: []string{"command"}, Run: runBash},
-		{Name: "screenshot", Category: toolmeta.Image, Needs: []string{"vision"}, Description: "截屏并返回文字说明 + 截屏原图（模型能看到像素）。用于判断窗口内容/排版/报错。",
+		{Name: "screenshot", Category: toolmeta.GroupView, Needs: []string{"vision"}, Description: "截屏并返回文字说明 + 截屏原图（模型能看到像素）。用于判断窗口内容/排版/报错。",
 			Params: map[string]any{"question": map[string]any{"type": "string", "description": "可留空；留空只返回截图，填了也不会回显"}},
 			Run:    runScreenshot},
-		{Name: "view_image", Category: toolmeta.Image, Needs: []string{"vision"}, Description: "打开本机的一张图片给模型看（png/jpg/webp/gif，≤8MB）。" +
+		{Name: "view_image", Category: toolmeta.GroupView, Needs: []string{"vision"}, Description: "打开本机的一张图片给模型看（png/jpg/webp/gif，≤8MB）。" +
 			"用于验收渲染产物、查看截图文件；支持 ~/ 开头和通配符（取第一个匹配）。",
 			Params: map[string]any{
 				"path": map[string]any{"type": "string", "description": "图片路径（绝对路径或 ~/…）"},
@@ -115,31 +115,31 @@ func Registry() map[string]*Spec {
 				"reason":   map[string]any{"type": "string", "description": "一句话事实，如 CUDA OOM"},
 				"evidence": map[string]any{"type": "string", "description": "证据：命令、退出码、日志路径"},
 			}, Required: []string{"reason"}, Run: runHandoffFail},
-		{Name: "memory_save", Category: toolmeta.Memory, Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
+		{Name: "memory_save", Category: toolmeta.GroupPersist, Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
 			"只记「需要一直在场」的东西：偏好、关系、约定、关键经历。事实/资料类不要写这里，写 kb。" +
 			"一条只写一件事，一句话能说清；写多了会挤掉别的记忆。",
 			Params: map[string]any{
 				"body": map[string]any{"type": "string", "description": "正文：一句话，不加标题"},
 				"kind": map[string]any{"type": "string", "description": "偏好 / 约定 / 经历 / 事实（默认记录）"},
 			}, Required: []string{"body"}, Run: runMemorySave},
-		{Name: "memory_forget", Category: toolmeta.Memory, Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
+		{Name: "memory_forget", Category: toolmeta.GroupPersist, Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
 			"name 用 memory_list 返回的名字。",
 			Params: map[string]any{
 				"name": map[string]any{"type": "string", "description": "记忆名字（memory_list 里的 name）"},
 			}, Required: []string{"name"}, Run: runMemoryForget},
-		{Name: "hook_add", Category: toolmeta.Hook, Description: "给她设一个「闹钟」：以后由外部事件（或定时）触发时，她会在某个会话里被叫醒。" +
+		{Name: "hook_add", Category: toolmeta.GroupPersist, Description: "给她设一个「闹钟」：以后由外部事件（或定时）触发时，她会在某个会话里被叫醒。" +
 			"参数 name（小写字母数字连字符）、prompt（叫醒时看到的话）、mode（speak 说话 / silent 只做事）、" +
 			"quota（每天最多几次，默认 10）、cooldown（秒，默认 3）。不会立刻执行，只是注册。",
 			Params: map[string]any{"name": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"},
 				"mode": map[string]any{"type": "string"}, "quota": map[string]any{"type": "integer"},
 				"cooldown": map[string]any{"type": "integer"}}, Required: []string{"name", "prompt"},
 			Run: runHookAdd},
-		{Name: "hook_list", Category: toolmeta.Hook,
+		{Name: "hook_list", Category: toolmeta.GroupPersist,
 			Description: "列出已注册的钩子（名字/模式/配额/冷却/属于哪个会话）", Run: runHookList},
-		{Name: "hook_rm", Category: toolmeta.Hook, Description: "删掉一个钩子",
+		{Name: "hook_rm", Category: toolmeta.GroupPersist, Description: "删掉一个钩子",
 			Params: map[string]any{"name": map[string]any{"type": "string"}}, Required: []string{"name"},
 			Run: runHookRemove},
-		{Name: "memory_list", Category: toolmeta.Memory, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
+		{Name: "memory_list", Category: toolmeta.GroupPersist, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
 			"回答「你记得什么」或准备忘掉某条之前用。",
 			Params: map[string]any{}, Run: runMemoryList},
 		{Name: "recall", Description: "在**本会话**历史里检索（不跨会话）。默认在消息正文里按关键词 OR 匹配，返回命中的片段与序号。" +

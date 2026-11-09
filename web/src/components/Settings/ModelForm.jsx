@@ -2,13 +2,17 @@ import React from 'react'
 import Card from './Card'
 import { Section, Field, LinkRow, ChoiceGrid, SwitchRow, TagInput } from './form'
 
-// 工具分组：和 internal/toolmeta 的分类对应。needs 说明"这一组要什么才能选"。
-const TOOL_GROUPS = [
-  { key: 'core', label: '常规工具' },
-  { key: 'memory', label: '记忆工具', needs: 'persistent', hint: '打开持久化会话' },
-  { key: 'hook', label: '钩子工具', needs: 'persistent', hint: '打开持久化会话' },
-  { key: 'image', label: '看屏幕/看图', needs: 'vision', hint: '能接收图像' },
-]
+// 分组顺序：和 internal/toolmeta 的预置顺序一致。插件声明的新分组
+// 会出现在它们之后（按名字排）—— 不需要预先"注册"分组。
+const GROUP_ORDER = ['会话', '知识', '视图', '持久化', '扩展']
+
+// 这一组要什么才能选：视图要能看图，持久化要开会话。分组名就是约束来源，
+// 插件只要选对分组，就自动获得同样的约束。
+function groupBlock(group, { persistent, hasImage }) {
+  if (group === '视图' && !hasImage) return '先让模型能接收图像'
+  if (group === '持久化' && !persistent) return '先打开持久化会话'
+  return ''
+}
 
 // 配置卡（第二级：详细配置）
 //
@@ -34,8 +38,8 @@ export default function ModelForm({ v, narrow, top }) {
     const keep = (p.tools || '').split(',').map(x => x.trim()).filter(Boolean).filter(n => {
       const t = (v.toolList || []).find(x => x.name === n)
       if (!t) return true // 不认识的（插件）先留着，别误删
-      if (t.category === 'image' && !hasImg) return false
-      if ((t.category === 'memory' || t.category === 'hook') && !persist) return false
+      if (t.category === '视图' && !hasImg) return false
+      if (t.category === '持久化' && !persist) return false
       return true
     })
     return { ...p, tools: keep.join(',') }
@@ -46,6 +50,15 @@ export default function ModelForm({ v, narrow, top }) {
   const found = (lst && lst.models) || []
   const cur = found.find(m => m.id === editP.model) || null
   const hasImage = (editP.input || []).includes('image')
+  // 分组从工具列表里派生：预置顺序在前，没见过的分组按名字排在后面
+  const toolGroups = [...new Set((v.toolList || []).map(t => t.category || '扩展'))]
+    .sort((a, b) => {
+      const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b)
+      if (ia < 0 && ib < 0) return a.localeCompare(b, 'zh')
+      if (ia < 0) return 1
+      if (ib < 0) return -1
+      return ia - ib
+    })
   // 选中人格的预览（下拉下面显示一小段，确认选对了）
   const personaPreview = editP.persona
     ? ((v.personas || []).find(p => p.name === editP.persona) || {}).preview
@@ -181,17 +194,13 @@ export default function ModelForm({ v, narrow, top }) {
         <Section>可用工具</Section>
         {/* 工具按分类分组：记忆/钩子要先开「持久化会话」，图像类要有看图能力。
             不合法的选项不是隐藏，而是灰掉 —— 让人看见"为什么不能选"。 */}
-        {TOOL_GROUPS.map(g => {
-          const opts = (v.toolList || []).filter(t => (t.category || 'core') === g.key)
-          if (!opts.length) return null
-          const blocked = g.needs === 'persistent' ? !editP.persistent
-            : g.needs === 'vision' ? !hasImage : false
+        {toolGroups.map(g => {
+          const blockedMsg = groupBlock(g, { persistent: editP.persistent, hasImage })
           return (
-            <ChoiceGrid key={g.key}
-              label={g.label + (blocked ? '（先' + g.hint + '）' : '')}
-              options={opts.map(t => ({
-                value: t.name, label: t.name, hint: t.description || '', disabled: blocked,
-              }))}
+            <ChoiceGrid key={g}
+              label={g + (blockedMsg ? '（' + blockedMsg + '）' : '')}
+              options={(v.toolList || []).filter(t => (t.category || '扩展') === g)
+                .map(t => ({ value: t.name, label: t.name, hint: t.description || '', disabled: !!blockedMsg }))}
               selected={tools}
               onToggle={name => set('tools', tools.includes(name)
                 ? tools.filter(x => x !== name).join(',')
