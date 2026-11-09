@@ -1591,4 +1591,5 @@ pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
 
 /* 观察会话的入口方块：有未读时变深（和旁边三个统计方块同款，只是多个状态） */
 .drawer-figs .watch-fig.unread{color:var(--sage-d)}
+.drawer-figs .watch-fig.dim{opacity:.45;cursor:default}
 .drawer-figs .watch-fig.unread .fig{color:var(--sage-d)}

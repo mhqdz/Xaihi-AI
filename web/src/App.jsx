@@ -1027,14 +1027,15 @@ export default function App() {
           <div className="ef-figs drawer-figs">
             {/* 持久化会话（观察）的入口：她主动说话都写在这里。
                 数字是"自上次打开以来新增的条数"，点了就跳过去并清零。 */}
-            {watchConv ? (
-              <a className={'watch-fig' + (watchUnread > 0 ? ' unread' : '')}
-                title={'观察会话：她主动说话的地方' + (watchUnread > 0 ? '（' + watchUnread + ' 条新的）' : '')}
-                onClick={() => { openConv(watchConv.ID); setWatchSeen(watchConv.N || 0) }}>
-                <FigCell value={watchUnread > 0 ? watchUnread : (watchConv.N || 0)} />
-                <span>观察</span>
-              </a>
-            ) : null}
+            {/* 常驻显示：还没有观察会话时就是 00，点不动（潜到 .dim） */}
+            <a className={'watch-fig' + (watchUnread > 0 ? ' unread' : '') + (watchConv ? '' : ' dim')}
+              title={watchConv
+                ? ('观察会话：她主动说话的地方' + (watchUnread > 0 ? '（' + watchUnread + ' 条新的）' : ''))
+                : '观察会话：还没有（触发器第一次运行时自动创建）'}
+              onClick={() => { if (watchConv) { openConv(watchConv.ID); setWatchSeen(watchConv.N || 0) } }}>
+              <FigCell value={watchUnread > 0 ? watchUnread : (watchConv ? (watchConv.N || 0) : 0)} />
+              <span>观察</span>
+            </a>
             <a className={tab === 'live' ? 'on' : ''} onClick={() => setTab('live')}
                title="只看会话"><FigCell value={convs.length} /><span>会话</span></a>
             <a className={tab === 'archive' ? 'on' : ''} onClick={() => setTab('archive')}
