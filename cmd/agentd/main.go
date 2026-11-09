@@ -98,7 +98,9 @@ func main() {
 		if err := s.InitHandoff(cfg.DataDir); err != nil {
 			logx.Warn("handoff 初始化失败: %v", err)
 		}
-		s.InitHooks(config.DataPath("hooks"))
+		// 触发器：外部脚本调 /api/trigger，内置观察器也走同一个入口
+		hooks := s.NewHooks(config.DataPath("hooks"))
+		s.SetHooks(hooks)
 		// 能力缓存只在打开下拉/点刷新时更新，长期不开面板的配置会一直用很旧的数字：
 		// 启动后台补一次过期的（不阻塞启动，失败只记日志）
 		go s.WarmModelCaches(24 * time.Hour)
@@ -107,6 +109,16 @@ func main() {
 		// 采样失败是常态，Run 会自己跳过这一轮，不影响服务。
 		if ws, err := watch.Open(config.DataPath("watch.db")); err == nil {
 			w := &watch.Watcher{Store: ws, Samp: watch.Hypr{}}
+			w.OnClose = func(win watch.Win) {
+				// 只在用户定义了 app-close 钩子时才触发（否则每次关窗都报一句"没有这个钩子"）
+				if !hooks.Has("app-close") {
+					return
+				}
+				if _, err := hooks.Trigger(context.Background(), "app-close",
+					map[string]any{"app": win.Class, "title": win.Title, "pid": win.PID}); err != nil {
+					logx.Info("app-close 触发被拒: %v", err)
+				}
+			}
 			go w.Run(context.Background())
 			go w.WatchWindows(context.Background())
 			tools.SetShotQuota(func() (bool, int) {

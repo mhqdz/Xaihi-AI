@@ -178,6 +178,10 @@ type Watcher struct {
 	Interval time.Duration // 采样间隔，默认 5s
 	Stable   time.Duration // 窗口要停多久才算"在做什么"，默认 30s
 
+	// OnClose：窗口消失时回调（由 main 接到触发器上）。
+	// 观察器自己**不做判断**——它只把事实交出去，要不要叫醒由钩子定义和配额决定。
+	OnClose func(Win)
+
 	mu      sync.Mutex
 	lastKey string // 上次上报的 (class|title)
 	curKey  string // 当前正在稳定的 (class|title)
@@ -265,6 +269,9 @@ func (w *Watcher) WatchWindows(ctx context.Context) {
 			}
 			for _, g := range Closed(prev, cur) {
 				_ = w.Store.Add(Event{At: time.Now(), Kind: KindClose, App: g.Class, Title: g.Title, PID: g.PID})
+				if w.OnClose != nil {
+					w.OnClose(g)
+				}
 			}
 			prev = cur
 		}

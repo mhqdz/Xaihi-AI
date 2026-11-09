@@ -154,6 +154,14 @@ func (m *Manager) rollover() {
 	}
 }
 
+// Has 有没有注册这个钩子（内置事件源用：没注册就安静跳过，别报错刷日志）
+func (m *Manager) Has(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.defs[name]
+	return ok
+}
+
 // Trigger 触发一次。返回给人看的一句话（也会被写进模型上下文）。
 //
 // 三道检查，顺序不能换：存在性 → 冷却 → 配额。先查冷却是因为抖动会连续打进来，

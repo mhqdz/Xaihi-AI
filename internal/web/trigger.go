@@ -16,7 +16,9 @@ import (
 //
 // 触发后写进一个固定的「观察」会话 —— 不碰用户正在聊的会话（主流做法都是这样，
 // ChatGPT 的定时任务也是每个任务独立会话）。
-func (s *Server) InitHooks(dir string) {
+// NewHooks 建触发器管理器并把"叫醒一轮"接到本服务上。
+// 由 main 调用（观察器也要用它触发内置事件），之后用 SetHooks 交给 Server。
+func (s *Server) NewHooks(dir string) *hook.Manager {
 	m := hook.New(dir, func(ctx context.Context, d hook.Def, text string) error {
 		conv, err := s.watchConv()
 		if err != nil {
@@ -29,9 +31,12 @@ func (s *Server) InitHooks(dir string) {
 	for _, w := range m.Load() {
 		logx.Warn("触发器 %s", w)
 	}
-	s.hk = m
 	logx.Info("触发器已装载 %d 个：%s", len(m.Names()), strings.Join(m.Names(), ", "))
+	return m
 }
+
+// SetHooks 把管理器交给 HTTP 层（/api/trigger）
+func (s *Server) SetHooks(m *hook.Manager) { s.hk = m }
 
 // watchConv 找（或建）「观察」会话
 func (s *Server) watchConv() (int64, error) {

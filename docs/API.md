@@ -221,6 +221,24 @@ agentd trigger game-exit --data '{"app":"steam"}'
 - 上下文里一定带 `[触发器 <名字>] 数据：{…}`，否则模型不知道为什么被叫醒。
 
 **防失控只靠配额**（不做深度限制）：每天每钩子 10 次，用完当天不再响应。
+
+**内置事件源**：观察器（`internal/watch`）检测到窗口消失时，会调**同一个**触发入口
+（钩子名 `app-close`，数据是 `{app,title,pid}`）。所以内置事件和你自己的脚本完全同权：
+没定义 `app-close` 就安静跳过，定义了才走配额与冷却。
+
+```json
+// ~/.data/agentd/hooks/app-close.json
+{"name":"app-close","mode":"speak",
+ "prompt":"我关掉了一个窗口（见数据）。异常退出就提一句，正常关窗别打扰我。"}
+```
+
+**silent 模式**：只做事、不主动开口（提示里会加一句"这是静默触发"）。
+实测例子：触发后模型真的执行了 `cp`（工具返回 exit 0、文件生成），回复只有一个「好」。
+
+```json
+{"name":"backup-demo","mode":"silent","quota_per_day":3,
+ "prompt":"用 bash 把 ~/.data/agentd/profiles.json 复制到 /tmp/agentd-backup.json，做完只回一个词：好。"}
+```
 链条再长也会自己停。
 
 **长期记忆**（`internal/memory`）：一条记忆 = `~/.data/agentd/memory/global/<id>.md`，
