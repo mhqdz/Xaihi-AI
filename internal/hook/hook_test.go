@@ -139,3 +139,21 @@ func TestLoadSkipsBroken(t *testing.T) {
 		t.Errorf("好的钩子应该还在: %v", got)
 	}
 }
+
+// 目录变了自动重读（改钩子不用重启）
+func TestWatchDirReload(t *testing.T) {
+	m, _ := newManager(t)
+	m.Load()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.WatchDir(ctx, 20*time.Millisecond)
+
+	writeHook(t, m.Dir, "new", `{"name":"new","prompt":"p"}`)
+	for i := 0; i < 200; i++ {
+		if m.Has("new") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("热重载没生效")
+}

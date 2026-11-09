@@ -70,12 +70,14 @@ type Manager struct {
 	Dir string
 	Run Run
 
-	mu     sync.Mutex
-	defs   map[string]Def
-	counts map[string]int
-	day    string
-	lastAt map[string]time.Time
-	onErr  func(hook string, err error)
+	mu         sync.Mutex
+	defs       map[string]Def
+	counts     map[string]int
+	day        string
+	lastAt     map[string]time.Time
+	onErr      func(hook string, err error)
+	onReloadFn func(names []string)
+	fp         string // 上次 Load 时的目录指纹
 }
 
 func New(dir string, run Run) *Manager {
@@ -130,8 +132,77 @@ func (m *Manager) Load() []string {
 	}
 	m.mu.Lock()
 	m.defs = defs
+	m.fp = m.fingerprint()
 	m.mu.Unlock()
 	return warns
+}
+
+// fingerprint 是目录的"内容指纹"：文件名 + mtime + size。
+// 只 stat 目录不够 —— 改已有文件的内容时目录 mtime 不变。
+func (m *Manager) fingerprint() string {
+	des, err := os.ReadDir(m.Dir)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, de := range des {
+		if de.IsDir() || !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s:%d:%d;", de.Name(), info.ModTime().UnixNano(), info.Size())
+	}
+	return b.String()
+}
+
+// WatchDir 轮询目录，变了就重读（改钩子不用重启 agentd）。
+//
+// 这里刻意用轮询而不是 fsnotify：钩子目录就那么几个文件，5 秒 stat 一次
+// 的成本可以忽略，而 agentd 现在只依赖 sqlite 一个外部包，不值得为这事加一个。
+func (m *Manager) WatchDir(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.mu.Lock()
+			last := m.fp
+			m.mu.Unlock()
+			if fp := m.fingerprint(); fp != last {
+				if warns := m.Load(); len(warns) > 0 {
+					for _, w := range warns {
+						m.reportErr("load", fmt.Errorf("%s", w))
+					}
+				}
+				m.onReload()
+			}
+		}
+	}
+}
+
+// OnReload 重读后的回调（由调用方打日志：装了几个）
+func (m *Manager) OnReload(f func(names []string)) { m.onReloadFn = f }
+
+func (m *Manager) onReload() {
+	m.mu.Lock()
+	f := m.onReloadFn
+	names := make([]string, 0, len(m.defs))
+	for k := range m.defs {
+		names = append(names, k)
+	}
+	m.mu.Unlock()
+	sort.Strings(names)
+	if f != nil {
+		f(names)
+	}
 }
 
 // Names 当前注册的钩子（排序，给 help/调试用）

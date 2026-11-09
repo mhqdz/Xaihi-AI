@@ -101,6 +101,10 @@ func main() {
 		// 触发器：外部脚本调 /api/trigger，内置观察器也走同一个入口
 		hooks := s.NewHooks(config.DataPath("hooks"))
 		s.SetHooks(hooks)
+		hooks.OnReload(func(names []string) {
+			logx.Info("触发器已重载 %d 个：%s", len(names), strings.Join(names, ", "))
+		})
+		go hooks.WatchDir(context.Background(), 5*time.Second)
 		// 能力缓存只在打开下拉/点刷新时更新，长期不开面板的配置会一直用很旧的数字：
 		// 启动后台补一次过期的（不阻塞启动，失败只记日志）
 		go s.WarmModelCaches(24 * time.Hour)
