@@ -1612,3 +1612,8 @@ pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
   font-size:.72rem;overflow:auto}
 .wi-card .dim{color:var(--ink3);font-size:.72rem}
 .wi-card .btn{justify-self:start;margin-top:.2rem}
+
+/* 工具列表的分组小标题：比 set-section 轻一档，不跟一级分区抢注意力 */
+.tool-group-title{margin:.55rem .5rem .15rem;font-size:.66rem;letter-spacing:.18em;
+  color:var(--ink3);text-transform:none}
+.tool-group-title:first-child{margin-top:.1rem}

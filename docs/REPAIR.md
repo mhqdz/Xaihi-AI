@@ -59,3 +59,25 @@
 教训：**迁移 SQLite 库之前先 `PRAGMA wal_checkpoint(TRUNCATE)`**（或先正常关连接），
 主库和 `-wal`/`-shm` 要么一起搬、要么先合并成一个文件。只 `mv` 主库 = 静默丢数据，
 而且行数只差几十条，很容易当成"本来就这样"。
+
+## 2026-11-10 改名漏了数据目录里的绝对路径，4 个插件工具全坏
+
+改名只改了代码、二进制、systemd unit —— 但插件清单（`~/.data/xaihi/tools.d/*.json`）
+里的 `command` 写的是**绝对路径**：
+
+```
+"/home/mhqdz/Workspace/agentd/scripts/tools/kb_get"
+                    ^^^^^^^ 目录已经改名为 Xaihi-AI，这个路径不存在了
+```
+
+结果：`kb_get` / `kb_search` / `web_fetch` / `web_search` 四个工具调用时直接失败，
+而 `/api/tools` 照样把它们列出来（列表只读清单，不验路径），所以界面上"看起来还在"。
+
+修法：四个清单里的路径批量换成 `Xaihi-AI`，重启后直接跑 `scripts/tools/kb_search` 验证。
+另外删掉了旧目录残留 `~/Workspace/agentd`（里面只有 `web/.vite`，是 Vite 按旧绝对路径
+重建的缓存壳）。
+
+教训：
+1. 改名要连**数据目录里的路径**一起查（`grep -r 'Workspace/agentd' ~/.data/xaihi`）；
+2. 工具列表能列出来 ≠ 能跑 —— 插件清单里的 command 要能 stat 到，值得在加载时验一次
+   并把不可执行标出来（现在没做，先记着）。

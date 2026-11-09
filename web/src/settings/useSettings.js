@@ -9,7 +9,7 @@ export const snapOf = (p) => { if (!p) return ''; const { _new, ...rest } = p; r
 
 // 工具表单里"用户能改的内容"。isNew / source / path / originalName / oldName
 // 是元数据，改它们不算用户改动。
-const TOOL_FIELDS = ['name', 'description', 'command', 'timeoutMs', 'persistent', 'paramsText', 'requiredText']
+const TOOL_FIELDS = ['name', 'category', 'description', 'command', 'timeoutMs', 'persistent', 'paramsText', 'requiredText']
 export const toolSnap = (f) => {
   if (!f) return ''
   const o = {}
@@ -23,7 +23,7 @@ const NEW_PROFILE = {
   reasoning_effort: 'high', tools: '', system: ''
 }
 const NEW_PLUGIN = {
-  isNew: true, name: '', description: '', command: '', timeoutMs: 20000,
+  isNew: true, name: '', category: '', description: '', command: '', timeoutMs: 20000,
   persistent: false, paramsText: '{\n  "query": { "type": "string" }\n}', requiredText: 'query'
 }
 
@@ -346,6 +346,7 @@ export function useSettings({ refresh }) {
           kind: 'plugin',
           data: {
             name: (f.name || '').trim(), originalName: f.originalName || '', oldName: f.oldName || '',
+            category: (f.category || '').trim(),
             description: f.description || '',
             command: (f.command || '').split('\n').map(x => x.trim()).filter(Boolean),
             timeoutMs: Number(f.timeoutMs) || 20000, persistent: !!f.persistent,
@@ -545,6 +546,7 @@ export function useSettings({ refresh }) {
     const form = {
       isNew: false, source: t.source || 'builtin', path: t.path || '',
       name: t.name, originalName: orig || t.name, oldName: t.name,
+      category: t.category || '',
       description: t.description || '',
       command: (t.command || []).join('\n'),
       timeoutMs: t.timeout_ms ? String(t.timeout_ms) : '',

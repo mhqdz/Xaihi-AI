@@ -39,6 +39,17 @@ export default function ToolCard({ v, narrow, profiles, top }) {
           <input className={ro} value={form.name} disabled={!editable}
             onChange={e => set('name', e.target.value)} />
         </Field>
+        <Field label="分组" hint={editable
+          ? '中文分组名；留空归「扩展」。写个新名字，配置界面就自动多一组'
+          : '内置工具的分组写在代码里'}>
+          <input className={ro} list="tool-group-options" value={form.category || ''} disabled={!editable}
+            placeholder={editable ? '例如 知识 / 绘图' : '由实现决定'}
+            onChange={e => set('category', e.target.value)} />
+          <datalist id="tool-group-options">
+            {[...new Set((v.toolList || []).map(t => t.category).filter(Boolean))]
+              .map(g => <option key={g} value={g} />)}
+          </datalist>
+        </Field>
         <Field label="命令" hint={editable ? '每行一个参数，直接 exec 不走 shell' : '内置工具的命令写在 Go 代码里'}>
           <textarea className={'plugin-cmd' + ro} value={form.command} disabled={!editable}
             placeholder={editable ? '~/Workspace/xaihi/scripts/tools/kb_get\n{{id}}' : '（内置实现，没有命令行）'}

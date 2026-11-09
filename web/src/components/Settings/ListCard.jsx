@@ -11,6 +11,18 @@ const fmtTime = (s) => {
 }
 
 // 一级卡：常规配置 + 模型列表 + 工具列表 + 任务
+// 分组顺序：和 internal/toolmeta 的预置顺序一致；插件自造的分组排在后面
+const GROUP_ORDER = ['会话', '知识', '视图', '持久化', '扩展']
+function toolGroupsOf(list) {
+  return [...new Set((list || []).map(t => t.category || '扩展'))].sort((a, b) => {
+    const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b)
+    if (ia < 0 && ib < 0) return a.localeCompare(b, 'zh')
+    if (ia < 0) return 1
+    if (ib < 0) return -1
+    return ia - ib
+  })
+}
+
 export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) {
   return (
     <Card kind="col-list" top={top} hdClass="list-hd" title="SETTINGS / PROFILES" closeTitle="退出设置"
@@ -118,21 +130,26 @@ export default function ListCard({ v, narrow, profiles, uiCfg, openConv, top }) 
           </div>
         ) : null}
         <div className="set-card">
-          {[...v.toolList].sort((a, b) => {
-            const g = (x) => (x.source === 'plugin' ? 1 : 0)   // 内置 0，外置 1
-            const d = g(a) - g(b)
-            return d !== 0 ? d : a.name.localeCompare(b.name)
-          }).map(t => (
-            <div className="item" key={t.name} title={t.path || '内置工具（在程序内指定）'}
-              onClick={() => v.pickTool(t)}>
-              <b className="item-title">{t.name}
-                {/* 两种来源都标：只给内置标，等于让"外置"靠这一行的缺失来表达 */}
-                <span className={'src-tag ' + (t.source === 'plugin' ? 'plugin' : 'builtin')}>
-                  {t.source === 'plugin' ? '外置' : '内置'}
-                </span>
-              </b>
-              <span className="item-desc">{t.description}</span>
-            </div>
+          {/* 按分组显示小标题：一是让"有哪些分组"对做插件的人可见（不用猜），
+              二是同一组的工具排在一起，比一长串按名字排更好找。 */}
+          {toolGroupsOf(v.toolList).map(g => (
+            <React.Fragment key={g}>
+              <div className="tool-group-title">{g}</div>
+              {v.toolList.filter(t => (t.category || '扩展') === g)
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(t => (
+                  <div className="item" key={t.name} title={t.path || '内置工具（在程序内指定）'}
+                    onClick={() => v.pickTool(t)}>
+                    <b className="item-title">{t.name}
+                      {/* 两种来源都标：只给内置标，等于让"外置"靠这一行的缺失来表达 */}
+                      <span className={'src-tag ' + (t.source === 'plugin' ? 'plugin' : 'builtin')}>
+                        {t.source === 'plugin' ? '外置' : '内置'}
+                      </span>
+                    </b>
+                    <span className="item-desc">{t.description}</span>
+                  </div>
+                ))}
+            </React.Fragment>
           ))}
           <div className="item item-new" onClick={v.newPlugin}>＋ 新建插件</div>
 

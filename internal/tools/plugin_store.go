@@ -63,6 +63,7 @@ func SavePlugin(d PluginDraft) error {
 	m := manifest{
 		Name: name, Description: d.Description, Params: d.Params, Required: d.Required,
 		Command: d.Command, TimeoutMs: d.TimeoutMs, Persistent: d.Persistent, Env: d.Env,
+		Category: strings.TrimSpace(d.Category), // 漏了它，编辑一次插件分组就被清空
 	}
 	b, _ := json.MarshalIndent(m, "", "  ")
 	dir := PluginDir()
