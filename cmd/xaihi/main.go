@@ -116,6 +116,7 @@ func main() {
 		// 观察器：只记"她在用什么应用"（内部不调模型）。没装 hyprctl 时
 		// 采样失败是常态，Run 会自己跳过这一轮，不影响服务。
 		if ws, err := watch.Open(config.DataPath("watch.db")); err == nil {
+			watch.Default = ws
 			w := &watch.Watcher{Store: ws, Samp: watch.Hypr{}}
 			w.OnClose = func(win watch.Win) {
 				// 只在用户定义了 app-close 钩子时才触发（否则每次关窗都报一句"没有这个钩子"）

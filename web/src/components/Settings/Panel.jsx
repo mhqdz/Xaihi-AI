@@ -11,7 +11,7 @@ import EndpointForm from './EndpointForm'
 export default function SettingsPanel({ v, narrow, profiles, uiCfg, openConv }) {
   // 层级：3 级编辑器 / 2 级详情（配置 / 接口 / 工具，互斥）/ 1 级列表
   // 列宽按"实际渲染几张卡"算，同一时刻最多三张
-  const editing = !!(v.editField || v.toolEdit)
+  const editing = !!(v.editField || v.toolEdit || v.personaEdit)
   const detail = !!(v.toolForm || v.editP || v.editE)
   const cols = editing && detail ? ' three' : (editing || detail) ? ' two' : ''
   // 只有一张"最上层"卡（窄屏只显示它）

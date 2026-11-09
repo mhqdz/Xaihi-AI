@@ -21,8 +21,10 @@ import (
 
 	"time"
 	"xaihi/internal/hook"
+	"xaihi/internal/journal"
 	"xaihi/internal/memory"
 	"xaihi/internal/store"
+	"xaihi/internal/todo"
 	"xaihi/internal/toolmeta"
 )
 
@@ -139,6 +141,20 @@ func Registry() map[string]*Spec {
 		{Name: "hook_rm", Category: toolmeta.GroupPersist, Description: "删掉一个钩子",
 			Params: map[string]any{"name": map[string]any{"type": "string"}}, Required: []string{"name"},
 			Run: runHookRemove},
+		{Name: "journal_write", Category: toolmeta.GroupPersist, Description: "写今天的日记（第一人称，记「今天发生了什么、我怎么想」）。" +
+			"一天一个文件、最多 500 字；事实性的东西用 memory_save，不要混进来。",
+			Params: map[string]any{"text": map[string]any{"type": "string"}}, Required: []string{"text"},
+			Run: runJournalWrite},
+		{Name: "todo_add", Category: toolmeta.GroupTodo, Description: "记一条待办（以后该提醒他的事）。" +
+			"what 是要提醒的内容，at 是到期时间（RFC3339 或 2006-01-02 15:04，留空 = 不指定时间）。" +
+			"它不会自己响 —— 到点提醒由外部脚本读 todos.json 触发。",
+			Params:   map[string]any{"what": map[string]any{"type": "string"}, "at": map[string]any{"type": "string"}},
+			Required: []string{"what"}, Run: runTodoAdd},
+		{Name: "todo_list", Category: toolmeta.GroupTodo, Description: "列出待办（未完成在前，含到期时间与完成状态）",
+			Run: runTodoList},
+		{Name: "todo_done", Category: toolmeta.GroupTodo, Description: "把一条待办标记为完成",
+			Params: map[string]any{"id": map[string]any{"type": "string"}}, Required: []string{"id"},
+			Run: runTodoDone},
 		{Name: "memory_list", Category: toolmeta.GroupPersist, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
 			"回答「你记得什么」或准备忘掉某条之前用。",
 			Params: map[string]any{}, Run: runMemoryList},
@@ -661,4 +677,84 @@ func oneLineTxt(s string) string {
 		return string(r[:60]) + "…"
 	}
 	return s
+}
+
+// ---------- 待办 ----------
+
+func todoStore() *todo.Store { return todo.Open(config.DataPath("todos.json")) }
+
+// parseTodoAt 接受两种写法：RFC3339（带时区）和 "2006-01-02 15:04"（按本机时区）
+func parseTodoAt(v string) (time.Time, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339, time.RFC3339Nano, "2006-01-02 15:04", "2006-01-02 15:04:05", "2006-01-02", "15:04"} {
+		if t, err := time.ParseInLocation(layout, v, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("时间看不懂：%q（用 2026-11-11T09:00:00+08:00 或 2026-11-11 09:00）", v)
+}
+
+func runTodoAdd(_ context.Context, args map[string]any, env *Env) (any, error) {
+	what := strings.TrimSpace(str(args, "what"))
+	at, err := parseTodoAt(str(args, "at"))
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	it, err := todoStore().Add(what, at, env.ConvID)
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	when := "不指定时间"
+	if !at.IsZero() {
+		when = at.Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf("已记下待办 %s：%s（%s）", it.ID, it.What, when), nil
+}
+
+func runTodoList(_ context.Context, _ map[string]any, _ *Env) (any, error) {
+	items, err := todoStore().List()
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	if len(items) == 0 {
+		return "（没有待办）", nil
+	}
+	var b strings.Builder
+	for _, it := range items {
+		mark := "○"
+		if it.Done {
+			mark = "●"
+		}
+		fmt.Fprintf(&b, "%s %s  %s", mark, it.ID, it.What)
+		if !it.At.IsZero() {
+			fmt.Fprintf(&b, "（%s）", it.At.Format("01-02 15:04"))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func runTodoDone(_ context.Context, args map[string]any, _ *Env) (any, error) {
+	id := strings.TrimSpace(str(args, "id"))
+	if err := todoStore().Done(id); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return "已标记完成：" + id, nil
+}
+
+// ---------- 日记 ----------
+
+func journalStore() *journal.Store { return &journal.Store{Dir: config.DataPath("journal")} }
+
+func runJournalWrite(_ context.Context, args map[string]any, _ *Env) (any, error) {
+	text := strings.TrimSpace(str(args, "text"))
+	now := time.Now()
+	if err := journalStore().Append(now, now, text); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	day := now.Format("2006-01-02")
+	return fmt.Sprintf("已写进今天的日记（%s）。想回顾就读 %s.md。", day, day), nil
 }

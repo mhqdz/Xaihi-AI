@@ -244,6 +244,36 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, 200, out)
 	})
+	// GET/PUT /api/personas/<name>：读全文 / 保存。人格是纯文本文件，
+	// 编辑器里能看能改，不需要重启（下次 agent.New 就重新读）。
+	mux.HandleFunc("/api/personas/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/personas/")
+		switch r.Method {
+		case http.MethodGet:
+			body, err := config.LoadPersona(name)
+			if err != nil {
+				writeJSON(w, 404, map[string]string{"error": "没有这个人格：" + name})
+				return
+			}
+			writeJSON(w, 200, map[string]string{"name": name, "body": body})
+		case http.MethodPut, http.MethodPost:
+			var in struct {
+				Body string `json:"body"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeJSON(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			if err := config.SavePersona(name, in.Body); err != nil {
+				writeJSON(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			logx.Info("persona.save name=%s chars=%d", name, len([]rune(in.Body)))
+			writeJSON(w, 200, map[string]any{"ok": true, "name": name})
+		default:
+			writeJSON(w, 405, map[string]string{"error": "GET/PUT only"})
+		}
+	})
 	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "GET only"})

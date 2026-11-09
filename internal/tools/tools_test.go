@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"xaihi/internal/config"
 	"xaihi/internal/hook"
 	"xaihi/internal/store"
+	"xaihi/internal/todo"
 )
 
 func TestBashOK(t *testing.T) {
@@ -140,5 +142,43 @@ func TestHookTools(t *testing.T) {
 	// 非法名字要被拒（路径穿越）
 	if out, _ := runHookAdd(context.Background(), map[string]any{"name": "../x", "prompt": "p"}, env); !strings.Contains(out.(string), "✗") {
 		t.Fatalf("非法名字应该被拒: %v", out)
+	}
+}
+
+// 待办工具：写入、列出、完成
+func TestTodoTools(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XAIHI_DATA_DIR", dir)
+	env := &Env{ConvID: 9}
+
+	out, err := runTodoAdd(context.Background(), map[string]any{
+		"what": "交周报", "at": "2026-11-11 09:00",
+	}, env)
+	if err != nil || !strings.Contains(out.(string), "已记下待办") {
+		t.Fatalf("todo_add = %v, %v", out, err)
+	}
+	list, _ := runTodoList(context.Background(), nil, env)
+	if !strings.Contains(list.(string), "交周报") || !strings.Contains(list.(string), "11-11 09:00") {
+		t.Fatalf("todo_list = %v", list)
+	}
+	// 取 id 标完成
+	items, _ := todo.Open(config.DataPath("todos.json")).List()
+	if len(items) != 1 || items[0].ConvID != 9 {
+		t.Fatalf("落盘不对: %+v", items)
+	}
+	done, _ := runTodoDone(context.Background(), map[string]any{"id": items[0].ID}, env)
+	if !strings.Contains(done.(string), "已标记完成") {
+		t.Fatalf("todo_done = %v", done)
+	}
+	if pend, _ := todo.Open(config.DataPath("todos.json")).Pending(0); len(pend) != 0 {
+		t.Errorf("完成之后不该还在 pending: %+v", pend)
+	}
+	// 空内容
+	if out, _ := runTodoAdd(context.Background(), map[string]any{"what": " "}, env); !strings.Contains(out.(string), "✗") {
+		t.Errorf("空内容应该被拒: %v", out)
+	}
+	// 时间看不懂
+	if out, _ := runTodoAdd(context.Background(), map[string]any{"what": "x", "at": "明天"}, env); !strings.Contains(out.(string), "✗") {
+		t.Errorf("非法时间应该被拒: %v", out)
 	}
 }

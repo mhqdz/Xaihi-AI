@@ -216,6 +216,51 @@ profile 里加一行即可：
 `Content-Type` / `User-Agent` / 会话头 / `Authorization` 由程序设置，自定义头
 **覆盖不了**它们（否则一个手滑就把认证写坏了）。
 
+
+### 陪伴型的三块：时间感 / 待办 / 日记
+
+**时间感**（`internal/clock`）：每轮注入三行，≤200 字。
+
+```
+[现在] 2026-11-10 05:15 周二
+[今天] 在电脑前 5h12m，当前 firefox；今天切过 82 次应用（firefox、kitty）
+[上次对话] 3 小时前
+```
+
+数据来自 `time.Now()` 和 `watch.db`（观察器只记"稳定切换"，是粗粒度）。没有它，
+模型说"该休息了"却不知道现在是几点。
+
+**待办**（`internal/todo`）：`~/.data/xaihi/todos.json`，上限 50 条，原子写。
+
+| 工具 | 作用 |
+|---|---|
+| `todo_add(what, at?)` | 记一条；`at` 支持 RFC3339 或 `2006-01-02 15:04` |
+| `todo_list()` | 列出（未完成在前，含到期时间） |
+| `todo_done(id)` | 标记完成（保留记录，不删） |
+
+未完成的（≤20 条）注入 system prompt。**不做后台扫描器**——到点提醒由外部脚本
+读 `todos.json` 后调 `xaihi trigger <钩子>` 驱动，提醒归你的云端待办管。
+
+**日记**（`internal/journal`）：`~/.data/xaihi/journal/<yyyy-mm-dd>.md`，
+一天一个文件、≤500 字、第一人称。
+
+- 工具：`journal_write(text)` 追加到今天的文件（超过 500 字拒绝，不截断）；
+- **不注入**：system prompt 只给一行路径提示，需要回忆时按日期读；
+- 按日期读，不做检索——日期是最可靠的索引。
+
+和记忆的分工：记忆记**事实**（他喜欢什么、约定了什么，注入、一直在场），
+日记记**经历**（那天发生了什么、我怎么想，不注入、按日期翻）。
+
+### 人格读写
+
+```
+GET /api/personas/<名字>     → {name, body}（纯文本全文）
+PUT /api/personas/<名字>     → {body}（保存；空内容/非法名字被拒）
+```
+
+人格是纯文本文件 `~/.data/xaihi/personas/<名字>.md`，改完不用重启——下一轮
+`agent.New` 会重新读。
+
 ### 人格（personas）与「持久化会话」
 
 人格是**可插拔的文本**：`~/.data/xaihi/personas/<名字>.md`。profile 用 `persona` 字段引用，

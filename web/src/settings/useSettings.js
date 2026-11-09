@@ -116,6 +116,8 @@ export function useSettings({ refresh }) {
   const [personas, setPersonas] = useState([])  // 可插拔人格（名字 + 预览）
   const [toolForm, setToolForm] = useState(null)  // 插件表单（新建/编辑）
   const [toolEdit, setToolEdit] = useState(null)  // 工具说明的三级编辑
+  const [personaEdit, setPersonaEdit] = useState(null)  // 人格编辑：{name, body, original, isNew}
+  const [personaBusy, setPersonaBusy] = useState(false)
   const [toolIssues, setToolIssues] = useState([])  // 加载失败被跳过的插件及原因
   const [endpoints, setEndpoints] = useState([])     // 接口列表（地址 + 凭据）
   const [sources, setSources] = useState([])         // 来源模板（sources.json）
@@ -250,7 +252,8 @@ export function useSettings({ refresh }) {
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
   // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
   const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnap(toolSnapShot)
-  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty || editEDirty
+  const personaDirty = !!personaEdit && personaEdit.body !== personaEdit.original
+  const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty || editEDirty || personaDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
   const [nudge, setNudge] = useState(0)
@@ -469,8 +472,33 @@ export function useSettings({ refresh }) {
   const clearDetail = () => {
     setEditP(null); setEditE(null)
     setToolForm(null); setToolSnapShot(null); setToolEdit(null); setEditField(null)
+    setPersonaEdit(null)
   }
 
+  // —— 人格编辑（personas/*.md，纯文本文件）——
+  const openPersonaEditor = async (name) => {
+    if (!name) { setPersonaEdit({ name: '', body: '', original: '', isNew: true }); return }
+    setPersonaBusy(true)
+    const r = await api('/api/personas/' + encodeURIComponent(name)).catch(() => null)
+    setPersonaBusy(false)
+    if (!r || r.error) { alert(r?.error || '读不到人格'); return }
+    setPersonaEdit({ name: r.name, body: r.body || '', original: r.body || '', isNew: false })
+  }
+  const closePersonaEditor = () => {
+    if (personaEdit && personaEdit.body !== personaEdit.original) { setNudge(n => n + 1); return }
+    setPersonaEdit(null)
+  }
+  const savePersona = async () => {
+    if (!personaEdit) return
+    const name = (personaEdit.name || '').trim()
+    const r = await fetch('/api/personas/' + encodeURIComponent(name), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: personaEdit.body }),
+    }).then(x => x.json()).catch(() => ({ error: '请求没发出去' }))
+    if (r.error) { alert(r.error); return }
+    setPersonaEdit({ ...personaEdit, original: personaEdit.body })
+    await loadPersonas()
+  }
   // —— 列表卡上的各种"打开"——
   const openProfile = (pr) => {
     clearDetail()
@@ -622,6 +650,7 @@ export function useSettings({ refresh }) {
   return {
     showSet, setShowSet,
     editP, setEditP, editField, setEditField, editOriginal, editSnap,
+    personaEdit, setPersonaEdit, personaBusy, openPersonaEditor, closePersonaEditor, savePersona, personaDirty,
     toolList, toolIssues, personas, toolForm, setToolForm, toolFormDirty, toolEdit, setToolEdit,
     settings, setSettings, tasks, recipes, taskActive, taskDetail, setTaskDetail,
     shotInfo,

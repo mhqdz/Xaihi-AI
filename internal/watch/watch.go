@@ -44,6 +44,10 @@ type Win struct {
 	PID   int    `json:"pid"`
 }
 
+// Default：进程级的观察库（main 启动时设置）。时间感要读它，
+// 每个 agent 实例各开一次连接没必要。
+var Default *Store
+
 // Store 存事件与配额（独立 db 文件，不碰主库 schema）
 type Store struct{ db *sql.DB }
 

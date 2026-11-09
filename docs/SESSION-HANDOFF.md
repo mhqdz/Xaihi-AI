@@ -61,6 +61,17 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 - 钩子产出**倾向写回创建它的会话**（选项 A，尚未实现）。
 - profile 可编辑，mem 可选，人格文件先不管（按需选择/拷贝）。
 
+## 五之前、2026-11-10 深夜：陪伴型三块（时间感 / 待办 / 日记）+ 人格可编辑
+
+- `internal/clock`：`[现在]`/`[今天]`/`[上次对话]` 三行，注入在人格之后、记忆之前
+- `internal/todo`：`todos.json`（上限 50、原子写）+ `todo_add/list/done` + 未完成注入（≤20）
+- `internal/journal`：`journal/<日期>.md`（一天一个、≤500 字、不注入、只给路径）+ `journal_write`
+- 人格可编辑：`GET/PUT /api/personas/<名字>` + 前端 EditorCard 复用
+- `personas/xaihi.md` 写成了终末地干员赛希（称用户「管理员」）
+- 删了 `ds-pro` 配置（模型已下线）
+- 实测：todo_add 落盘 → 新会话问"有什么待办"能答出；journal_write 写出当天日记，
+  内容里引用了时间感的"5h12m / 82 次切换"
+
 ## 五、已完成：人格可插拔 + 工具分类 + 钩子工具
 
 **A 人格可插拔**（已完成）

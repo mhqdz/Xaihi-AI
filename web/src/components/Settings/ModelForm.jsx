@@ -197,6 +197,11 @@ export default function ModelForm({ v, narrow, top }) {
           </select>
         </Field>
         {personaPreview ? <div className="field-hint">{personaPreview}</div> : null}
+        <LinkRow label="查看 / 编辑人格" value={editP.persona || ''}
+          placeholder="（先选一个人格）"
+          onClick={() => { if (editP.persona) v.openPersonaEditor(editP.persona) }} />
+        <LinkRow label="新建人格" value="" placeholder="写一份新的人格"
+          onClick={() => v.openPersonaEditor('')} />
         <SwitchRow label="持久化会话"
           hint="记忆与钩子工具需要它；纯执行用的配置别开"
           checked={!!editP.persistent}

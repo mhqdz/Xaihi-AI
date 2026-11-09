@@ -13,12 +13,16 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"xaihi/internal/clock"
 	"xaihi/internal/config"
+	"xaihi/internal/journal"
 	"xaihi/internal/llm"
 	"xaihi/internal/logx"
 	"xaihi/internal/memory"
 	"xaihi/internal/store"
+	"xaihi/internal/todo"
 	"xaihi/internal/tools"
+	"xaihi/internal/watch"
 )
 
 // 工具循环：最多 8 轮，避免模型自己绕不出来。
@@ -230,7 +234,16 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		}
 		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 			sys := a.profile.System
-			// 顺序：人格 → 记忆 → 已知事实（越易变越靠后，KV cache 才能多命中）
+			// 顺序：人格 → 时间感 → 记忆 → 已知事实（越易变越靠后，KV cache 才能多命中）
+			if ct := a.clockText(c); ct != "" {
+				sys += "\n\n" + ct
+			}
+			if jh := a.journalHint(); jh != "" {
+				sys += "\n\n" + jh
+			}
+			if td := a.todoText(); td != "" {
+				sys += "\n\n" + td
+			}
 			if memText != "" {
 				if strings.TrimSpace(sys) != "" {
 					sys += "\n\n"
@@ -754,6 +767,15 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	}
 	if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 		sys := a.profile.System
+		if ct := a.clockText(c); ct != "" {
+			sys += "\n\n" + ct
+		}
+		if jh := a.journalHint(); jh != "" {
+			sys += "\n\n" + jh
+		}
+		if td := a.todoText(); td != "" {
+			sys += "\n\n" + td
+		}
 		if memText != "" {
 			if strings.TrimSpace(sys) != "" {
 				sys += "\n\n"
@@ -777,4 +799,36 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 func convIDOf(c *store.Conversation) int64 {
 	n, _ := strconv.ParseInt(c.ID, 10, 64)
 	return n
+}
+
+// clockText：给她"时间感"（现在几点、今天在干嘛、上次聊完多久）。
+// 读不到观察库就只给时间 —— 至少别让她不知道现在几点。
+func (a *Agent) clockText(c *store.Conversation) string {
+	now := time.Now()
+	var events []watch.Event
+	if watch.Default != nil {
+		events, _ = watch.Default.Recent(24 * time.Hour)
+	}
+	return clock.Render(now, events, lastUserAt(c))
+}
+
+// lastUserAt：本会话最后一条用户消息的时间（零值 = 还没有对话）
+func lastUserAt(c *store.Conversation) time.Time {
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		if c.Messages[i].Role == "user" && !c.Messages[i].CreatedAt.IsZero() {
+			return c.Messages[i].CreatedAt
+		}
+	}
+	return time.Time{}
+}
+
+// todoText：未完成的待办（最多 20 条）。她要知道"该提醒什么"，
+// 否则所谓提醒就只是随口一说。
+func (a *Agent) todoText() string {
+	return todo.Open(config.DataPath("todos.json")).Render(time.Now(), 20)
+}
+
+// journalHint：只给路径，不塞内容（塞进去会吃掉记忆预算，而且日记会越来越长）
+func (a *Agent) journalHint() string {
+	return (&journal.Store{Dir: config.DataPath("journal")}).Hint()
 }

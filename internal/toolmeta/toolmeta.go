@@ -13,17 +13,20 @@ const (
 	GroupKnowledge = "知识"  // kb_* / web_*
 	GroupView      = "视图"  // screenshot / view_image
 	GroupPersist   = "持久化" // memory_* / hook_*
+	GroupTodo      = "待办"  // todo_*：她记着"该提醒你什么"
 	GroupExt       = "扩展"  // 插件没声明分组时的兜底
 )
 
 // order：预置分组的展示顺序；未知分组排在它们后面（按名字排序）。
-var order = []string{GroupChat, GroupKnowledge, GroupView, GroupPersist, GroupExt}
+var order = []string{GroupChat, GroupKnowledge, GroupView, GroupPersist, GroupTodo, GroupExt}
 
 // Category 按工具名归类
 func Category(name string) string {
 	switch name {
 	case "memory_save", "memory_forget", "memory_list", "hook_add", "hook_list", "hook_rm":
 		return GroupPersist
+	case "todo_add", "todo_list", "todo_done":
+		return GroupTodo
 	case "screenshot", "view_image":
 		return GroupView
 	case "kb_search", "kb_get", "web_search", "web_fetch":
@@ -45,7 +48,7 @@ func Order(group string) int {
 }
 
 // NeedsPersistent 这一组要 profile 打开「持久化会话」
-func NeedsPersistent(group string) bool { return group == GroupPersist }
+func NeedsPersistent(group string) bool { return group == GroupPersist || group == GroupTodo }
 
 // NeedsVision 这一组要模型能接收图像
 func NeedsVision(group string) bool { return group == GroupView }
