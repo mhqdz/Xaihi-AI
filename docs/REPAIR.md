@@ -44,3 +44,18 @@
 修法：耗时在 agent 的工具 goroutine 里就地测量（`tool.run ms=…`），随 `onTool` 传给 web，
 写进 SSE（`tool.ms`）与 `messages.tool_ms`。实测 kb_search 11~16ms、kb_get 9~11ms。
 教训：**并行任务的共享计时器一定会撒谎**，计时必须在任务自己内部做。
+
+## 2026-11-10 改名迁移时 SQLite 的 WAL 没跟着搬，丢了 30 条消息
+
+改名是 `mv agentd.db xaihi.db`。问题：SQLite 开了 WAL 模式，主库旁边还有
+`agentd.db-wal` / `agentd.db-shm` 两个附属文件，它们**按文件名绑定主库** ——
+只改主库名，WAL 就成了孤儿，里面 1009 帧（4.1MB）未合并的数据直接被忽略。
+
+发现：迁移后 `messages` 2088 条，把旧 WAL 合并进副本一读是 2118 条。差 30 条。
+
+修法：停服务 → 把旧 `-wal`/`-shm` 和主库拷到临时目录 → `PRAGMA wal_checkpoint(TRUNCATE)`
+合并 → 用合并后的库替换 → 删掉两组 `-wal`/`-shm` → 启动。实测 2118 条恢复。
+
+教训：**迁移 SQLite 库之前先 `PRAGMA wal_checkpoint(TRUNCATE)`**（或先正常关连接），
+主库和 `-wal`/`-shm` 要么一起搬、要么先合并成一个文件。只 `mv` 主库 = 静默丢数据，
+而且行数只差几十条，很容易当成"本来就这样"。
