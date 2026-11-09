@@ -10,7 +10,7 @@ import (
 func newStore(t *testing.T) *Store {
 	t.Helper()
 	s := New(t.TempDir())
-	s.Scope = "agentd"
+	s.Scope = "xaihi"
 	return s
 }
 
@@ -33,7 +33,7 @@ func TestSaveAndList(t *testing.T) {
 		if e.Status() != StatusActive {
 			t.Errorf("状态 = %q", e.Status())
 		}
-		if e.Field(FScope) != "agentd" {
+		if e.Field(FScope) != "xaihi" {
 			t.Errorf("scope = %q", e.Field(FScope))
 		}
 		if e.Created() == "" {
@@ -47,7 +47,7 @@ func TestGlobalAndProject(t *testing.T) {
 	if _, err := s.Save("global", "偏好", "", "全局的"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Save("agentd", "事实", "", "项目的"); err != nil {
+	if _, err := s.Save("xaihi", "事实", "", "项目的"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.List()
@@ -83,7 +83,7 @@ func TestForgetKeepsFileAndDropsFromList(t *testing.T) {
 		t.Errorf("archived 不该进 List，得到 %d", len(got))
 	}
 	// 文件还在（可恢复）
-	if _, err := os.Stat(filepath.Join(s.Root, "project", "agentd", e.Name+".md")); err != nil {
+	if _, err := os.Stat(filepath.Join(s.Root, "project", "xaihi", e.Name+".md")); err != nil {
 		t.Errorf("文件应该保留：%v", err)
 	}
 	if err := s.Restore(e.Name); err != nil {
@@ -95,7 +95,7 @@ func TestForgetKeepsFileAndDropsFromList(t *testing.T) {
 	if err := s.Purge(e.Name); err != nil {
 		t.Fatalf("Purge: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(s.Root, "project", "agentd", e.Name+".md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Root, "project", "xaihi", e.Name+".md")); !os.IsNotExist(err) {
 		t.Error("Purge 后文件应该没了")
 	}
 }

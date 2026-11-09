@@ -1,4 +1,4 @@
-# 交接卡：agentd 自主审计（2026-11-03）
+# 交接卡：xaihi 自主审计（2026-11-03）
 
 > **已被 [`docs/AUDIT.md`](AUDIT.md) 取代。** 本文件写作时 theme.css 的合并还没验证（当时那份 943 行的实验版后来丢了），
 > 实际完成的所有改动、验证证据和批次记录都在 AUDIT.md。这里保留作为过程记录，别再按它开工。
@@ -16,7 +16,7 @@
 ## 1. 先跑这三条确认状态
 
 ```bash
-cd ~/Workspace/agentd
+cd ~/Workspace/xaihi
 git log --oneline -3          # 应为 677254e / 68f61bd / 1715c85
 git status --short            # 应有：M wd.py、M theme.css、?? pixel_diff.py
 wc -l web/src/theme.css       # 应为 943（合并版）；若是 1401 说明已回滚
@@ -25,7 +25,7 @@ wc -l web/src/theme.css       # 应为 943（合并版）；若是 1401 说明�
 服务与浏览器：
 
 ```bash
-systemctl --user is-active agentd          # active
+systemctl --user is-active xaihi          # active
 curl -s http://127.0.0.1:18400/api/health  # {"ok":true,...}
 ```
 
@@ -33,7 +33,7 @@ curl -s http://127.0.0.1:18400/api/health  # {"ok":true,...}
 
 ## 2. 目标（goal objective 原文）
 
-对 agentd（Go 后端 + React 前端）做分阶段自主审计与优化。
+对 xaihi（Go 后端 + React 前端）做分阶段自主审计与优化。
 
 **问题分级**（按优先级修，同级按影响面排）：
 
@@ -71,7 +71,7 @@ curl -s http://127.0.0.1:18400/api/health  # {"ok":true,...}
 ### 3.1 跑对比
 
 ```bash
-cd ~/Workspace/agentd
+cd ~/Workspace/xaihi
 timeout 280 python3 scripts/ui-test/pixel_diff.py compare /tmp/pixel_base
 ```
 
@@ -108,7 +108,7 @@ cd web && npm run build
 ## 4. 六套测试（全绿才算完成）
 
 ```bash
-cd ~/Workspace/agentd
+cd ~/Workspace/xaihi
 for f in check_layout check_tools run run3 robustness; do
   echo "=== $f"; timeout 300 python3 scripts/ui-test/$f.py 2>&1 | tail -3
 done
@@ -133,12 +133,12 @@ timeout 280 python3 scripts/ui-test/stream_test.py 2>&1 | tail -4
 
 | 项 | 值 |
 |---|---|
-| 仓库 | `~/Workspace/agentd`（分支 `main`，远端 `origin`） |
-| 服务 | `agentd.service`（`~/.local/bin/agentd serve`，0.0.0.0:18400） |
-| 数据库 | `~/.data/agentd/agentd.db`（WAL） |
-| 日志 | `~/.data/agentd/agentd.log` |
-| 前端构建 | `cd web && npm run build`（agentd 从 `web/dist` 读盘，改前端只需构建，不用重启服务） |
-| Go 构建 | `export PATH=$PATH:/usr/local/go/bin && go build -o ~/.local/bin/agentd ./cmd/agentd`，然后 `systemctl --user restart agentd` |
+| 仓库 | `~/Workspace/xaihi`（分支 `main`，远端 `origin`） |
+| 服务 | `xaihi.service`（`~/.local/bin/xaihi serve`，0.0.0.0:18400） |
+| 数据库 | `~/.data/xaihi/xaihi.db`（WAL） |
+| 日志 | `~/.data/xaihi/xaihi.log` |
+| 前端构建 | `cd web && npm run build`（xaihi 从 `web/dist` 读盘，改前端只需构建，不用重启服务） |
+| Go 构建 | `export PATH=$PATH:/usr/local/go/bin && go build -o ~/.local/bin/xaihi ./cmd/xaihi`，然后 `systemctl --user restart xaihi` |
 | 测试基座 | `~/.local/bin/geckodriver --port 4444` + `scripts/ui-test/wd.py` |
 
 ---

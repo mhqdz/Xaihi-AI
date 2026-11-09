@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"agentd/internal/logx"
+	"xaihi/internal/logx"
 )
 
 // 三层的模型层（models.json）撤掉之后的回迁：把模型条目里的事实

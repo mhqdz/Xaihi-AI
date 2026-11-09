@@ -1,5 +1,5 @@
 // Package logx：极简日志系统
-// - 输出到 <数据目录>/agentd.log（同时打到 stderr，systemd 里也能看）
+// - 输出到 <数据目录>/xaihi.log（同时打到 stderr，systemd 里也能看）
 // - 按大小滚动（默认 5MB × 3 份）
 // - 行格式：2026-10-25T22:00:00+08:00 [INFO] 事件 key=value ...
 package logx
@@ -33,7 +33,7 @@ func Init(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	path = filepath.Join(dir, "agentd.log")
+	path = filepath.Join(dir, "xaihi.log")
 	fh, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err

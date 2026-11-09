@@ -2,7 +2,7 @@
 
 > 用途：跨会话交接。任何 agent（或压缩后的我）读完这份就能接着做，不必回看对话历史。
 > 最近状态：Step 1 / Step 2 / Step 3 全部完成（App.jsx 1689 → 1067 行）。
-> 回滚点：tag `backup-web-20261030`，快照 `~/backups/agentd-web-20261030-0445.tgz`。
+> 回滚点：tag `backup-web-20261030`，快照 `~/backups/xaihi-web-20261030-0445.tgz`。
 
 ## 0. 目标与验收
 
@@ -216,7 +216,7 @@ CSS
 
 ```bash
 cd web && npm run build                       # 前端
-cd ~/Workspace/agentd && go test ./...        # 后端
+cd ~/Workspace/xaihi && go test ./...        # 后端
 /tmp/geckodriver --port 4444 &                # UI 自动化依赖
 cd /tmp/uitest && python3 run.py && python3 run2.py && python3 run3.py
 # 截图落在 /tmp/uitest/*.png

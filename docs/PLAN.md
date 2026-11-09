@@ -1,4 +1,4 @@
-# agentd 计划与待办
+# xaihi 计划与待办
 
 ## 一、工具/插件体系的决策记录
 
@@ -7,7 +7,7 @@
 协议要点（详细实现见 §二、DESIGN.md §4）：
 
 ```
-清单位置：~/.data/agentd/tools.d/<name>.json（模板在 scripts/tools.d/，deploy 时 @REPO@ 替换）
+清单位置：~/.data/xaihi/tools.d/<name>.json（模板在 scripts/tools.d/，deploy 时 @REPO@ 替换）
 一次性：command 直接 exec，参数走 AGENTD_ARG_*；超时 timeoutMs；非 0 退出 → 文本 + [exit N]
 常驻：persistent:true → JSON-RPC over stdio（initialize / tools/list / tools/call）
 作用域：仍由 profiles.json.tools 决定（不引入第二套开关）
@@ -17,7 +17,7 @@
 ## 二、插件体系：已完成 / 待做
 
 已完成（2026-10-28/29）：
-- 清单目录 `~/.data/agentd/tools.d/*.json`，模板入仓 `scripts/tools.d/`，deploy.sh 用 `@REPO@` 替换后同步（变更先备份）
+- 清单目录 `~/.data/xaihi/tools.d/*.json`，模板入仓 `scripts/tools.d/`，deploy.sh 用 `@REPO@` 替换后同步（变更先备份）
 - 一次性插件：直接 exec + `AGENTD_ARG_*` 环境变量 + stdin JSON；必填参数宿主侧校验
 - 常驻插件：`persistent:true` → JSON-RPC over stdio（initialize/tools/list/tools/call），一进程多工具，
   自动重启、退出时 ShutdownPlugins()；示例 `scripts/tools/demo_persist.py`
@@ -52,13 +52,13 @@ scripts/deploy.sh --no-front   # 只发后端（前端没改时更快）
 ```
 
 它的行为（改脚本时保持这四条）：
-1. `go build -o /tmp/agentd.new.$$ ./cmd/agentd`：先构建到临时文件，构建失败不影响线上。
+1. `go build -o /tmp/xaihi.new.$$ ./cmd/xaihi`：先构建到临时文件，构建失败不影响线上。
 2. 未加 `--no-front` 时 `cd web && npm run build`（产物进 `web/dist`，18400 直接读它）。
-3. `systemctl --user stop agentd` → `cp` 到 `~/.local/bin/agentd` → `chmod +x` → `start`。
+3. `systemctl --user stop xaihi` → `cp` 到 `~/.local/bin/xaihi` → `chmod +x` → `start`。
 4. `curl -s --noproxy '*' http://127.0.0.1:18400/api/health` 必须 200，否则打印
    `systemctl --user status --no-pager -n 15` 并 `exit 1`。
 
 下一步打算（未做）：
 - `--only-go` / `--only-web` 更细的粒度，避免无谓的整轮重启。
 - 部署前自动跑 `go test ./...`，失败即中止。
-- 部署成功后把 commit 短 id + 耗时写一行到 `~/.data/agentd/agentd.log`（用 `logx` 同款格式）。
+- 部署成功后把 commit 短 id + 耗时写一行到 `~/.data/xaihi/xaihi.log`（用 `logx` 同款格式）。

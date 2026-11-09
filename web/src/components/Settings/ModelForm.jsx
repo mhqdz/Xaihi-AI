@@ -82,13 +82,13 @@ export default function ModelForm({ v, narrow, top }) {
         </Field>
         <Field label="模型">
           <div className="row-btn">
-            <input list="agentd-model-ids" value={editP.model || ''} placeholder="qwen3.8-flash-next-iq3_xxs"
+            <input list="xaihi-model-ids" value={editP.model || ''} placeholder="qwen3.8-flash-next-iq3_xxs"
               onFocus={() => { if (!lst) v.loadModelList(editP.endpoint) }}
               onChange={e => onModel(e.target.value)} />
             <button type="button" className="btn" title="刷新上游列表"
               onClick={() => v.loadModelList(editP.endpoint, true)}>⟳</button>
           </div>
-          <datalist id="agentd-model-ids">
+          <datalist id="xaihi-model-ids">
             {found.map(m => <option key={m.id} value={m.id}>{m.name || ''}</option>)}
           </datalist>
           <span className={'field-hint' + (lst && lst.error ? ' warn' : '')}>{listHint}</span>

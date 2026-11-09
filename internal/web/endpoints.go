@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"agentd/internal/config"
-	"agentd/internal/llm"
-	"agentd/internal/logx"
+	"xaihi/internal/config"
+	"xaihi/internal/llm"
+	"xaihi/internal/logx"
 )
 
 // 接口（endpoint）= 地址 + 凭据 + 协议；模型（profile）只声明用哪个接口。

@@ -2,11 +2,11 @@
 //
 // 设计：**判断在哪醒由外部决定，agent 只负责"被叫醒之后做什么"**。
 // 定时、进程出现/消失、文件变化这些确定性条件交给 cron / inotifywait / 系统脚本，
-// 它们调 `POST /api/trigger` 或 `agentd trigger <名字>`；agentd 只做：
+// 它们调 `POST /api/trigger` 或 `xaihi trigger <名字>`；xaihi 只做：
 //
 //	查配额 → 查冷却 → 组装上下文 → 在一个固定会话里跑一轮
 //
-// 钩子定义放文件（可读、可 git、agent 自己能写）：~/.data/agentd/hooks/<名字>.json
+// 钩子定义放文件（可读、可 git、agent 自己能写）：~/.data/xaihi/hooks/<名字>.json
 //
 //	{"name":"game-exit","mode":"speak","prompt":"我从游戏退出来了…",
 //	 "quota_per_day":10,"cooldown_s":3}
@@ -163,10 +163,10 @@ func (m *Manager) fingerprint() string {
 	return b.String()
 }
 
-// WatchDir 轮询目录，变了就重读（改钩子不用重启 agentd）。
+// WatchDir 轮询目录，变了就重读（改钩子不用重启 xaihi）。
 //
 // 这里刻意用轮询而不是 fsnotify：钩子目录就那么几个文件，5 秒 stat 一次
-// 的成本可以忽略，而 agentd 现在只依赖 sqlite 一个外部包，不值得为这事加一个。
+// 的成本可以忽略，而 xaihi 现在只依赖 sqlite 一个外部包，不值得为这事加一个。
 func (m *Manager) WatchDir(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 5 * time.Second
@@ -311,7 +311,7 @@ func (m *Manager) Used(name string) int {
 	return m.counts[name]
 }
 
-// ---------- 注册（由 agentd 维护文件，不让人/agent 手写 JSON） ----------
+// ---------- 注册（由 xaihi 维护文件，不让人/agent 手写 JSON） ----------
 
 var reName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
@@ -345,7 +345,7 @@ func Validate(d Def) error {
 	return nil
 }
 
-// Write 落盘一个钩子（agentd 负责格式与校验；服务端 5 秒内自动重载）。
+// Write 落盘一个钩子（xaihi 负责格式与校验；服务端 5 秒内自动重载）。
 func Write(dir string, d Def) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -364,7 +364,7 @@ func Write(dir string, d Def) error {
 	return os.Rename(tmp, filepath.Join(dir, d.Name+".json"))
 }
 
-// Remove 删除一个钩子（文件由 agentd 管，删也走这里）
+// Remove 删除一个钩子（文件由 xaihi 管，删也走这里）
 func Remove(dir, name string) error {
 	if !reName.MatchString(name) {
 		return fmt.Errorf("名字不合法：%q", name)

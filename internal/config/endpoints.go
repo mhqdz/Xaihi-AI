@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"agentd/internal/logx"
+	"xaihi/internal/logx"
 )
 
 // Endpoint：一个可用的模型接口（地址 + 凭据 + 协议）。

@@ -1,4 +1,4 @@
-# agentd 修复记录
+# xaihi 修复记录
 
 上游代理 400（Bad request syntax）
 - 现象：curl 正常，但应用里报 400，错误里能看到 "{...}POST /180/v1/chat/completions HTTP/1.1" 这种拼接。

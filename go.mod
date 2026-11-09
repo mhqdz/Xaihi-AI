@@ -1,4 +1,4 @@
-module agentd
+module xaihi
 
 go 1.26.0
 

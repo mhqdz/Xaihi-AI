@@ -6,7 +6,7 @@ import (
 )
 
 func TestJobTTLAndSweep(t *testing.T) {
-	t.Setenv("AGENTD_JOB_TTL", "30s")
+	t.Setenv("XAIHI_JOB_TTL", "30s")
 	s := &Server{}
 	j := s.job("1")
 	j.emit("event: delta\ndata: {}\n\n")

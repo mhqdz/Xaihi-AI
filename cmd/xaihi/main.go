@@ -1,10 +1,10 @@
-// agentd：本机 agent 的骨架。P0 = 多轮对话（无工具、无 UI）。
+// xaihi：本机 agent 的骨架。P0 = 多轮对话（无工具、无 UI）。
 //
-//	agentd chat                 交互式多轮（Ctrl-D 退出）
-//	agentd send "一句话"         单轮（可带 -conv <id> 续用会話）
-//	agentd convs                列出会话
-//	agentd show <id>            打印会话全文
-//	agentd config               打印生效的配置
+//	xaihi chat                 交互式多轮（Ctrl-D 退出）
+//	xaihi send "一句话"         单轮（可带 -conv <id> 续用会話）
+//	xaihi convs                列出会话
+//	xaihi show <id>            打印会话全文
+//	xaihi config               打印生效的配置
 package main
 
 import (
@@ -22,22 +22,22 @@ import (
 	"syscall"
 	"time"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/hook"
-	"agentd/internal/llm"
-	"agentd/internal/logx"
-	"agentd/internal/store"
-	"agentd/internal/tools"
-	"agentd/internal/watch"
-	"agentd/internal/web"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/hook"
+	"xaihi/internal/llm"
+	"xaihi/internal/logx"
+	"xaihi/internal/store"
+	"xaihi/internal/tools"
+	"xaihi/internal/watch"
+	"xaihi/internal/web"
 )
 
-const version = "0.0.1-p0"
+var version = "0.0.1-p0"
 
 func main() {
 	cfg := config.Load()
-	// 日志：写 <data_dir>/agentd.log（同时打 stderr）
+	// 日志：写 <data_dir>/xaihi.log（同时打 stderr）
 	if err := logx.Init(cfg.DataDir); err != nil {
 		fmt.Fprintf(os.Stderr, "日志初始化失败：%v（仅 stderr）\n", err)
 	}
@@ -60,7 +60,7 @@ func main() {
 			pname = os.Args[i+1]
 		}
 	}
-	if v := os.Getenv("AGENTD_PROFILE"); v != "" {
+	if v := os.Getenv("XAIHI_PROFILE"); v != "" {
 		pname = v
 	}
 	prof, ok := config.GetProfile(pname)
@@ -84,7 +84,7 @@ func main() {
 	switch cmd {
 	case "serve":
 		addr := "127.0.0.1:18400"
-		if v := os.Getenv("AGENTD_ADDR"); v != "" {
+		if v := os.Getenv("XAIHI_ADDR"); v != "" {
 			addr = v
 		}
 		// 迁移，顺序不能反：先把老 profile 里的地址抽成接口，
@@ -136,7 +136,7 @@ func main() {
 			logx.Warn("观察器初始化失败: %v", err)
 		}
 		// 触发端点只挂在 unix socket 上（TCP 端口没鉴权，不能给它加"让 agent 干活"的入口）
-		sock := config.DataPath("agentd.sock")
+		sock := config.DataPath("xaihi.sock")
 		_ = os.Remove(sock) // 上次异常退出的残留
 		ln, err := net.Listen("unix", sock)
 		if err != nil {
@@ -152,7 +152,7 @@ func main() {
 		}
 
 		srv := &http.Server{Addr: addr, Handler: s.Handler()}
-		fmt.Fprintf(os.Stderr, "agentd %s · model=%s · http://%s\n", version, cfg.Model, addr)
+		fmt.Fprintf(os.Stderr, "xaihi %s · model=%s · http://%s\n", version, cfg.Model, addr)
 		// 优雅停机：先把进行中的轮次取消（它们会落库半截内容 + 中断说明），再退出
 		go func() {
 			ch := make(chan os.Signal, 1)
@@ -187,7 +187,7 @@ func main() {
 			}
 		case "add":
 			if len(args) < 2 {
-				fatal(fmt.Errorf("用法: agentd hook add <名字> --prompt \"…\" [--mode speak|silent] [--quota 10] [--cooldown 3]"))
+				fatal(fmt.Errorf("用法: xaihi hook add <名字> --prompt \"…\" [--mode speak|silent] [--quota 10] [--cooldown 3]"))
 			}
 			name := args[1]
 			d := hook.Def{Name: name, Mode: "speak"}
@@ -219,18 +219,18 @@ func main() {
 			fmt.Printf("已写入钩子 %s（%s，配额 %d/天）—— 5 秒内自动生效\n", d.Name, d.Mode, d.QuotaOrDefault())
 		case "rm", "remove":
 			if len(args) < 2 {
-				fatal(fmt.Errorf("用法: agentd hook rm <名字>"))
+				fatal(fmt.Errorf("用法: xaihi hook rm <名字>"))
 			}
 			if err := hook.Remove(dir, args[1]); err != nil {
 				fatal(err)
 			}
 			fmt.Printf("已删除钩子 %s（5 秒内生效）\n", args[1])
 		default:
-			fatal(fmt.Errorf("用法: agentd hook [list | add <名字> --prompt … | rm <名字>]"))
+			fatal(fmt.Errorf("用法: xaihi hook [list | add <名字> --prompt … | rm <名字>]"))
 		}
 	case "trigger":
 		if len(args) == 0 {
-			fatal(fmt.Errorf("用法: agentd trigger <钩子名> [--data '{\"k\":\"v\"}']"))
+			fatal(fmt.Errorf("用法: xaihi trigger <钩子名> [--data '{\"k\":\"v\"}']"))
 		}
 		name := args[0]
 		data := map[string]any{}
@@ -242,9 +242,9 @@ func main() {
 				i++
 			}
 		}
-		sock := os.Getenv("AGENTD_SOCK")
+		sock := os.Getenv("XAIHI_SOCK")
 		if sock == "" {
-			sock = config.DataPath("agentd.sock")
+			sock = config.DataPath("xaihi.sock")
 		}
 		body, _ := json.Marshal(map[string]any{"hook": name, "data": data})
 		// 走 unix socket：触发是"让 agent 干活"，不开 TCP 口子
@@ -265,7 +265,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println("agentd " + version)
+		fmt.Println("xaihi " + version)
 	case "config":
 		fmt.Printf("base_url  %s\nmodel     %s\ndata_dir  %s\n", cfg.BaseURL, cfg.Model, cfg.DataDir)
 	case "convs":
@@ -278,7 +278,7 @@ func main() {
 		}
 	case "archive", "restore", "rm":
 		if len(args) == 0 {
-			fatal(fmt.Errorf("用法: agentd %s <id>", cmd))
+			fatal(fmt.Errorf("用法: xaihi %s <id>", cmd))
 		}
 		var err error
 		switch cmd {
@@ -309,7 +309,7 @@ func main() {
 		}
 	case "show":
 		if len(args) == 0 {
-			fatal(fmt.Errorf("用法: agentd show <id>"))
+			fatal(fmt.Errorf("用法: xaihi show <id>"))
 		}
 		c, err := st.Get(args[0])
 		if err != nil {
@@ -321,7 +321,7 @@ func main() {
 		}
 	case "send":
 		if len(args) == 0 {
-			fatal(fmt.Errorf(`用法: agentd send "一句话" [-conv id]`))
+			fatal(fmt.Errorf(`用法: xaihi send "一句话" [-conv id]`))
 		}
 		text, convID := args[0], ""
 		for i := 1; i < len(args); i++ {
@@ -351,7 +351,7 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		fmt.Printf("agentd %s · model=%s · conv=%s\n（空行退出；Ctrl-D 结束）\n", version, cfg.Model, c.ID)
+		fmt.Printf("xaihi %s · model=%s · conv=%s\n（空行退出；Ctrl-D 结束）\n", version, cfg.Model, c.ID)
 		sc := bufio.NewScanner(os.Stdin)
 		// 默认 64KB 的行上限：粘贴一大段日志就会让 Scan() 返回 false，
 		// 而下面只写了 break —— 表现是"打完字回车，程序直接退出，什么都没说"。
@@ -382,22 +382,22 @@ func main() {
 			}
 		}
 		// 一句话都没说就退出时 c.ID 是空的（Conversation 只建对象、没落库）——
-		// 这时候说"已保存"是假话，agentd show 也拿不到东西。
+		// 这时候说"已保存"是假话，xaihi show 也拿不到东西。
 		if c.ID == "" {
 			fmt.Fprintln(os.Stderr, "（没有对话，未创建会话）")
 		} else {
-			fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
+			fmt.Fprintf(os.Stderr, "会话已保存: %s（xaihi show %s）\n", c.ID, c.ID)
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "未知命令 %q\n\n用法:\n"+
-			"  agentd serve                       起 HTTP 服务\n"+
-			"  agentd chat                        交互式对话\n"+
-			"  agentd send <文本>                  发一条就退出\n"+
-			"  agentd convs | archived            列出未归档 / 已归档会话\n"+
-			"  agentd show <id>                   看一段会话\n"+
-			"  agentd archive|restore <id>        归档 / 恢复\n"+
-			"  agentd rm <id> [--hard]            归档；加 --hard 才是真删\n"+
-			"  agentd config | version            看配置 / 版本\n", cmd)
+			"  xaihi serve                       起 HTTP 服务\n"+
+			"  xaihi chat                        交互式对话\n"+
+			"  xaihi send <文本>                  发一条就退出\n"+
+			"  xaihi convs | archived            列出未归档 / 已归档会话\n"+
+			"  xaihi show <id>                   看一段会话\n"+
+			"  xaihi archive|restore <id>        归档 / 恢复\n"+
+			"  xaihi rm <id> [--hard]            归档；加 --hard 才是真删\n"+
+			"  xaihi config | version            看配置 / 版本\n", cmd)
 		os.Exit(2)
 	}
 	_ = llm.Chunk{}

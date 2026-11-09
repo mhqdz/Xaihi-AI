@@ -1,4 +1,4 @@
-# agentd 接口文档
+# xaihi 接口文档
 
 > 监听地址：默认 `127.0.0.1:18400`，用 `AGENTD_ADDR` 覆盖（当前部署为 `0.0.0.0:18400`，
 > 局域网访问 `http://192.168.1.200:18400`）。**无鉴权**：能访问端口的人都能用会话里的工具（含 bash），
@@ -99,7 +99,7 @@
 ### 能力缓存：`model-cache.json`
 
 不是配置层，是**上次问上游要到的答案**：`{ "<接口>": {"at": …, "models": [...]} }`。
-由 agentd 在拉列表/启动补刷时自动写，没有界面、不给人手改、删掉只会导致重拉。
+由 xaihi 在拉列表/启动补刷时自动写，没有界面、不给人手改、删掉只会导致重拉。
 用途三个：配置卡里"选模型"时的初始值、离线时的下拉列表、以及"这份数据多旧了"
 （界面上的状态行永远显示 `刚刚 / N 分钟前 / N 天前`）。
 
@@ -191,13 +191,13 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 ### 触发器：本地 socket（**不在 TCP 上**）
 
 **判断"什么时候醒"不归 agent 管。** 定时、进程出现/消失、文件变化都是确定性的，
-交给 cron / systemd timer / inotifywait / 你自己的脚本；它们调这个接口，agentd 只负责
+交给 cron / systemd timer / inotifywait / 你自己的脚本；它们调这个接口，xaihi 只负责
 「被叫醒之后做什么」。
 
 ```bash
-agentd trigger game-exit --data '{"app":"steam"}'
+xaihi trigger game-exit --data '{"app":"steam"}'
 # 需要从脚本里直接打协议的话，用 socket（不是端口）：
-curl -s --unix-socket ~/.data/agentd/agentd.sock \
+curl -s --unix-socket ~/.data/xaihi/xaihi.sock \
   -X POST http://unix/api/trigger -H 'Content-Type: application/json' \
   -d '{"hook":"game-exit","data":{"app":"steam"}}'
 ```
@@ -218,7 +218,7 @@ curl -s --unix-socket ~/.data/agentd/agentd.sock \
 
 | | 注册（配置层） | 触发（运行层） |
 |---|---|---|
-| 怎么做 | `agentd hook add …` / `hook rm` | `POST /api/trigger` / `agentd trigger` |
+| 怎么做 | `xaihi hook add …` / `hook rm` | `POST /api/trigger` / `xaihi trigger` |
 | 需要什么权限 | **本地 shell** | 只连本机端口 |
 | 生效时机 | 5 秒内自动重载 | 立刻（异步跑一轮） |
 
@@ -226,19 +226,19 @@ curl -s --unix-socket ~/.data/agentd/agentd.sock \
 `/api/trigger`，如果注册也走 HTTP，那就等于它们能给 agent 装一个永久钩子 —— 一条提权路径。
 CLI 需要的是本地 shell 权限，边界清楚得多。
 
-**文件归 agentd 维护**（和 `kb` 的 `.kbx` 一个规矩：工具写的，人不手改）：
+**文件归 xaihi 维护**（和 `kb` 的 `.kbx` 一个规矩：工具写的，人不手改）：
 
 ```bash
-agentd hook add game-exit --prompt "我从游戏退出来了。看看有没有该提醒我的。" \
+xaihi hook add game-exit --prompt "我从游戏退出来了。看看有没有该提醒我的。" \
   --mode speak --quota 10 --cooldown 3
-agentd hook list
-agentd hook rm game-exit
+xaihi hook list
+xaihi hook rm game-exit
 ```
 
 它负责校验（名字只能是 `a-z0-9_-`，因为名字就是文件名；配额 1..200；冷却 0..3600）、
 按固定字段顺序写 JSON（diff 干净）、5 秒内热重载。
 
-落盘后长这样（`~/.data/agentd/hooks/<名字>.json`），**没有"什么时候"这个字段**：
+落盘后长这样（`~/.data/xaihi/hooks/<名字>.json`），**没有"什么时候"这个字段**：
 
 ```json
 {"name":"game-exit","mode":"speak","prompt":"我从游戏退出来了。",
@@ -256,7 +256,7 @@ agentd hook rm game-exit
 没定义 `app-close` 就安静跳过，定义了才走配额与冷却。
 
 ```json
-// ~/.data/agentd/hooks/app-close.json
+// ~/.data/xaihi/hooks/app-close.json
 {"name":"app-close","mode":"speak",
  "prompt":"我关掉了一个窗口（见数据）。异常退出就提一句，正常关窗别打扰我。"}
 ```
@@ -266,11 +266,11 @@ agentd hook rm game-exit
 
 ```json
 {"name":"backup-demo","mode":"silent","quota_per_day":3,
- "prompt":"用 bash 把 ~/.data/agentd/profiles.json 复制到 /tmp/agentd-backup.json，做完只回一个词：好。"}
+ "prompt":"用 bash 把 ~/.data/xaihi/profiles.json 复制到 /tmp/xaihi-backup.json，做完只回一个词：好。"}
 ```
 链条再长也会自己停。
 
-**长期记忆**（`internal/memory`）：一条记忆 = `~/.data/agentd/memory/global/<id>.md`，
+**长期记忆**（`internal/memory`）：一条记忆 = `~/.data/xaihi/memory/global/<id>.md`，
 front matter 是 `id / created / scope / kind / status / source`，正文人能直接改。
 每轮请求把 active 记忆按 token 预算（默认 6000）拼进 system prompt：挑的时候从新到旧、
 **拼的时候排回升序**（顺序不稳定会让上游 KV 缓存全部作废）。`memory_forget` 只标
@@ -279,17 +279,17 @@ front matter 是 `id / created / scope / kind / status / source`，正文人能�
 
 ```json
 [{"name":"bash","source":"builtin","path":"","timeout_ms":0,"persistent":false},
- {"name":"kb_search","source":"plugin","path":"~/.data/agentd/tools.d/kb_search.json","timeout_ms":20000,"persistent":false}]
+ {"name":"kb_search","source":"plugin","path":"~/.data/xaihi/tools.d/kb_search.json","timeout_ms":20000,"persistent":false}]
 ```
 
 - `source=builtin`：Go 内置（`internal/tools/tools.go` 里用 Spec 指定），编译期确定
-- `source=plugin`：外置插件（`~/.data/agentd/tools.d/*.json` 清单 + 可执行脚本），改完即生效、无需重编译
+- `source=plugin`：外置插件（`~/.data/xaihi/tools.d/*.json` 清单 + 可执行脚本），改完即生效、无需重编译
 
 清单格式：
 
 ```json
 {"name":"kb_get","description":"…","params":{…},"required":["id"],
- "command":["~/Workspace/agentd/scripts/tools/kb_get"],"timeoutMs":20000}
+ "command":["~/Workspace/xaihi/scripts/tools/kb_get"],"timeoutMs":20000}
 ```
 
 常驻形态：清单加 `"persistent": true` → 进程只启动一次，走 JSON-RPC 2.0 over stdio
@@ -307,7 +307,7 @@ stdin 同时给一份 `{"tool":"…","args":{…}}`；stdout 为纯文本，或 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST/PUT | `/api/plugins` | 保存清单（name/description/command/timeoutMs/persistent/params/required）；同名内置工具会被拒绝 |
-| DELETE | `/api/plugins/<name>` | 删除清单（只删 `~/.data/agentd/tools.d/<name>.json`，脚本文件保留）；内置工具拒绝 |
+| DELETE | `/api/plugins/<name>` | 删除清单（只删 `~/.data/xaihi/tools.d/<name>.json`，脚本文件保留）；内置工具拒绝 |
 
 `PUT /api/tools/<name> {"description":"…"}`：内置工具写 `tools.json` 覆盖；外置插件直接改清单里的 description。
 
@@ -360,7 +360,7 @@ stdin 同时给一份 `{"tool":"…","args":{…}}`；stdout 为纯文本，或 
 |---|---|---|
 | GET | `/api/shots/stats` | `{count, size_mb}`：截图目录的文件数与占用 |
 | POST | `/api/shots/cleanup` `{"days":7}` | 删除超过 N 天的截图，返回 `{removed, freed_kb, days}` |
-| GET | `/shots/<name>.png` | 直接取截图文件（`~/.data/agentd/shots/`） |
+| GET | `/shots/<name>.png` | 直接取截图文件（`~/.data/xaihi/shots/`） |
 
 消息里只存 `/shots/<name>.png` 路径；发给模型时由 `toWire` 读盘转 data URL。
 自动清理：`settings.shots_auto_clean` + `shots_keep_days`（默认开 + 7 天），

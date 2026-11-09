@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"agentd/internal/config"
-	"agentd/internal/logx"
-	"agentd/internal/tools"
+	"xaihi/internal/config"
+	"xaihi/internal/logx"
+	"xaihi/internal/tools"
 )
 
 // POST /api/apply —— 一次提交若干处改动。

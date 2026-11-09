@@ -1,4 +1,4 @@
-# agentd 设计理念
+# xaihi 设计理念
 
 一句话：**单机、单二进制、可审计的本地 agent**——把"模型 + 工具 + 会话"三件事留在本机，
 用最小依赖换来可解释、可回滚。
@@ -41,7 +41,7 @@ Go 的 `plugin` 平台与构建耦合；要插件化只能"独立进程 + 协议
 | 层 | 工具 | 定义位置 | 生效方式 |
 |---|---|---|---|
 | 内置 | `bash` / `screenshot` / `recall` / `view_image` / `spawn_task` | `internal/tools/tools.go`（Spec） | 编译期 |
-| 外置插件 | `kb_search` / `kb_get` / `web_search` / `web_fetch`（以及以后新增） | `~/.data/agentd/tools.d/*.json` + 脚本 | 每次请求重建 registry，改完即生效 |
+| 外置插件 | `kb_search` / `kb_get` / `web_search` / `web_fetch`（以及以后新增） | `~/.data/xaihi/tools.d/*.json` + 脚本 | 每次请求重建 registry，改完即生效 |
 
 为什么不走 Go `plugin`：平台与构建参数耦合、无法热重载；我们只需要"独立进程 + 协议"。
 
@@ -50,7 +50,7 @@ Go 的 `plugin` 平台与构建耦合；要插件化只能"独立进程 + 协议
 ```bash
 # 清单 command 直接 exec（不经 shell，避免注入）
 # 参数以环境变量传入，脚本无需解析 JSON
-AGENTD_ARG_QUERY="agentd" ./scripts/tools/kb_search
+AGENTD_ARG_QUERY="xaihi" ./scripts/tools/kb_search
 # 也可从 stdin 读 {"tool":"…","args":{…}}
 ```
 ```
@@ -63,7 +63,7 @@ AGENTD_ARG_QUERY="agentd" ./scripts/tools/kb_search
 
 ```
 initialize → tools/list → tools/call
-进程挂了下次调用自动重启；agentd 退出时 ShutdownPlugins()
+进程挂了下次调用自动重启；xaihi 退出时 ShutdownPlugins()
 ```
 
 可用性仍由 `profiles.json.tools` 决定（不引入第二套开关）；插件改名/删除不影响脚本文件。
@@ -150,9 +150,9 @@ reasoning_budget（默认 4096）：单轮思考预算，透传上游 reasoning_
 - 用配置表达分支逻辑：配置只声明"是什么/怎么调"，逻辑留在代码或（将来的）工具进程里。
 
 ## 13. 仓库约定
-- 远端：`git@github.com:mhqdz/agentd.git`（用 SSH；本机 `~/.ssh/id_ed25519_kb` 已授权）。
+- 远端：`git@github.com:mhqdz/xaihi.git`（用 SSH；本机 `~/.ssh/id_ed25519_kb` 已授权）。
 - 入库：源码、`docs/`、`web/src`、`web/public/fonts`（字体随项目分发）。
-- 不入库（`.gitignore`）：`web/dist/`、`node_modules/`、`*.log`、`agentd`、`/tmp/`。
+- 不入库（`.gitignore`）：`web/dist/`、`node_modules/`、`*.log`、`xaihi`、`/tmp/`。
   - 原因：`dist` 是构建产物；生产服务直接读磁盘上的 `web/dist`，部署前必须 `npm run build`。
 - 部署：一律用 `scripts/deploy.sh`（`--no-front` 只发后端）。它会构建到临时文件、替换二进制、
   重启并做 `/api/health` 检查；失败自动打印 `systemctl status` 并退出非 0。
@@ -160,7 +160,7 @@ reasoning_budget（默认 4096）：单轮思考预算，透传上游 reasoning_
 - 历史里的 `web/dist` 仍在旧提交中（`.git` 约 81MB）；若需瘦身要重写历史，属一次性操作，先备份再强推。
 
 ## 14. 系统提示只有一份
-提示文本只存在于 `~/.data/agentd/profiles.json` 的 `system` 字段（设置卡里可编辑）。
+提示文本只存在于 `~/.data/xaihi/profiles.json` 的 `system` 字段（设置卡里可编辑）。
 - 代码里不再硬编码任何提示：`internal/config/profiles.go` 的内置 profile 与
   `internal/config/config.go` 的兜底配置，`System` 一律为空。
 - 生效时机：每次 `/api/chat` 现读 profile → 作为 `messages[0]` 的 system 发送；

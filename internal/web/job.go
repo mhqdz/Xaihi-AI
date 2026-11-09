@@ -128,9 +128,9 @@ func (s *Server) streamFrom(w http.ResponseWriter, r *http.Request, convID strin
 	}
 }
 
-// jobTTL：完成后缓冲保留多久（默认 5 分钟，AGENTD_JOB_TTL 可覆盖，支持 30s/2m）
+// jobTTL：完成后缓冲保留多久（默认 5 分钟，XAIHI_JOB_TTL 可覆盖，支持 30s/2m）
 func jobTTL() time.Duration {
-	if v := os.Getenv("AGENTD_JOB_TTL"); v != "" {
+	if v := os.Getenv("XAIHI_JOB_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}

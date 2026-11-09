@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/handoff"
-	"agentd/internal/llm"
-	"agentd/internal/logx"
-	"agentd/internal/store"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/handoff"
+	"xaihi/internal/llm"
+	"xaihi/internal/logx"
+	"xaihi/internal/store"
 )
 
 // InitHandoff：装配交接/唤醒（只有 SQLite 存储支持）
@@ -107,7 +107,7 @@ func (s *Server) runChild(ctx context.Context, parent int64, profileName, card s
 	ag.MaxRounds = maxRounds
 	ag.SpawnTask = nil // 子会话不能再派发任务（天然两层）
 	ag.FailTask = func(reason, evidence string) (string, error) {
-		_ = os.WriteFile(filepath.Join(os.TempDir(), fmt.Sprintf("agentd-child-%s.fail", c.ID)),
+		_ = os.WriteFile(filepath.Join(os.TempDir(), fmt.Sprintf("xaihi-child-%s.fail", c.ID)),
 			[]byte(reason+"\n"+evidence), 0o644)
 		return "已记录失败事实", nil
 	}
@@ -148,7 +148,7 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if got := r.Header.Get("X-Agentd-Token"); got != s.wakeToken() {
-		writeJSON(w, 401, map[string]string{"error": "token 不对（见 ~/.data/agentd/wake.token）"})
+		writeJSON(w, 401, map[string]string{"error": "token 不对（见 ~/.data/xaihi/wake.token）"})
 		return
 	}
 	if s.hst == nil {

@@ -49,7 +49,7 @@ var (
 )
 
 func profilesPath() string {
-	if v := os.Getenv("AGENTD_PROFILES"); v != "" {
+	if v := os.Getenv("XAIHI_PROFILES"); v != "" {
 		return v
 	}
 	return DataPath("profiles.json")
@@ -283,7 +283,7 @@ func DeleteProfile(name string) error {
 // EffortLevelOK：档位名**不限定词表**。
 //
 // 各家叫法不一样：OpenAI 是 low|medium|high，DeepSeek 是 low|high|max，
-// OpenCode 还有 minimal|xhigh。agentd 只是把它原样转给上游，没有资格替上游
+// OpenCode 还有 minimal|xhigh。xaihi 只是把它原样转给上游，没有资格替上游
 // 决定它认哪些 —— 白名单式的校验只会在遇到新供应商时把人卡住。
 // 挡的是形状：空、带空格、大小写混杂，那些一定是手滑。
 func EffortLevelOK(s string) bool {

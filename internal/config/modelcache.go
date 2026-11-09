@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"agentd/internal/logx"
+	"xaihi/internal/logx"
 )
 
 // 模型能力缓存：不是配置层，是"上次问上游要到的答案"。
@@ -19,7 +19,7 @@ import (
 //	               agent 启动时也算不出上下文预算；
 //	存进 profile → 180-low/medium/think 各存一份 131072，上游改了要改三处。
 //
-// 所以放这里：由 agentd 在拉列表时自动写，**没有界面、不给人手改、删掉只会导致重拉**。
+// 所以放这里：由 xaihi 在拉列表时自动写，**没有界面、不给人手改、删掉只会导致重拉**。
 // profile 上仍留 context_window / max_tokens_out / input / effort_levels 作为覆盖
 // （0 / 空 = 用缓存），正常路径一个都不用填。
 //

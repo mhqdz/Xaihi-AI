@@ -11,7 +11,7 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(err, info) {
-    console.error('[agentd] 渲染出错', err, info && info.componentStack)
+    console.error('[xaihi] 渲染出错', err, info && info.componentStack)
   }
 
   render() {

@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"agentd/internal/hook"
-	"agentd/internal/logx"
-	"agentd/internal/store"
+	"xaihi/internal/hook"
+	"xaihi/internal/logx"
+	"xaihi/internal/store"
 )
 
 // InitHooks 装载触发器：读 hooks/*.json，并接上"叫醒一轮"的动作。

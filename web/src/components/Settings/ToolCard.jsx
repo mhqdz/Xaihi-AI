@@ -41,7 +41,7 @@ export default function ToolCard({ v, narrow, profiles, top }) {
         </Field>
         <Field label="命令" hint={editable ? '每行一个参数，直接 exec 不走 shell' : '内置工具的命令写在 Go 代码里'}>
           <textarea className={'plugin-cmd' + ro} value={form.command} disabled={!editable}
-            placeholder={editable ? '~/Workspace/agentd/scripts/tools/kb_get\n{{id}}' : '（内置实现，没有命令行）'}
+            placeholder={editable ? '~/Workspace/xaihi/scripts/tools/kb_get\n{{id}}' : '（内置实现，没有命令行）'}
             onChange={e => set('command', e.target.value)} />
         </Field>
         <Field label="超时（毫秒）" hint={editable ? '留空按 20000' : '由实现决定（bash 180s、recall 300ms，其余跟随会话）'}>

@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"agentd/internal/config"
+	"xaihi/internal/config"
 )
 
 func TestProviderReasoningParams(t *testing.T) {

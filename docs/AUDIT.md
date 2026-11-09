@@ -1,4 +1,4 @@
-# agentd 审计报告
+# xaihi 审计报告
 
 分级依据：P0 崩溃/报错/数据不一致 → P1 卡顿/状态错乱/响应式破坏/同角色样式不统一 → P2 与风格不合时宜/点击目标过小。
 
@@ -17,8 +17,8 @@
 
 1. 测试脚本往真实会话写数据 —— 我自己造成的，已清理
 2. 传了不存在的会话 id 会**静默新建**，还烧了一次真模型
-3. `/shots/..%2Fagentd.db` 能**下载整个数据库**（路径遍历）
-4. 任意网页一行 `fetch` 就能让 agentd 跑一轮（**CSRF**，模型手上有 bash）
+3. `/shots/..%2Fxaihi.db` 能**下载整个数据库**（路径遍历）
+4. 任意网页一行 `fetch` 就能让 xaihi 跑一轮（**CSRF**，模型手上有 bash）
 5. **客户端一断开服务端就 panic** —— 刷新页面就可能踩到
 6. 存储写失败时**静默继续**，前端拿到 `conv_id:""` 还当成功
 
@@ -30,11 +30,11 @@
 
 | 项 | 值 |
 |---|---|
-| 后端 | `127.0.0.1:18400`（systemd user unit `agentd`） |
-| 数据库 | `~/.data/agentd/agentd.db`（WAL） |
+| 后端 | `127.0.0.1:18400`（systemd user unit `xaihi`） |
+| 数据库 | `~/.data/xaihi/xaihi.db`（WAL） |
 | 浏览器 | geckodriver 4444 + Firefox headless |
 | 视觉验证 | `scripts/ui-test/pixel_diff.py`，6 张固定页面/尺寸 |
-| 基线 | `~/.data/agentd/pixel-base/`（不放 `/tmp`；每次**刻意**改视觉后重拍，其余改动必须逐像素不变） |
+| 基线 | `~/.data/xaihi/pixel-base/`（不放 `/tmp`；每次**刻意**改视觉后重拍，其余改动必须逐像素不变） |
 
 审计起点的自检：对**未改动的 HEAD 构建**跑一次 `pixel_diff compare`，6/6 逐像素一致，证明截图链路确定性足够、基线有效。此后任何视觉提交都必须保持「除刻意改动的那几张外，其余逐像素不变」。
 
@@ -66,7 +66,7 @@
 
 **验证**：
 
-- 清理前备份：`agentd.db.bak-audit-20261103-035417`
+- 清理前备份：`xaihi.db.bak-audit-20261103-035417`
 - 删除 `conv=118` 的 `seq 148..153`：消息数 153 → 147，`max(seq)` 153 → 147
 - 全库 `rb-test` 分布复查：只剩 `conv=118` 的 3 条，删除后归零
 - 重跑 `robustness.py`：0 个问题，且 `conv=118` 残留检查输出 `0`
@@ -99,7 +99,7 @@ return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
 - 部署后实测：`{"conv_id":"999999"}` → `event: error` + `{"error":"会话 \"999999\" 不存在或读不出来：file does not exist"}`，会话数保持 21
 - `go test ./...` 全绿
 
-**顺带**：CLI 的 `agentd ask -conv <id>` 现在会 `fatal` 而不是静默新开 —— 它本来就处理了 err 分支，只是从前永远拿不到错误。
+**顺带**：CLI 的 `xaihi ask -conv <id>` 现在会 `fatal` 而不是静默新开 —— 它本来就处理了 err 分支，只是从前永远拿不到错误。
 
 ### P0-3 `/shots/` 目录遍历：整个数据库可下载 ✅ 已修
 
@@ -108,41 +108,41 @@ return &store.Conversation{ID: a.st.NextID(), Title: "新会话", ...}, nil
 **现象**：
 
 ```
-GET /shots/..%2Fagentd.db  →  200  20586496 bytes
+GET /shots/..%2Fxaihi.db  →  200  20586496 bytes
 ```
 
-20MB，正是 `~/.data/agentd/agentd.db` —— 全部 1714 条对话消息、会话元数据、配置。同样的手法能拿到 `ui.json`，再编码几层理论上还能走到上一级目录。
+20MB，正是 `~/.data/xaihi/xaihi.db` —— 全部 1714 条对话消息、会话元数据、配置。同样的手法能拿到 `ui.json`，再编码几层理论上还能走到上一级目录。
 
 **根因**：两个问题叠在一起。
 
 ```go
 mux.HandleFunc("/shots/", func(w http.ResponseWriter, r *http.Request) {
     home, _ := os.UserHomeDir()
-    http.FileServer(http.Dir(filepath.Join(home, ".data", "agentd"))).ServeHTTP(w, r)
+    http.FileServer(http.Dir(filepath.Join(home, ".data", "xaihi"))).ServeHTTP(w, r)
 })
 ```
 
-1. **`FileServer` 的根是 `~/.data/agentd` 而不是 `shots/`。** 因为 URL 前缀也得参与映射，`/shots/x.png` 落到 `~/.data/agentd/shots/x.png` —— 看起来"刚好对"，实则把整个父目录（套着数据库和配置文件）都暴露了。
+1. **`FileServer` 的根是 `~/.data/xaihi` 而不是 `shots/`。** 因为 URL 前缀也得参与映射，`/shots/x.png` 落到 `~/.data/xaihi/shots/x.png` —— 看起来"刚好对"，实则把整个父目录（套着数据库和配置文件）都暴露了。
 2. **`http.Dir` 的越界防护挡不住 URL 编码。** 它用 `path.Clean("/"+name)` 做清理，但清理发生在**解码之前**：`..%2F` 在 Clean 眼里只是一个普通片段，Clean 之后才解码成 `../`。
 
 **修复**：先把前缀剥掉，再让 FileServer 的根直接落在 `shots/` 上：
 
 ```go
-dir := http.Dir(filepath.Join(home, ".data", "agentd", "shots"))
+dir := http.Dir(filepath.Join(home, ".data", "xaihi", "shots"))
 http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 ```
 
 这样 `..` 无论怎么编码，Clean 之后都还在 `shots` 之下。
 
 **验证**：
-- 越界 `/shots/..%2Fagentd.db`、`/shots/..%2Fui.json`、`/shots/..%2F..%2F.ssh%2Fid_rsa` → 全部 **404**
+- 越界 `/shots/..%2Fxaihi.db`、`/shots/..%2Fui.json`、`/shots/..%2F..%2F.ssh%2Fid_rsa` → 全部 **404**
 - 正常截图 `/shots/1793375166786760459.png` → **200**，2.5MB 正常返回
-- `/shots/../agentd.db` 会 307 到 `/agentd.db`，那个路径由 `handleStatic` 处理 → 404
+- `/shots/../xaihi.db` 会 307 到 `/xaihi.db`，那个路径由 `handleStatic` 处理 → 404
 - 三条越界用例已固化进 `check_api.py`，34 条全过
 
 **教训**：这个洞一直在，只是没人试过编码后的 `..`。前面的审计都在看"功能对不对"，没看"能不能被滥用" —— 而 `http.FileServer` + 手拼 `http.Dir` 是最容易踩的一类。
 
-### P0-4 跨站请求伪造：任意网页都能让 agentd 跑一轮 ✅ 已修
+### P0-4 跨站请求伪造：任意网页都能让 xaihi 跑一轮 ✅ 已修
 
 **现象**：
 
@@ -184,7 +184,7 @@ POST /api/chat   Content-Type: text/plain
 bufio.(*Writer).Flush(...)
 net/http.(*response).FlushError(...)
 net/http.(*response).Flush(...)
-agentd/internal/web.(*Server).handleChat.func1(...)   web.go:755
+xaihi/internal/web.(*Server).handleChat.func1(...)   web.go:755
 ```
 
 也就是 `send()` 里那句 `flusher.Flush()`。客户端一断开（curl 超时、浏览器刷新、关标签页），底层 `bufio` 拿到 `ErrShortWrite` 就 panic。panic 杀掉这个请求的 goroutine —— 于是：
@@ -524,23 +524,23 @@ _ = a.maybeSummarize(ctx, c, keep)   // 它自己内部才判阈值
 
 **修复**：抽出 `willSummarize(c)`，条件与 `maybeSummarize` 的入口保持一致（总字符数 ≥ `compactAt()`），只有成立时才发阶段事件。
 
-**验证**：在隔离实例（`AGENTD_DATA_DIR=/tmp/agentd-fresh`、端口 18500）上，新会话的 stage 序列从 `compacting, generating, generating` 变成 `generating, generating`；真超阈值的会话本来就会进压缩分支，不受影响。
+**验证**：在隔离实例（`AGENTD_DATA_DIR=/tmp/xaihi-fresh`、端口 18500）上，新会话的 stage 序列从 `compacting, generating, generating` 变成 `generating, generating`；真超阈值的会话本来就会进压缩分支，不受影响。
 
 ### P1-15 `AGENTD_DATA_DIR` 只隔离了数据库 ✅ 已修
 
 **现象**：为了走查「新装 → 第一次对话」，我起了一个隔离实例：
 
 ```
-AGENTD_DATA_DIR=/tmp/agentd-fresh  AGENTD_ADDR=127.0.0.1:18500
+AGENTD_DATA_DIR=/tmp/xaihi-fresh  AGENTD_ADDR=127.0.0.1:18500
 ```
 
-数据库确实建在 `/tmp/agentd-fresh`，但**它连上了真实模型** —— 我把 `AGENTD_BASE_URL` 指到一个不存在的端口（19999），回复照样正常。
+数据库确实建在 `/tmp/xaihi-fresh`，但**它连上了真实模型** —— 我把 `AGENTD_BASE_URL` 指到一个不存在的端口（19999），回复照样正常。
 
-**根因**：`AGENTD_DATA_DIR` 只被数据库用到。其余本地数据全硬编码在 `~/.data/agentd` 下：
+**根因**：`AGENTD_DATA_DIR` 只被数据库用到。其余本地数据全硬编码在 `~/.data/xaihi` 下：
 
 | 文件 | 实际位置 |
 |---|---|
-| `profiles.json` | `~/.data/agentd/`（只能由 `AGENTD_PROFILES` 单独覆盖） |
+| `profiles.json` | `~/.data/xaihi/`（只能由 `AGENTD_PROFILES` 单独覆盖） |
 | `settings.json` | 同上 |
 | `wake.token` | 同上 |
 | `tools.json` / `tools.d/` | 同上 |
@@ -553,7 +553,7 @@ AGENTD_DATA_DIR=/tmp/agentd-fresh  AGENTD_ADDR=127.0.0.1:18500
 - 想跑多实例（不同数据）的人会踩：库是新的，配置和插件还是那份
 - 测试没法真正隔离（我这轮就踩了，第一次「错误路径」测试其实在打真模型）
 
-**修复**：`internal/config` 加 `DataDir()` / `DataPath()`，认 `AGENTD_DATA_DIR`，默认 `~/.data/agentd`。把 **13 处硬编码**全换掉，横跨 config / tools / handoff / web / agent 五个包。`AGENTD_PROFILES` 保留（显式覆盖优先）。
+**修复**：`internal/config` 加 `DataDir()` / `DataPath()`，认 `AGENTD_DATA_DIR`，默认 `~/.data/xaihi`。把 **13 处硬编码**全换掉，横跨 config / tools / handoff / web / agent 五个包。`AGENTD_PROFILES` 保留（显式覆盖优先）。
 
 **验证**：
 - 主实例重启后：会话 21、conv51 575 条，`profiles.json` / `settings.json` / `tools.json` 仍在原位，一切照旧
@@ -1087,7 +1087,7 @@ env := append(os.Environ(), "XDG_RUNTIME_DIR=/run/user/"+…, "WAYLAND_DISPLAY=w
 - 文件名用 `UnixNano()`，同一秒内连续截也不会覆盖
 - 截图失败时返回 `✗ 截图失败：…` 而不是报错（模型能看到并换方式）
 
-### P2-17 CLI `agentd chat` 的两个静默问题 ✅ 已修
+### P2-17 CLI `xaihi chat` 的两个静默问题 ✅ 已修
 
 顺着"硬编码/环境耦合"扫代码时拐到 CLI 入口，发现两个独立的小问题。
 
@@ -1111,16 +1111,16 @@ for {
 ```go
 c, err := a.Conversation("")
 ...
-fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
+fmt.Fprintf(os.Stderr, "会话已保存: %s（xaihi show %s）\n", c.ID, c.ID)
 ```
 
 `Conversation("")` 只是建了个内存对象，**真正落库是在第一次 `Send`**。直接空行退出时 `c.ID` 是空串，输出就是：
 
 ```
-会话已保存: （agentd show ）
+会话已保存: （xaihi show ）
 ```
 
-—— 既没保存，`agentd show ` 也是个无效命令。
+—— 既没保存，`xaihi show ` 也是个无效命令。
 
 **修复**：`c.ID == ""` 时改说「（没有对话，未创建会话）」。
 
@@ -1128,23 +1128,23 @@ fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
 - 10 万字符输入：不再静默退出，正常进入 `> ` 提示（4MB 上限装得下）
 - 空行退出：输出 `（没有对话，未创建会话）`，不再是假话
 
-### P2-18 `.gitignore` 的 `agentd` 没锚定，连 `cmd/agentd/` 一起忽略 ✅ 已修
+### P2-18 `.gitignore` 的 `xaihi` 没锚定，连 `cmd/xaihi/` 一起忽略 ✅ 已修
 
-**现象**：提交 CLI 修复时 `git add cmd/agentd` 报
+**现象**：提交 CLI 修复时 `git add cmd/xaihi` 报
 
 ```
-下列路径根据您的一个 .gitignore 文件而被忽略：cmd/agentd
+下列路径根据您的一个 .gitignore 文件而被忽略：cmd/xaihi
 ```
 
-**根因**：`.gitignore` 第一行是 `agentd` —— 没有前导 `/` 的 pattern 会匹配**任意层级**下叫这个名字的文件或目录。本意是忽略编译出来的二进制 `./agentd`，实际把 `cmd/agentd/` 整个目录也盖住了。
+**根因**：`.gitignore` 第一行是 `xaihi` —— 没有前导 `/` 的 pattern 会匹配**任意层级**下叫这个名字的文件或目录。本意是忽略编译出来的二进制 `./xaihi`，实际把 `cmd/xaihi/` 整个目录也盖住了。
 
-**为什么一直没出事**：`cmd/agentd/main.go` 在加这条 ignore **之前**就已经被跟踪了，而已跟踪的文件不受 ignore 规则影响，所以代码一直在仓库里。出问题的只是"往这个目录里加新文件" —— `git add <目录>` 会展开并过滤，于是报 ignored。
+**为什么一直没出事**：`cmd/xaihi/main.go` 在加这条 ignore **之前**就已经被跟踪了，而已跟踪的文件不受 ignore 规则影响，所以代码一直在仓库里。出问题的只是"往这个目录里加新文件" —— `git add <目录>` 会展开并过滤，于是报 ignored。
 
-**修复**：改成 `/agentd`，只忽略根目录那个二进制。
+**修复**：改成 `/xaihi`，只忽略根目录那个二进制。
 
-**验证**：改完后 `git add cmd/agentd` 正常，`git ls-files cmd/` 仍能看到 `main.go`。
+**验证**：改完后 `git add cmd/xaihi` 正常，`git ls-files cmd/` 仍能看到 `main.go`。
 
-**这类 bug 的特点**：它不制造错误，只是让某个操作悄悄失效/变形。如果那次提交没恰好走 `git add <目录>` 的路径，可能一直不会发现 —— 而往 `cmd/agentd/` 加新文件时就会莫名其妙地"加不进去"。
+**这类 bug 的特点**：它不制造错误，只是让某个操作悄悄失效/变形。如果那次提交没恰好走 `git add <目录>` 的路径，可能一直不会发现 —— 而往 `cmd/xaihi/` 加新文件时就会莫名其妙地"加不进去"。
 
 ### P2-21 `tools.json` / `tools.d/*.json` 不是原子写 ✅ 已修
 
@@ -1233,7 +1233,7 @@ fmt.Fprintf(os.Stderr, "会话已保存: %s（agentd show %s）\n", c.ID, c.ID)
 
 | 步骤 | 结果 |
 |---|---|
-| `agentd serve` 首启 | 自动建库（`agentd.db` + WAL）、建 `handoff/` 目录 |
+| `xaihi serve` 首启 | 自动建库（`xaihi.db` + WAL）、建 `handoff/` 目录 |
 | `GET /api/health` | 200，返回 base_url / model |
 | `GET /api/profiles` | 内置 `180-low` 等默认 profile 已在 |
 | `GET /api/convs` | `[]` |
@@ -1374,7 +1374,7 @@ else: px = sum(1 for p in diff.getdata() if p != (0,0,0))
 
 **顺带发现**：`attachStream`（重连）和 `send`（正常发送）里各有一份几乎相同的 SSE 事件处理逻辑（`reasoning` / `delta` / `tool` / `error` 各自 `+=`）。这是重复实现，将来改一处忘另一处的风险是实打实的 —— 但合并两个函数的改动面和风险都不小，先记着。
 
-**又一次自己的失误**：测 reasoning 时我直接在你正在用的 conv51 里发了一条「请一步步推导 17 乘 23」—— 消息数从 575 变成 577。已删除（库里有 `agentd.db.bak-conv51b-*` 备份），确认回到 575、最后一条仍是原来的 `seq 575`。**这是这轮里第三次拿真实会话当靶子**，而且这次连副作用都预判到了却没避开。
+**又一次自己的失误**：测 reasoning 时我直接在你正在用的 conv51 里发了一条「请一步步推导 17 乘 23」—— 消息数从 575 变成 577。已删除（库里有 `xaihi.db.bak-conv51b-*` 备份），确认回到 575、最后一条仍是原来的 `seq 575`。**这是这轮里第三次拿真实会话当靶子**，而且这次连副作用都预判到了却没避开。
 
 ### 两处 SSE 处理：差异是必要的，重复是多余的 ✅ 已抽公共函数
 
@@ -1414,7 +1414,7 @@ else: px = sum(1 for p in diff.getdata() if p != (0,0,0))
 | `rm 1` | **只归档**（库中 `archived=1`，行还在） | ✓ |
 | `rm 1 --hard` | 真删（表空） | ✓ |
 
-**P2-19**：`agentd bogus` 的提示只列了 6 个命令：
+**P2-19**：`xaihi bogus` 的提示只列了 6 个命令：
 
 ```
 可用: chat | send | convs | show | config | version
@@ -1523,7 +1523,7 @@ setSetSnap(JSON.stringify(settings))
 
 `curl -H "Host: evil.com"` 照样 200。攻击者可以让 `evil.com` 先解析到自己、再 rebind 到 `127.0.0.1`，浏览器就认为同源了，能绕过 CORS 直接调 API。
 
-**为什么没直接修**：Host 白名单容易误伤（你可能用 `agentd.local` 之类 mDNS 名访问）。要修的话我建议「只允许 localhost + 纯 IP 字面量，拒绝其它域名」，但需要先确认你平时怎么访问。
+**为什么没直接修**：Host 白名单容易误伤（你可能用 `xaihi.local` 之类 mDNS 名访问）。要修的话我建议「只允许 localhost + 纯 IP 字面量，拒绝其它域名」，但需要先确认你平时怎么访问。
 
 ---
 
@@ -1728,7 +1728,7 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 46 | P2-15 `recall` 摘要按字节索引切 rune（中文永不命中） | `b3f5220` | 无视觉改动 |
 | 47 | P2-16 截图工具 `WAYLAND_DISPLAY` 硬编码 | `0ae2a2f` | 无视觉改动 |
 | 48 | P2-17 CLI 超长输入静默退出 + 假「会话已保存」 | `128dbbf` | 无视觉改动 |
-| 49 | P2-18 `.gitignore` 未锚定（忽略 cmd/agentd） | `128dbbf` | 无视觉改动 |
+| 49 | P2-18 `.gitignore` 未锚定（忽略 cmd/xaihi） | `128dbbf` | 无视觉改动 |
 | 50 | CLI 八命令走查 + P2-19 usage 提示不全 | `5d8cc05` | 无视觉改动 |
 | 51 | 完整用户旅程串走（全通，未改代码） | 无提交 | 无视觉改动 |
 | 52 | P1-24 改了设置直接关面板会无声丢失 | `b26b95f` | 无视觉改动（confirm 是原生对话框） |
@@ -1737,4 +1737,4 @@ Esc 3       set ✗                      ← 关闭整个设置
 | 55 | P2-22 坏配方静默消失（补警告） | `b9cdab3` | 无视觉改动 |
 | 56 | 上翻并发实测 + pixel 抓到我自己改了配置 | `198d203` | 无视觉改动（已恢复） |
 
-基线位置：`~/.data/agentd/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。
+基线位置：`~/.data/xaihi/pixel-base/`（不放 `/tmp`，避免被系统清理后无法对比）。

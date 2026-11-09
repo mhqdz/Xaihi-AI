@@ -2,8 +2,6 @@
 package tools
 
 import (
-	"agentd/internal/config"
-	"agentd/internal/logx"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -17,10 +15,12 @@ import (
 	"sync/atomic"
 	"syscall"
 	"unicode/utf8"
+	"xaihi/internal/config"
+	"xaihi/internal/logx"
 
-	"agentd/internal/memory"
-	"agentd/internal/store"
 	"time"
+	"xaihi/internal/memory"
+	"xaihi/internal/store"
 )
 
 // shotQuota 由 main 注入：看屏幕的每日配额（返回"还有没有额度"和"今天已用几张"）。
@@ -128,7 +128,7 @@ func Registry() map[string]*Spec {
 		s.Source = "builtin"
 		m[s.Name] = s
 	}
-	// 外置插件：~/.data/agentd/tools.d/*.json（同名以内置为准）
+	// 外置插件：~/.data/xaihi/tools.d/*.json（同名以内置为准）
 	{
 		plugs, warns := LoadPlugins(config.DataPath("tools.d"))
 		// 无条件存：否则删掉坏插件后，上一次的警告会一直挂在界面上

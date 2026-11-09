@@ -3,8 +3,8 @@ package agent
 import (
 	"testing"
 
-	"agentd/internal/config"
-	"agentd/internal/store"
+	"xaihi/internal/config"
+	"xaihi/internal/store"
 )
 
 // Conversation 的三种输入必须区分清楚：

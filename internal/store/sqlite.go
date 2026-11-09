@@ -12,7 +12,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"agentd/internal/llm"
+	"xaihi/internal/llm"
 )
 
 // SQLiteStore：一个会话一行，消息一列一行（消息只追加，不二次编辑）。
@@ -28,7 +28,7 @@ func NewSQLite(dir string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "agentd.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "xaihi.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}

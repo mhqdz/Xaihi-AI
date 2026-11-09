@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"agentd/internal/llm"
+	"xaihi/internal/llm"
 )
 
 func newSQ(t *testing.T) *SQLiteStore {

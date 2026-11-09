@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/store"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/store"
 )
 
 func newHandoffServer(t *testing.T) (*Server, *store.SQLiteStore) {
@@ -95,7 +95,7 @@ func TestWaketokenFile(t *testing.T) {
 		t.Fatalf("token 太短: %q", tok)
 	}
 	home, _ := os.UserHomeDir()
-	b, err := os.ReadFile(filepath.Join(home, ".data", "agentd", "wake.token"))
+	b, err := os.ReadFile(filepath.Join(home, ".data", "xaihi", "wake.token"))
 	if err != nil || len(b) == 0 {
 		t.Fatalf("token 文件没写: %v", err)
 	}

@@ -144,7 +144,7 @@ func (s *SQLiteStore) ListTasks() ([]*Task, error) {
 }
 
 func (s *SQLiteStore) MarkTasksInterrupted() (int, error) {
-	res, err := s.db.Exec(`UPDATE tasks SET status='interrupted',error='agentd 重启中断' WHERE status='running'`)
+	res, err := s.db.Exec(`UPDATE tasks SET status='interrupted',error='xaihi 重启中断' WHERE status='running'`)
 	if err != nil {
 		return 0, err
 	}

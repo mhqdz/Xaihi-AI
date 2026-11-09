@@ -1,7 +1,7 @@
 package web_test
 
 // 集成测试：真实 HTTP 服务（httptest.Server）+ 假上游模型，跑完整链路。
-// 需要真实模型时：AGENTD_E2E=1 AGENTD_E2E_UPSTREAM=http://127.0.0.1:18320/180/v1 go test -run TestE2ERealModel ./internal/web/
+// 需要真实模型时：XAIHI_E2E=1 XAIHI_E2E_UPSTREAM=http://127.0.0.1:18320/180/v1 go test -run TestE2ERealModel ./internal/web/
 
 import (
 	"bufio"
@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/store"
-	"agentd/internal/web"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/store"
+	"xaihi/internal/web"
 )
 
 func setup(t *testing.T, upstream string) (*httptest.Server, *store.JSONStore, *config.Config, func()) {
@@ -26,7 +26,7 @@ func setup(t *testing.T, upstream string) (*httptest.Server, *store.JSONStore, *
 	cfg.DataDir = t.TempDir()
 	cfg.BaseURL = upstream
 	cfg.Model = "fake"
-	t.Setenv("AGENTD_PROFILES", t.TempDir()+"/profiles.json")
+	t.Setenv("XAIHI_PROFILES", t.TempDir()+"/profiles.json")
 	st, err := store.NewJSON(cfg.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -195,12 +195,12 @@ func streamChat(t *testing.T, base, body string) (string, map[string]int) {
 	return convID, events
 }
 
-// 需要真实模型时手动跑：AGENTD_E2E=1 AGENTD_E2E_UPSTREAM=… go test -run TestE2ERealModel
+// 需要真实模型时手动跑：XAIHI_E2E=1 XAIHI_E2E_UPSTREAM=… go test -run TestE2ERealModel
 func TestE2ERealModel(t *testing.T) {
-	if os.Getenv("AGENTD_E2E") == "" {
-		t.Skip("设置 AGENTD_E2E=1 才跑真实模型")
+	if os.Getenv("XAIHI_E2E") == "" {
+		t.Skip("设置 XAIHI_E2E=1 才跑真实模型")
 	}
-	up := os.Getenv("AGENTD_E2E_UPSTREAM")
+	up := os.Getenv("XAIHI_E2E_UPSTREAM")
 	if up == "" {
 		up = "http://127.0.0.1:18320/180/v1"
 	}

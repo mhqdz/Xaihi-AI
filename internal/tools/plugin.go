@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// 外置插件：~/.data/agentd/tools.d/*.json
+// 外置插件：~/.data/xaihi/tools.d/*.json
 //   {
 //     "name": "kb_get",
 //     "description": "…",
@@ -146,7 +146,7 @@ func pluginRun(m manifest) func(ctx context.Context, args map[string]any, env *E
 		for k, v := range m.Env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
-		// stdin：完整请求 JSON（脚本想用结构化数据时读它；简单脚本读 AGENTD_ARG_* 即可）
+		// stdin：完整请求 JSON（脚本想用结构化数据时读它；简单脚本读 XAIHI_ARG_* 即可）
 		if b, err := json.Marshal(map[string]any{"tool": m.Name, "args": args}); err == nil {
 			cmd.Stdin = bytes.NewReader(b)
 		}
@@ -250,14 +250,14 @@ func expandHome(p string) string {
 	return p
 }
 
-// argEnv：把工具参数导出成 AGENTD_ARG_<NAME> 环境变量（数组用换行连接），
+// argEnv：把工具参数导出成 XAIHI_ARG_<NAME> 环境变量（数组用换行连接），
 // 这样 shell 脚本插件不用自己解析 JSON，例如：
 //
-//	exec ~/.local/bin/kb search "$AGENTD_ARG_QUERY" -n "${AGENTD_ARG_MAX_RESULTS:-5}"
+//	exec ~/.local/bin/kb search "$XAIHI_ARG_QUERY" -n "${XAIHI_ARG_MAX_RESULTS:-5}"
 func argEnv(tool string, args map[string]any) []string {
-	out := []string{"AGENTD_TOOL=" + tool}
+	out := []string{"XAIHI_TOOL=" + tool}
 	for k, v := range args {
-		name := "AGENTD_ARG_" + strings.ToUpper(k)
+		name := "XAIHI_ARG_" + strings.ToUpper(k)
 		name = strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(name)
 		var val string
 		switch vv := v.(type) {

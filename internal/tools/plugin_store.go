@@ -1,13 +1,13 @@
 package tools
 
 import (
-	"agentd/internal/config"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"xaihi/internal/config"
 )
 
 // PluginDir：外置插件清单目录

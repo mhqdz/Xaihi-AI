@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"agentd/internal/store"
+	"xaihi/internal/store"
 )
 
 func newMgr(t *testing.T) (*Manager, *store.SQLiteStore) {

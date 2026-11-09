@@ -1,10 +1,10 @@
 package tools
 
 import (
-	"agentd/internal/config"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"xaihi/internal/config"
 )
 
 // OverridePath 返回工具说明覆盖文件（UI 里改过的说明写在这里）。

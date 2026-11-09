@@ -14,11 +14,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"agentd/internal/config"
-	"agentd/internal/llm"
-	"agentd/internal/logx"
-	"agentd/internal/store"
-	"agentd/internal/tools"
+	"xaihi/internal/config"
+	"xaihi/internal/llm"
+	"xaihi/internal/logx"
+	"xaihi/internal/store"
+	"xaihi/internal/tools"
 )
 
 // 工具循环：最多 8 轮，避免模型自己绕不出来。

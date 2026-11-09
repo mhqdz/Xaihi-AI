@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentd/internal/llm"
+	"xaihi/internal/llm"
 )
 
 func mk(n int) []llm.Message {

@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"agentd/internal/store"
+	"xaihi/internal/store"
 )
 
 // classifyMessage 是「前端只认 kind/status、不再拿正则猜正文」的唯一判定点，

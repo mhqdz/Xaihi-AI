@@ -11,8 +11,8 @@ import (
 	"sort"
 	"sync"
 
-	"agentd/internal/llm"
-	"agentd/internal/logx"
+	"xaihi/internal/llm"
+	"xaihi/internal/logx"
 
 	"net/http"
 	"os"
@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/handoff"
-	"agentd/internal/hook"
-	"agentd/internal/store"
-	"agentd/internal/tools"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/handoff"
+	"xaihi/internal/hook"
+	"xaihi/internal/store"
+	"xaihi/internal/tools"
 )
 
 type Server struct {
@@ -55,9 +55,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/shots/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		// 只能服务 shots 子目录本身。原来这里 FileServer 的是整个 ~/.data/agentd，
-		// 而 http.Dir 的 path.Clean 发生在 URL 解码之前 —— /shots/..%2Fagentd.db
-		// 解码后变成 ../agentd.db，可以整个数据库（全部对话 + 配置）原样下载。
+		// 只能服务 shots 子目录本身。原来这里 FileServer 的是整个 ~/.data/xaihi，
+		// 而 http.Dir 的 path.Clean 发生在 URL 解码之前 —— /shots/..%2Fxaihi.db
+		// 解码后变成 ../xaihi.db，可以整个数据库（全部对话 + 配置）原样下载。
 		dir := http.Dir(config.DataPath("shots"))
 		http.StripPrefix("/shots/", http.FileServer(dir)).ServeHTTP(w, r)
 	})
@@ -931,9 +931,9 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, placeholder)
 }
 
-const placeholder = `<!doctype html><meta charset="utf-8"><title>agentd</title>
+const placeholder = `<!doctype html><meta charset="utf-8"><title>xaihi</title>
 <style>body{background:#0f1115;color:#d7dae0;font:14px/1.6 ui-monospace,monospace;padding:2rem}</style>
-<h3>agentd</h3><p>API 已就绪；前端还没构建（P4）。</p>
+<h3>xaihi</h3><p>API 已就绪；前端还没构建（P4）。</p>
 <ul><li>GET /api/health</li><li>GET /api/convs</li><li>POST /api/chat</li></ul>`
 
 // GET/POST /api/profiles  ·  PUT/DELETE /api/profiles/<name>

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"agentd/internal/agent"
-	"agentd/internal/config"
-	"agentd/internal/store"
+	"xaihi/internal/agent"
+	"xaihi/internal/config"
+	"xaihi/internal/store"
 )
 
 // fakeUpstream：一个假模型。第一轮返回 bash 的 tool_call，第二轮返回最终文本。
@@ -145,7 +145,7 @@ func TestProfilesCRUD(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	_ = t.TempDir()
 	// 用一个临时 profiles 文件隔离
-	t.Setenv("AGENTD_PROFILES", t.TempDir()+"/profiles.json")
+	t.Setenv("XAIHI_PROFILES", t.TempDir()+"/profiles.json")
 
 	body := `{"name":"p1","base_url":"http://x","model":"m","context_window":8192,"input":["text"]}`
 	rec := httptest.NewRecorder()

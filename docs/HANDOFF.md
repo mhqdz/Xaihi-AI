@@ -12,8 +12,8 @@
 
 | 概念 | 说明 | 存在哪 |
 |---|---|---|
-| 配方 recipe | 一类任务的命令序列 + 收尾命令 | `~/.data/agentd/tasks.d/<kind>.json`（人写，模型不现编） |
-| 交接卡 card | 目标 / 输入 / 约束 / 产物 / 验收 | `~/.data/agentd/handoff/<task>.json` |
+| 配方 recipe | 一类任务的命令序列 + 收尾命令 | `~/.data/xaihi/tasks.d/<kind>.json`（人写，模型不现编） |
+| 交接卡 card | 目标 / 输入 / 约束 / 产物 / 验收 | `~/.data/xaihi/handoff/<task>.json` |
 | 任务 task | 一次派发的状态机 | DB `tasks` |
 | 步骤 step | 每条命令/子会话的执行结果（像工具输出） | DB `task_steps` |
 | outbox | 待投给会话的系统消息（先入库、后投递） | DB `outbox` |
@@ -23,9 +23,9 @@
 ```
 · 资源探测 / 租约 / 锁 / 让路提示：不做。抢卡了就失败，过程可见即可
 · 排队 / 互斥：不做（不同任务并发是允许的）
-· 自动续跑：agentd 重启 → 进行中的任务标 interrupted，人工点「收尾」
+· 自动续跑：xaihi 重启 → 进行中的任务标 interrupted，人工点「收尾」
 · 命令白名单：不做，配方就是 shell，正确性由写配方的人负责
-· 外部编排插件：不做，编排在 agentd 内置
+· 外部编排插件：不做，编排在 xaihi 内置
 ```
 
 ## 3. 配方 schema
@@ -84,7 +84,7 @@ CREATE TABLE outbox(
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/tasks` | 手动派发 `{kind, conv_id, card}`（前端/脚本用，和 `spawn_task` 同一套校验） |
-| POST | `/api/wake` | `{conv_id, text, origin}`；Header `X-Agentd-Token`（`~/.data/agentd/wake.token`）；写 outbox → 立即返回 id |
+| POST | `/api/wake` | `{conv_id, text, origin}`；Header `X-Xaihi-Token`（`~/.data/xaihi/wake.token`）；写 outbox → 立即返回 id |
 | GET | `/api/tasks?conv=&status=` | 任务列表（含子会话编号） |
 | GET | `/api/tasks/{id}` | 详情：配方、步骤、产物、outbox |
 | POST | `/api/tasks/{id}/cancel` | 取消（尽力：kill 当前步骤；任务最终状态会落到 `failed` + `exit -1`） |
@@ -100,7 +100,7 @@ CREATE TABLE outbox(
 派发 → running ──步骤全 ok + spawn ok──▶ review（已回报父）──▶ done
            │
            ├─ 步骤失败 ──▶ restore（重试3）──▶ failed（仍回报父）
-           └─ agentd 重启 ──▶ interrupted（人工点「收尾」→ restore → failed）
+           └─ xaihi 重启 ──▶ interrupted（人工点「收尾」→ restore → failed）
 ```
 
 ## 7. 消息传递（不经子模型转述）
@@ -133,7 +133,7 @@ L3 指针：子会话 id（↳#N），父需要细节可用 bash/recall 去读
 | 产物缺失 | 记 `artifact:missing`，任务 failed |
 | 父会话不存在/已删 | 回报落到该会话（会话不存在则丢弃并记日志） |
 | 父会话归档 | 投递时自动取消归档 |
-| agentd 重启 | running → interrupted；不自动收尾，任务视图给「收尾」按钮 |
+| xaihi 重启 | running → interrupted；不自动收尾，任务视图给「收尾」按钮 |
 
 ## 10. 分期
 

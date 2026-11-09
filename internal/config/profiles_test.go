@@ -36,7 +36,7 @@ func TestValidateProfile(t *testing.T) {
 
 func TestProfilesCRUD(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGENTD_PROFILES", filepath.Join(dir, "profiles.json"))
+	t.Setenv("XAIHI_PROFILES", filepath.Join(dir, "profiles.json"))
 	// 首次没有文件 → 内置三个
 	if l := LoadProfiles(); len(l) != 3 {
 		t.Fatalf("内置应有 3 个，得到 %d", len(l))
@@ -69,7 +69,7 @@ func TestProfilesCRUD(t *testing.T) {
 
 func TestProfileSortingAndReload(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGENTD_PROFILES", filepath.Join(dir, "p.json"))
+	t.Setenv("XAIHI_PROFILES", filepath.Join(dir, "p.json"))
 	_ = UpsertProfile(Profile{Name: "z", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"text"}})
 	_ = UpsertProfile(Profile{Name: "a", BaseURL: "u", Model: "m", ContextWindow: 8192, Input: []string{"text"}})
 	list := LoadProfiles()

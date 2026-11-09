@@ -119,7 +119,7 @@ func (p *persistentProc) start(argv []string) error {
 	argv = append([]string{}, argv...)
 	argv[0] = expandHome(argv[0])
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), "AGENTD_PLUGIN=1")
+	cmd.Env = append(os.Environ(), "XAIHI_PLUGIN=1")
 	for k, v := range p.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

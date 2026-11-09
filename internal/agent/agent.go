@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"agentd/internal/config"
-	"agentd/internal/llm"
-	"agentd/internal/memory"
-	"agentd/internal/store"
+	"xaihi/internal/config"
+	"xaihi/internal/llm"
+	"xaihi/internal/memory"
+	"xaihi/internal/store"
 )
 
 type Agent struct {

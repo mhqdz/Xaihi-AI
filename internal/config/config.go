@@ -24,7 +24,7 @@ func Default() Config {
 		BaseURL:      "http://127.0.0.1:18320/9/v1",
 		Model:        "Qwen3.5-9B-int4-ov",
 		APIKey:       "local-no-auth",
-		DataDir:      filepath.Join(home, ".data/agentd"),
+		DataDir:      filepath.Join(home, ".data/xaihi"),
 		WebDir:       "web/dist",
 		System:       "", // 系统提示只在 profiles.json 里维护（见 docs/DESIGN.md）
 		KeepMessages: 16,
@@ -32,25 +32,25 @@ func Default() Config {
 }
 
 func path() string {
-	if v := os.Getenv("AGENTD_CONFIG"); v != "" {
+	if v := os.Getenv("XAIHI_CONFIG"); v != "" {
 		return v
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config/agentd/config.json")
+	return filepath.Join(home, ".config/xaihi/config.json")
 }
 
 // Load 读配置；文件不存在就返回默认值（不创建文件，避免无意义副作用）。
-// DataDir：所有本地数据的根目录。默认 ~/.data/agentd，AGENTD_DATA_DIR 可覆盖。
+// DataDir：所有本地数据的根目录。默认 ~/.data/xaihi，XAIHI_DATA_DIR 可覆盖。
 //
-// 以前只有数据库跟 AGENTD_DATA_DIR 走，profiles.json / settings.json / wake.token /
-// shots / tools.d / tasks.d 全都硬编码在 ~/.data/agentd 下 —— 于是「设了 DATA_DIR 的
+// 以前只有数据库跟 XAIHI_DATA_DIR 走，profiles.json / settings.json / wake.token /
+// shots / tools.d / tasks.d 全都硬编码在 ~/.data/xaihi 下 —— 于是「设了 DATA_DIR 的
 // 实例」其实只隔离了一半：库是新的，配置和插件还是的原来那份。
 func DataDir() string {
-	if v := os.Getenv("AGENTD_DATA_DIR"); v != "" {
+	if v := os.Getenv("XAIHI_DATA_DIR"); v != "" {
 		return v
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".data", "agentd")
+	return filepath.Join(home, ".data", "xaihi")
 }
 
 // DataPath：拼在 DataDir 下的路径，elem 是若干段。
@@ -63,20 +63,20 @@ func Load() Config {
 	if b, err := os.ReadFile(path()); err == nil {
 		_ = json.Unmarshal(b, &c)
 	}
-	if v := os.Getenv("AGENTD_BASE_URL"); v != "" {
+	if v := os.Getenv("XAIHI_BASE_URL"); v != "" {
 		c.BaseURL = v
 	}
-	if v := os.Getenv("AGENTD_MODEL"); v != "" {
+	if v := os.Getenv("XAIHI_MODEL"); v != "" {
 		c.Model = v
 	}
-	if v := os.Getenv("AGENTD_DATA_DIR"); v != "" {
+	if v := os.Getenv("XAIHI_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
-	if v := os.Getenv("AGENTD_MAX_PROMPT_CHARS"); v != "" {
+	if v := os.Getenv("XAIHI_MAX_PROMPT_CHARS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 		}
 	}
-	if v := os.Getenv("AGENTD_WEB_DIR"); v != "" {
+	if v := os.Getenv("XAIHI_WEB_DIR"); v != "" {
 		c.WebDir = v
 	}
 	return c

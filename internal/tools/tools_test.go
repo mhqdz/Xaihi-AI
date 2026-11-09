@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentd/internal/store"
+	"xaihi/internal/store"
 )
 
 func TestBashOK(t *testing.T) {

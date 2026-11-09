@@ -6,7 +6,7 @@
 ## 0. 一句话状态
 
 ```
-agentd 前端（React 18 + Vite）已完成三轮重构：流式缓冲出 React（streamStore）、
+xaihi 前端（React 18 + Vite）已完成三轮重构：流式缓冲出 React（streamStore）、
 消息卡/ToolGroup/SysNote 拆组件并 memo、设置面板拆 5 张卡 + useSettings。
 App.jsx 1689 → 1096 行；8 个 WebDriver 套件全绿；本轮结束在"可以开始做体验级优化"的干净基线上。
 ```
@@ -18,34 +18,34 @@ App.jsx 1689 → 1096 行；8 个 WebDriver 套件全绿；本轮结束在"可�
 ```
 代码：git tag backup-web-20261030-2011  →  5c2a9dc
       历史备份 tag backup-web-20261030（3e827b8，Step 1 完成时）
-文件：~/backups/agentd-web-20261030-2011.tgz   (5.3 MB / 146 项)
+文件：~/backups/xaihi-web-20261030-2011.tgz   (5.3 MB / 146 项)
       排除：node_modules、web/dist、.git、*.log
-      旧的：~/backups/agentd-web-20261030-0445.tgz
+      旧的：~/backups/xaihi-web-20261030-0445.tgz
 
 回滚前端源码：
   git checkout backup-web-20261030-2011 -- web/src web/public
 重建：
-  cd web && npm run build            # 产物写 web/dist，agentd 直接从磁盘读
+  cd web && npm run build            # 产物写 web/dist，xaihi 直接从磁盘读
 整库回滚（含后端）：
   git reset --hard backup-web-20261030-2011
-  # 或解包：tar xzf ~/backups/agentd-web-20261030-2011.tgz -C ~/Workspace/agentd
+  # 或解包：tar xzf ~/backups/xaihi-web-20261030-2011.tgz -C ~/Workspace/xaihi
 ```
 
-**重要**：agentd 用 `http.FileServer` 直接读 `web/dist`，所以**只改前端不需要重启服务**，`npm run build` 后刷新页面即可（html 带 `Cache-Control: no-store`）。改 Go 代码才需要：`go build -o /tmp/agentd.new ./cmd/agentd && systemctl --user stop agentd && cp /tmp/agentd.new ~/.local/bin/agentd && systemctl --user start agentd`。
+**重要**：xaihi 用 `http.FileServer` 直接读 `web/dist`，所以**只改前端不需要重启服务**，`npm run build` 后刷新页面即可（html 带 `Cache-Control: no-store`）。改 Go 代码才需要：`go build -o /tmp/xaihi.new ./cmd/xaihi && systemctl --user stop xaihi && cp /tmp/xaihi.new ~/.local/bin/xaihi && systemctl --user start xaihi`。
 
 ---
 
 ## 2. 运行环境
 
 ```
-生产：systemd --user 单元 agentd.service
+生产：systemd --user 单元 xaihi.service
       Environment=AGENTD_ADDR=0.0.0.0:18400     → http://127.0.0.1:18400、http://192.168.1.200:18400
-      静态目录：agentd 仓库 web/dist（/、/assets/*、/fonts/*、/shots/*）
-开发：agentd-web-dev.service → vite 127.0.0.1:5173，proxy /api → 127.0.0.1:18400
+      静态目录：xaihi 仓库 web/dist（/、/assets/*、/fonts/*、/shots/*）
+开发：xaihi-web-dev.service → vite 127.0.0.1:5173，proxy /api → 127.0.0.1:18400
       注意：HMR 只有客户端插件在跑；普通前端改动要 build 后在 18400 验证
 依赖：web/package.json（react 18.3、vite 5.4、marked、dompurify、@number-flow/react）
 构建：cd web && npm run build（vite build，无网络需求；装包才需要代理 127.0.0.1:7897）
-数据：~/.data/agentd/agentd.db（SQLite WAL）、shots/、tools.d/、tasks.d/、profiles.json
+数据：~/.data/xaihi/xaihi.db（SQLite WAL）、shots/、tools.d/、tasks.d/、profiles.json
 ```
 
 ---
@@ -202,10 +202,10 @@ localStorage 其它键：profile / sideOpen / sideW / colW / inputH
 | POST | `/api/tasks` | `{kind,conv_id,card}` 手动派发 → `{ok,task_id}` |
 | GET | `/api/tasks/{id}` | `{task,steps,outbox}` |
 | POST | `/api/tasks/{id}/restore` | 收尾（中断任务） |
-| POST | `/api/wake` | 内部：`X-Agentd-Token` + `{conv_id,text,origin}` → 写 outbox（token 在 `~/.data/agentd/wake.token`） |
+| POST | `/api/wake` | 内部：`X-Xaihi-Token` + `{conv_id,text,origin}` → 写 outbox（token 在 `~/.data/xaihi/wake.token`） |
 | GET | `/api/shots/stats` | `{count,size_mb}` |
 | POST | `/api/shots/cleanup` | `{days}` → `{removed,freed_kb,days}` |
-| GET | `/shots/<name>.png` | 截图文件（`~/.data/agentd/shots/`） |
+| GET | `/shots/<name>.png` | 截图文件（`~/.data/xaihi/shots/`） |
 
 ### 5.2 SSE 事件（`/api/chat` 与 `/api/conv/{id}/stream`）
 
@@ -242,8 +242,8 @@ profile（/api/profiles[]）：
    error, created_at, finished_at}；步骤 {seq,name,cmd,status,exit_code,ms,output}
 
 工具：内置 bash / screenshot / recall / view_image / spawn_task（handoff_fail 只在子会话）
-      外置 ~/.data/agentd/tools.d/*.json：一次性 exec（AGENTD_ARG_*）或 persistent JSON-RPC
-配方：~/.data/agentd/tasks.d/*.json（kind/steps[{run|spawn}]/restore/artifacts），未注册的 kind 不可派发
+      外置 ~/.data/xaihi/tools.d/*.json：一次性 exec（AGENTD_ARG_*）或 persistent JSON-RPC
+配方：~/.data/xaihi/tasks.d/*.json（kind/steps[{run|spawn}]/restore/artifacts），未注册的 kind 不可派发
 ```
 
 ---
@@ -255,7 +255,7 @@ profile（/api/profiles[]）：
 ### 6.1 用户
 
 ```
-身份/场景：本机（Arch Linux）重度使用者，agentd 是他替代 Open WebUI 的自用控制台；
+身份/场景：本机（Arch Linux）重度使用者，xaihi 是他替代 Open WebUI 的自用控制台；
           经常在**竖屏/窄窗口**里用（这一条极其重要），也常在宽屏多列里校对布局。
 语言：中文说，中文看；厌恶"看起来差不多"的答复，要证据（数字、截图、命令输出）。
 
@@ -391,7 +391,7 @@ geckodriver：~/.local/bin/geckodriver --port 4444 &   （/tmp 会被清空，�
   check_sendstop.py 发送/中止 按钮序列（MutationObserver 记录 class+disabled）
   check_tools.py    工具组结构、memo 命中（window.__renders）
   check_live.py     真跑一轮（实时气泡不残留、历史卡不重渲染）；跑完自动归档自造会话
-跑法：cd ~/Workspace/agentd && python3 scripts/ui-test/<name>.py
+跑法：cd ~/Workspace/xaihi && python3 scripts/ui-test/<name>.py
      每个套件之间要重启 geckodriver（Firefox 单会话）
 截图：/tmp/uitest/*.png（脚本自己写；目录不存在会失败，先 mkdir -p）
 后端：go test ./...
@@ -419,7 +419,7 @@ geckodriver：~/.local/bin/geckodriver --port 4444 &   （/tmp 会被清空，�
 8  openRuns（工具组展开态）用组下标当 key，换会话必须清空
 9  工具组编号/统计依赖 messageGroups.js 的纯函数；改渲染前先看它们的语义（ghost 跳过）
 10 空会话没有正文列：guideline/col-resize/startColDrag 都要按 msgs.length 门控
-11 改前端只需 npm run build（agentd 直接读 dist），不要为此重启服务
+11 改前端只需 npm run build（xaihi 直接读 dist），不要为此重启服务
 12 /tmp 会被清空：geckodriver 放 ~/.local/bin，测试脚本放仓库，截图目录先建
 ```
 
@@ -429,7 +429,7 @@ geckodriver：~/.local/bin/geckodriver --port 4444 &   （/tmp 会被清空，�
 
 ```
 [ ] git log --oneline -5 ｜ git tag | tail 3（确认在 5c2a9dc 或之后）
-[ ] systemctl --user is-active agentd agentd-web-dev；curl /api/health
+[ ] systemctl --user is-active xaihi xaihi-web-dev；curl /api/health
 [ ] mkdir -p /tmp/uitest；起 geckodriver；跑 8 个套件确认基线全绿
 [ ] 读本文件 §7，选主题（建议 P0：B2 回底浮标 / B3 Esc / A1 用户消息区分 / D1-D2 可访问性）
 [ ] 每块：改 → build → 跑相关套件 → 宽窄屏截图/量 rect → commit（信息写根因+实测）

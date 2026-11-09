@@ -5,7 +5,7 @@
 //
 // 存储（撞车率最低的形态：目录 + front matter，人能直接改、能 git）：
 //
-//	~/.data/agentd/memory/
+//	~/.data/xaihi/memory/
 //	  global/<id>.md            跨项目的（偏好、关系、经历）
 //	  project/<name>/<id>.md    只跟这个项目有关的
 //
@@ -69,7 +69,7 @@ type Store struct {
 
 func New(root string) *Store { return &Store{Root: root} }
 
-// DefaultRoot：~/.data/agentd/memory
+// DefaultRoot：~/.data/xaihi/memory
 func DefaultRoot(dataDir string) string { return filepath.Join(dataDir, "memory") }
 
 func (s *Store) dir(scope string) string {

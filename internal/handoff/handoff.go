@@ -2,8 +2,6 @@
 package handoff
 
 import (
-	"agentd/internal/config"
-	"agentd/internal/logx"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,8 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"xaihi/internal/config"
+	"xaihi/internal/logx"
 
-	"agentd/internal/store"
+	"xaihi/internal/store"
 )
 
 type Step struct {
@@ -43,7 +43,7 @@ type Hooks struct {
 
 type Manager struct {
 	st      *store.SQLiteStore
-	Dir     string // ~/.data/agentd/handoff
+	Dir     string // ~/.data/xaihi/handoff
 	Recipes map[string]Recipe
 	hooks   Hooks
 
