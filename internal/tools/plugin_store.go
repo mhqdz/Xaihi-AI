@@ -54,10 +54,15 @@ func SavePlugin(d PluginDraft) error {
 			return fmt.Errorf("command 里有空项")
 		}
 	}
-	if _, exists := Registry()[name]; exists {
-		// 已存在的插件允许覆盖；内置工具不允许
-		if sp, ok := Registry()[name]; ok && sp.Source != "plugin" {
+	if sp, exists := Registry()[name]; exists {
+		if sp.Source != "plugin" {
 			return fmt.Errorf("%s 是内置工具，不能覆盖", name)
+		}
+		// 同名插件只有在"改的就是它自己"时才允许写。
+		// 以前这里允许覆盖 —— 新建一个撞名的插件会把已有的那个静默吃掉，
+		// 用户看到的是"我的工具被替换了"。重名就是要他自己换个名字。
+		if strings.TrimSpace(d.OriginalName) != name {
+			return fmt.Errorf("已经有同名插件 %s，换个名字（或先删掉它）", name)
 		}
 	}
 	m := manifest{
