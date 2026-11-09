@@ -1617,3 +1617,8 @@ pre.out{background:rgba(46,56,53,.03);border-color:var(--c4);color:var(--ink2)}
 .tool-group-title{margin:.55rem .5rem .15rem;font-size:.66rem;letter-spacing:.18em;
   color:var(--ink3);text-transform:none}
 .tool-group-title:first-child{margin-top:.1rem}
+
+/* 还没有正文时的实时气泡：按工具姿态渲染（矮、灰），不抢版面 */
+.live-think{width:min(var(--colw,60rem),calc(100% - 2*var(--page-gutter)));margin:.2rem auto;
+  padding:.35rem .6rem .4rem;border-left:2px solid var(--line);font-size:.74rem;color:var(--ink3)}
+.live-think .tn-think summary{cursor:pointer}

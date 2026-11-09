@@ -10,10 +10,34 @@ import SettingsPanel from './components/Settings/Panel'
 import { useSettings } from './settings/useSettings'
 
 // 实时气泡：订阅 streamStore，只它随 delta 重渲染（历史消息不参与）
+//
+// 姿态问题：模型思考时，前端**还不知道**这轮是"调工具"还是"文本回复"。
+// 以前默认按回复渲染（大面板 + 大号思考），等发现没正文再缩成工具样式 ——
+// 视觉上就是"先胀一下再缩回去"。
+// 现在反过来：未知时按工具渲染（矮、折叠），**拿到正文才升级成回复**。
 function LiveBubble({ busy }) {
   const live = useLiveMsg()
-  const has = live && ((live.content || '').trim() || (live.reasoning || '').trim())
-  if (!has && !busy) return null
+  const hasThink = !!(live && (live.reasoning || '').trim())
+  const hasContent = !!(live && (live.content || '').trim())
+  if (!hasThink && !hasContent && !busy) return null
+
+  // 还没有正文：工具姿态 —— 一行状态 + 折叠的思考，不铺开成大面板
+  if (!hasContent) {
+    return (
+      <div className="live-think">
+        <span className="ef-field">生成中…</span>
+        {hasThink ? (
+          <details className="tn-think">
+            <summary>思考 · <span className="num">{live.reasoning.length}</span> 字{
+              live.rsecs ? <>{' · '}<span className="num">{live.rsecs.toFixed(1)}</span>{'s'}</> : null}</summary>
+            <pre className="think">{live.reasoning}</pre>
+          </details>
+        ) : <span className="live-wait">等待模型响应…</span>}
+      </div>
+    )
+  }
+
+  // 有正文了：升级成正常回复（思考也换成回复里的大样式）
   return (
     <div className="msg ef-panel cut-tl assistant" data-seq={live && live.seq ? live.seq : undefined}>
       <div>
@@ -22,14 +46,14 @@ function LiveBubble({ busy }) {
           <b>Agent</b>
           <span className="ef-field">生成中…</span>
         </div>
-        {(live && (live.reasoning || '').trim()) ? (
+        {hasThink ? (
           <details className="fold" open>
             <summary className="think-sum">思考过程 · <span className="num">{live.reasoning.length}</span> 字{
               live.rsecs ? <>{' · '}<span className="num">{live.rsecs.toFixed(1)}</span>{'s'}</> : null}</summary>
             <pre className="think">{live.reasoning}</pre>
           </details>
         ) : null}
-        {(live && (live.content || '').trim()) ? <Sections text={live.content} /> : <div className="live-wait">等待模型响应…</div>}
+        <Sections text={live.content} />
       </div>
     </div>
   )
