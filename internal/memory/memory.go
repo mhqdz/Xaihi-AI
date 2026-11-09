@@ -275,6 +275,18 @@ func estTokens(s string) int {
 // 挑选与拼装顺序刻意分开：按 created **从新到旧**挑（近期写的才是"她记得的事"），
 // 拼装时再**排回升序** —— 同样一组记忆必须产出同样的前缀，否则每次请求都不一样，
 // 上游的 KV 缓存会全部作废。
+// BudgetFor 按模型窗口算记忆预算：窗口的 5%，封顶 6000。
+// 写死 6000 对小窗口模型是硬挤（9 系只有 32k），对 131k 又偏保守。
+func BudgetFor(contextWindow int) int {
+	if contextWindow <= 0 {
+		return 6000
+	}
+	if b := contextWindow / 20; b < 6000 {
+		return b
+	}
+	return 6000
+}
+
 func (s *Store) Render(budget int) string {
 	if budget <= 0 {
 		budget = 6000

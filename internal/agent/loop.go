@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"xaihi/internal/config"
 	"xaihi/internal/llm"
 	"xaihi/internal/logx"
+	"xaihi/internal/memory"
 	"xaihi/internal/store"
 	"xaihi/internal/tools"
 )
@@ -220,26 +220,23 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 			logx.Info("compact conv=%s msgs=%d->%d chars=%d->%d budget=%d keep=%d",
 				c.ID, before, len(msgs), beforeChars, afterChars, a.compactAt(), keep)
 		}
-		memText := a.mem.Render(0)
+		memText := a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
 		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 			sys := a.profile.System
-			if len(c.KV) > 0 {
-				sys += "\n\n[已知事实]\n"
-				keys := make([]string, 0, len(c.KV))
-				for k := range c.KV {
-					keys = append(keys, k)
-				}
-				sort.Strings(keys)
-				for _, k := range keys {
-					sys += "- " + k + ": " + c.KV[k] + "\n"
-				}
-			}
+			// 顺序：人格 → 记忆 → 已知事实（越易变越靠后，KV cache 才能多命中）
 			if memText != "" {
 				if strings.TrimSpace(sys) != "" {
 					sys += "\n\n"
 				}
 				sys += memText
 			}
+			if len(c.KV) > 0 {
+				sys += "\n\n[已知事实]\n"
+				for _, kv := range c.KVPairs() {
+					sys += "- " + kv[0] + ": " + kv[1] + "\n"
+				}
+			}
+			sys = a.guardSystem(sys)
 			pfx := make([]llm.Message, 0, 2)
 			pfx = append(pfx, llm.Message{Role: "system", Content: sys})
 			if c.Summary != "" {
@@ -628,7 +625,7 @@ func (a *Agent) maybeSummarize(ctx context.Context, c *store.Conversation, keep 
 	if c.KV == nil {
 		c.KV = map[string]string{}
 	}
-	c.KV["summary_generated_by"] = sr.ModelID + " @ " + c.SummaryAt.Format("2006-01-02 15:04")
+	store.PutKV(c, "summary_generated_by", sr.ModelID+" @ "+c.SummaryAt.Format("2006-01-02 15:04"))
 	return a.st.Save(c)
 }
 
@@ -669,6 +666,25 @@ func splitResult(v any) (string, []string) {
 // wireLen：Content 可能是 string 或 []parts，估算字符数即可（只用于预算判断）。
 // 统一按"字符(rune)"计数：中文 1 字 = 1，不再用字节数
 // （之前 len(string) 是字节数，中文会被放大 ~3 倍，导致 token 估算虚高、raw 与 chars 不可比）
+// guardSystem：system 提示的总量保险。
+//
+// 各段都有自己的预算：人格是手写的、记忆按窗口比例、KV 有队列上限、摘要有压缩。
+// 全都生效时总和不可能到窗口的 15% —— 到了就说明某处预算失效（bug）。
+// 所以这里**不裁剪**：打 ERROR 日志，并在提示里写明，让 bug 暴露出来而不是被静默掩盖。
+func (a *Agent) guardSystem(sys string) string {
+	win := a.profile.ContextWindow
+	if win <= 0 || sys == "" {
+		return sys
+	}
+	limit := win * 15 / 100
+	if n := utf8.RuneCountInString(sys); n > limit {
+		logx.Error("system 提示超预算：%d 字 > %d（窗口 %d）—— 某处预算没生效，这是 bug", n, limit, win)
+		sys += fmt.Sprintf("\n\n[系统警告] system 提示 %d 字，超过窗口 15%% 的预算（%d）。"+
+			"这不是正常情况，请把这条反馈给开发者。", n, limit)
+	}
+	return sys
+}
+
 func wireLen(v any) int {
 	switch t := v.(type) {
 	case string:
@@ -724,7 +740,7 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	}
 	msgs, _ := toWire(c.Messages, reg)
 	msgs = compact(msgs, keep, a.compactAt())
-	if memText := a.mem.Render(0); a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
+	if memText := a.mem.Render(memory.BudgetFor(a.profile.ContextWindow)); a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
 		sys := a.profile.System
 		if memText != "" {
 			if strings.TrimSpace(sys) != "" {
@@ -732,6 +748,7 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 			}
 			sys += memText
 		}
+		sys = a.guardSystem(sys)
 		msgs = append([]llm.Message{{Role: "system", Content: sys}}, msgs...)
 	}
 	total := 0

@@ -33,6 +33,8 @@ func NewSQLite(dir string) (*SQLiteStore, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	// 老库补列（kv 一开始只有 map，没有顺序）；重复执行是空操作
+	_, _ = db.Exec(`ALTER TABLE conversations ADD COLUMN kv_seq TEXT NOT NULL DEFAULT ''`)
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS conversations(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS conversations(
   summary_model TEXT NOT NULL DEFAULT '',
   summary_at TEXT,
   kv TEXT NOT NULL DEFAULT '{}',
+  kv_seq TEXT NOT NULL DEFAULT '', 
   archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL);
@@ -80,11 +83,11 @@ func (s *SQLiteStore) Get(id string) (*Conversation, error) {
 		return nil, os.ErrNotExist
 	}
 	var c Conversation
-	var kv, sat, cat, uat string
+	var kv, kvSeq, sat, cat, uat string
 	var kind string
-	err := s.db.QueryRow(`SELECT id,title,summary,summary_upto,summary_model,COALESCE(summary_at,''),kv,created_at,updated_at,parent_id,kind
+	err := s.db.QueryRow(`SELECT id,title,summary,summary_upto,summary_model,COALESCE(summary_at,''),kv,kv_seq,created_at,updated_at,parent_id,kind
 		FROM conversations WHERE id=? AND archived=0`, n).
-		Scan(&n, &c.Title, &c.Summary, &c.SummaryUpto, &c.SummaryModel, &sat, &kv, &cat, &uat, &c.ParentID, &kind)
+		Scan(&n, &c.Title, &c.Summary, &c.SummaryUpto, &c.SummaryModel, &sat, &kv, &kvSeq, &cat, &uat, &c.ParentID, &kind)
 	c.Kind = kind
 	c.CreatedAt, _ = time.Parse(time.RFC3339Nano, cat)
 	c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, uat)
@@ -93,6 +96,7 @@ func (s *SQLiteStore) Get(id string) (*Conversation, error) {
 	}
 	c.ID = fmt.Sprint(n)
 	_ = json.Unmarshal([]byte(kv), &c.KV)
+	_ = json.Unmarshal([]byte(kvSeq), &c.KVSeq)
 	if sat != "" {
 		if t, err := time.Parse(time.RFC3339Nano, sat); err == nil {
 			c.SummaryAt = t
@@ -194,21 +198,22 @@ func (s *SQLiteStore) Save(c *Conversation) error {
 	now := time.Now()
 	nStr := now.Format(time.RFC3339Nano)
 	kv, _ := json.Marshal(c.KV)
+	kvSeq, _ := json.Marshal(c.KVSeq)
 	var sat any
 	if !c.SummaryAt.IsZero() {
 		sat = c.SummaryAt.Format(time.RFC3339Nano)
 	}
 	if c.ID == "" {
-		res, err := tx.Exec(`INSERT INTO conversations(title,summary,summary_upto,summary_model,summary_at,kv,created_at,updated_at,parent_id,kind)
-			VALUES(?,?,?,?,?,?,?,?,?,?)`, c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), nStr, nStr, c.ParentID, c.Kind)
+		res, err := tx.Exec(`INSERT INTO conversations(title,summary,summary_upto,summary_model,summary_at,kv,kv_seq,created_at,updated_at,parent_id,kind)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?)`, c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), string(kvSeq), nStr, nStr, c.ParentID, c.Kind)
 		if err != nil {
 			return err
 		}
 		id, _ := res.LastInsertId()
 		c.ID = fmt.Sprint(id)
 	} else {
-		if _, err := tx.Exec(`UPDATE conversations SET title=?,summary=?,summary_upto=?,summary_model=?,summary_at=?,kv=?,updated_at=?,parent_id=?,kind=? WHERE id=?`,
-			c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), nStr, c.ParentID, c.Kind, c.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE conversations SET title=?,summary=?,summary_upto=?,summary_model=?,summary_at=?,kv=?,kv_seq=?,updated_at=?,parent_id=?,kind=? WHERE id=?`,
+			c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), string(kvSeq), nStr, c.ParentID, c.Kind, c.ID); err != nil {
 			return err
 		}
 	}
