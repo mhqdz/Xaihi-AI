@@ -24,6 +24,7 @@ import (
 	"agentd/internal/logx"
 	"agentd/internal/store"
 	"agentd/internal/tools"
+	"agentd/internal/watch"
 	"agentd/internal/web"
 )
 
@@ -97,6 +98,21 @@ func main() {
 		// 能力缓存只在打开下拉/点刷新时更新，长期不开面板的配置会一直用很旧的数字：
 		// 启动后台补一次过期的（不阻塞启动，失败只记日志）
 		go s.WarmModelCaches(24 * time.Hour)
+
+		// 观察器：只记"她在用什么应用"（内部不调模型）。没装 hyprctl 时
+		// 采样失败是常态，Run 会自己跳过这一轮，不影响服务。
+		if ws, err := watch.Open(config.DataPath("watch.db")); err == nil {
+			w := &watch.Watcher{Store: ws, Samp: watch.Hypr{}}
+			go w.Run(context.Background())
+			go w.WatchWindows(context.Background())
+			tools.SetShotQuota(func() (bool, int) {
+				ok, used, _ := ws.TakeShot(300) // 一天最多 300 张（你定的）
+				return ok, used
+			})
+			logx.Info("观察器已启动（事件表 watch.db，截图配额 300/天）")
+		} else {
+			logx.Warn("观察器初始化失败: %v", err)
+		}
 		srv := &http.Server{Addr: addr, Handler: s.Handler()}
 		fmt.Fprintf(os.Stderr, "agentd %s · model=%s · http://%s\n", version, cfg.Model, addr)
 		// 优雅停机：先把进行中的轮次取消（它们会落库半截内容 + 中断说明），再退出

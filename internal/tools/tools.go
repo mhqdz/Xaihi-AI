@@ -23,6 +23,13 @@ import (
 	"time"
 )
 
+// shotQuota 由 main 注入：看屏幕的每日配额（返回"还有没有额度"和"今天已用几张"）。
+// 为 nil 时不限（测试/独立运行）。
+var shotQuota func() (bool, int)
+
+// SetShotQuota 装配截图配额（进程级，启动时调一次）
+func SetShotQuota(f func() (bool, int)) { shotQuota = f }
+
 // Env：工具需要的会话上下文（recall 用）。Messages 传 []store.Message，避免包循环。
 type Env struct {
 	Messages any
@@ -230,6 +237,11 @@ func runBash(ctx context.Context, args map[string]any, _ *Env) (any, error) {
 
 func runScreenshot(ctx context.Context, args map[string]any, _ *Env) (any, error) {
 	_ = strings.TrimSpace(str(args, "question")) // 参数保留但不再回显（问题已在用户消息里）
+	if shotQuota != nil {
+		if ok, used := shotQuota(); !ok {
+			return fmt.Sprintf("✗ 今天看屏幕的配额用完了（300 张，已用 %d）。明天再来，或者让用户直接描述。", used), nil
+		}
+	}
 	dir := config.DataPath("shots")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "✗ 建截图目录失败：" + err.Error(), nil
