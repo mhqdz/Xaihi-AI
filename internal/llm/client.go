@@ -106,7 +106,13 @@ func (c *Client) setStats(st Stats) {
 
 func New(baseURL, apiKey string) *Client {
 	return &Client{BaseURL: baseURL, APIKey: apiKey, HTTP: &http.Client{Timeout: 0,
-		Transport: &http.Transport{DisableKeepAlives: true, DisableCompression: true}}}
+		// Proxy 必须显式给：零值 Transport 的 Proxy 是 nil，等于「永不代理」。
+		// 走境外接口（opencode 之类）时直连会走 IPv6，经常被 reset by peer。
+		Transport: &http.Transport{
+			Proxy:              http.ProxyFromEnvironment,
+			DisableKeepAlives:  true,
+			DisableCompression: true,
+		}}}
 }
 
 func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
