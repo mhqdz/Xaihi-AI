@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -115,32 +117,79 @@ func New(baseURL, apiKey string) *Client {
 		}}}
 }
 
+// post 带重试：**只重试"还没开始读流"的失败**。
+//
+// 走代理/境外接口时，`read: connection reset by peer` 和裸 `EOF` 很常见 ——
+// 连接建好了，但等响应头的时候对端把它掐了。这种失败重试是安全的：
+// 请求体还没被消费成一次推理，重发不会产生两次副作用。
+// 一旦开始读流就不再重试（那可能已经吐了一半内容，重来会让消息重复）。
 func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(b))
-	if req != nil {
+	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * 800 * time.Millisecond):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
 		req.Close = true // 每个请求独立连接：本机 python 代理不支持长连接复用
+		// 自定义头先设，内置的（Content-Type/UA/会话/授权）后设 —— 用户配的头
+		// 不能覆盖这几个，否则一个手滑就把认证弄坏了
+		for k, v := range c.Headers {
+			req.Header.Set(k, v)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", UserAgent)
+		if c.SessionHeader != "" && c.SessionID != "" {
+			req.Header.Set(c.SessionHeader, c.SessionID)
+		}
+		if c.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
+		resp, err := c.HTTP.Do(req)
+		if err == nil {
+			// 5xx 也算"还没开始读流"，交给上层判断前先重试
+			if resp.StatusCode >= 500 && resp.StatusCode <= 504 && attempt < 2 {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				continue
+			}
+			return resp, nil
+		}
+		lastErr = err
+		if !retryableNetErr(err) || ctx.Err() != nil {
+			return nil, err
+		}
 	}
-	if err != nil {
-		return nil, err
+	return nil, lastErr
+}
+
+// retryableNetErr：只认"连接层面被掐断"这一类，业务错误（4xx）不重试。
+func retryableNetErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	// 自定义头先设，内置的（Content-Type/UA/会话/授权）后设 —— 用户配的头
-	// 不能覆盖这几个，否则一个手滑就把认证弄坏了
-	for k, v := range c.Headers {
-		req.Header.Set(k, v)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", UserAgent)
-	if c.SessionHeader != "" && c.SessionID != "" {
-		req.Header.Set(c.SessionHeader, c.SessionID)
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.EPIPE) {
+		return true
 	}
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	}
-	return c.HTTP.Do(req)
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset") || strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "broken pipe")
 }
 
 // usageLike / timingsLike：兼容两种上游字段
