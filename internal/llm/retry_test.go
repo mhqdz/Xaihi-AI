@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestRetryableNetErr(t *testing.T) {
@@ -75,5 +76,19 @@ func TestPostNoRetry4xx(t *testing.T) {
 	resp.Body.Close()
 	if atomic.LoadInt32(&n) != 1 {
 		t.Errorf("4xx 不该重试，实际请求 %d 次", n)
+	}
+}
+
+// 退避：0.5s 起、指数增长、带 ±25% 抖动
+func TestRetryDelay(t *testing.T) {
+	for i, base := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 8 * time.Second} {
+		for k := 0; k < 20; k++ {
+			got := retryDelay(i)
+			lo := time.Duration(float64(base) * 0.74)
+			hi := time.Duration(float64(base) * 1.26)
+			if got < lo || got > hi {
+				t.Fatalf("retryDelay(%d) = %v，期望在 [%v, %v]", i, got, lo, hi)
+			}
+		}
 	}
 }

@@ -212,7 +212,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		if a.OnStage != nil {
 			a.OnStage("generating")
 		}
-		msgs, toolMsgs := toWire(c.Messages, reg)
+		msgs, toolMsgs := toWire(c.Messages, reg, a.llm.ReasoningField())
 		before := len(msgs)
 		beforeChars := 0
 		for _, m := range msgs {
@@ -472,7 +472,9 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 	return nil
 }
 
-func toWire(msgs []store.Message, reg map[string]*tools.Spec) ([]llm.Message, bool) {
+// echoField：上游要求的思考字段名（reasoning_content / reasoning / ""）。
+// 空 = 这个上游不吐思考，别回传 —— 严格的兼容实现遇到不认识的字段会 400。
+func toWire(msgs []store.Message, reg map[string]*tools.Spec, echoField string) ([]llm.Message, bool) {
 	out := make([]llm.Message, 0, len(msgs))
 	for _, m := range msgs {
 		var content any = m.Content
@@ -483,7 +485,16 @@ func toWire(msgs []store.Message, reg map[string]*tools.Spec) ([]llm.Message, bo
 			}
 			content = parts
 		}
-		out = append(out, llm.Message{Role: m.Role, Content: content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID})
+		w := llm.Message{Role: m.Role, Content: content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID}
+		// 思考回传：DeepSeek 系要求 assistant 历史带上它，否则多轮里模型每轮都在"重新想"
+		if echoField != "" && m.Role == "assistant" && strings.TrimSpace(m.Reasoning) != "" {
+			if echoField == "reasoning_content" {
+				w.ReasoningContent = m.Reasoning
+			} else {
+				w.Reasoning = m.Reasoning
+			}
+		}
+		out = append(out, w)
 	}
 	return out, true
 }
@@ -759,7 +770,7 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	if keep <= 0 {
 		keep = a.cfg.KeepMessages
 	}
-	msgs, _ := toWire(c.Messages, reg)
+	msgs, _ := toWire(c.Messages, reg, a.llm.ReasoningField())
 	msgs = compact(msgs, keep, a.compactAt())
 	memText := ""
 	if a.profile.Persistent {

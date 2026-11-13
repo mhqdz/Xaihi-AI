@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -33,6 +34,12 @@ type Message struct {
 	Content    any        `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// 思考回传：DeepSeek 系要求 assistant 历史带上 reasoning_content
+	// （opencode 的 deepseek-v4.1-flash 定义里写着 requiresReasoningContentOnAssistantMessages）。
+	// 两个字段都留着，但**只会填一个** —— 用上游实际吐出来的那个名字，
+	// 由 Client.reasoningField 记着，见 LearnReasoningField。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
 }
 
 type ChatRequest struct {
@@ -80,6 +87,10 @@ type Client struct {
 	SessionID     string
 	// Headers：额外固定头（由 profile 配），内置头优先，覆盖不了
 	Headers map[string]string
+	// reasoningField：上游实际用的思考字段名（reasoning_content / reasoning）。
+	// **自适应，不靠配置**：第一次收到哪种就用哪种回传。没收到过就不回传 ——
+	// 严格的兼容实现遇到不认识的字段会 400，不能对没吐过思考的上游硬塞。
+	reasoningField string
 
 	mu    sync.Mutex
 	stats Stats
@@ -110,6 +121,34 @@ func (c *Client) setStats(st Stats) {
 	c.mu.Unlock()
 }
 
+// learnFromDelta：从一次增量里学"上游用哪个思考字段"
+func (c *Client) learnFromDelta(rc, r string) {
+	if rc != "" {
+		c.LearnReasoningField("reasoning_content")
+	} else if r != "" {
+		c.LearnReasoningField("reasoning")
+	}
+}
+
+// LearnReasoningField：记下上游用的思考字段名（只记第一次，之后不改）
+func (c *Client) LearnReasoningField(field string) {
+	if field == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.reasoningField == "" {
+		c.reasoningField = field
+	}
+	c.mu.Unlock()
+}
+
+// ReasoningField：回传时该用哪个字段；空 = 这个上游不吐思考，别回传
+func (c *Client) ReasoningField() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reasoningField
+}
+
 func New(baseURL, apiKey string) *Client {
 	return &Client{BaseURL: baseURL, APIKey: apiKey, HTTP: &http.Client{Timeout: 0,
 		// Proxy 必须显式给：零值 Transport 的 Proxy 是 nil，等于「永不代理」。
@@ -136,13 +175,16 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 		OnRequest(len(b))
 	}
 	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
+	// 与 DSH 的 pi-ai 对齐：5 次、退避 0.5s 起指数到 8s、±25% 抖动。
+	// 它那边的"500ms 重连"其实就是第一次退避，不是超时。
+	const maxAttempts = 5
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(time.Duration(attempt) * 800 * time.Millisecond):
+			case <-time.After(retryDelay(attempt - 1)):
 			}
 		}
 		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(b))
@@ -166,7 +208,7 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 		resp, err := c.HTTP.Do(req)
 		if err == nil {
 			// 5xx 也算"还没开始读流"，交给上层判断前先重试
-			if resp.StatusCode >= 500 && resp.StatusCode <= 504 && attempt < 2 {
+			if resp.StatusCode >= 500 && resp.StatusCode <= 504 && attempt < maxAttempts-1 {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -180,6 +222,20 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 		}
 	}
 	return nil, lastErr
+}
+
+// retryDelay：0.5s、1s、2s、4s（上限 8s），带 ±25% 抖动。
+// 抖动是为了别和别的客户端同时重连。
+func retryDelay(i int) time.Duration {
+	d := 500 * time.Millisecond
+	for j := 0; j < i && d < 8*time.Second; j++ {
+		d *= 2
+	}
+	if d > 8*time.Second {
+		d = 8 * time.Second
+	}
+	f := 0.75 + rand.Float64()*0.5
+	return time.Duration(float64(d) * f)
 }
 
 // retryableNetErr：只认"连接层面被掐断"这一类，业务错误（4xx）不重试。
@@ -282,6 +338,7 @@ func (c *Client) Stream(ctx context.Context, req ChatRequest, onChunk func(Chunk
 			if reasoning == "" {
 				reasoning = d.Reasoning
 			}
+			c.learnFromDelta(d.ReasoningContent, d.Reasoning)
 			if d.Content != "" || reasoning != "" {
 				if err := onChunk(Chunk{Delta: d.Content, Reasoning: reasoning}); err != nil {
 					return err
@@ -375,6 +432,7 @@ func (c *Client) StreamWithTools(ctx context.Context, req ChatRequest, onChunk f
 			if r == "" {
 				r = d.Reasoning
 			}
+			c.learnFromDelta(d.ReasoningContent, d.Reasoning)
 			if d.Content != "" || r != "" {
 				if onChunk != nil {
 					if err := onChunk(Chunk{Delta: d.Content, Reasoning: r}); err != nil {
