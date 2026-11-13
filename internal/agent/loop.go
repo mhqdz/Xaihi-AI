@@ -727,10 +727,11 @@ func wireLen(v any) int {
 			if s, ok := p["text"].(string); ok {
 				n += utf8.RuneCountInString(s)
 			}
-			// 图片按 base64 长度折算 token（约 4 字符 ≈ 1 token）：
-			// 不算进来的话 compact 永远低估，图片会一直堆到请求爆掉
+			// 图片按 base64 的**字符数**计入（wireLen 的单位就是字符数，
+			// maxChars 也是字符数）。不要折成 token —— 单位混了会低估 4 倍，
+			// compact 还是不会丢图。
 			if iu, ok := p["image_url"].(map[string]string); ok {
-				n += len(iu["url"]) / 4
+				n += len(iu["url"])
 			}
 		}
 		return n

@@ -334,11 +334,10 @@ func runScreenshot(ctx context.Context, args map[string]any, _ *Env) (any, error
 			out = filepath.Base(jpg)
 		}
 	}
-	// 消息里只存 URL（前端/模型侧都用它）；读盘转 data URL 由 toWire 负责 ✓
-	return []map[string]any{
-		{"type": "text", "text": "截屏完成：当前屏幕截图如下。"},
-		{"type": "image", "url": "/shots/" + out},
-	}, nil
+	// **不自动把图塞进上下文**：只给路径。
+	// 图是证据，不是对话内容 —— 自动带的后果是它跟着之后每一次请求重发
+	// （实测 7.7MB 的请求体）。要看就调 view_image，那一次请求才付这个成本。
+	return "截屏完成：/shots/" + out + "\n（要看内容就调 view_image；不读的话它不会占上下文）", nil
 }
 
 // clipOutput：超长时保留首尾并标明"省略了多少、完整内容在哪"，绝不静默丢弃
@@ -535,6 +534,10 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 	p := strings.TrimSpace(str(args, "path"))
 	if p == "" {
 		return "[error] 缺少 path", nil
+	}
+	// 截图返回的是 "/shots/x.jpg" 这种 URL，读图时转成数据目录里的真实路径
+	if strings.HasPrefix(p, "/shots/") {
+		p = config.DataPath(strings.TrimPrefix(p, "/"))
 	}
 	if strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
