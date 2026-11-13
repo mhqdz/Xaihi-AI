@@ -321,10 +321,23 @@ func runScreenshot(ctx context.Context, args map[string]any, _ *Env) (any, error
 	if err := grim.Run(); err != nil {
 		return "✗ 截图失败：" + err.Error(), nil
 	}
+	// 压缩：glyph 级别的截图（1080p PNG）实测 2.8MB，转 JPEG 后 200KB 左右。
+	// 原样塞给模型时一次请求能到 7.7MB（两张图），撞哪一层都可能断。
+	// ffmpeg 不在就退回 PNG —— 宁可大也不能没有截图。
+	out := name
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		jpg := strings.TrimSuffix(img, ".png") + ".jpg"
+		c := exec.CommandContext(ctx, "ffmpeg", "-y", "-loglevel", "error",
+			"-i", img, "-vf", "scale='min(1920,iw)':-2", "-q:v", "4", jpg)
+		if err := c.Run(); err == nil {
+			_ = os.Remove(img)
+			out = filepath.Base(jpg)
+		}
+	}
 	// 消息里只存 URL（前端/模型侧都用它）；读盘转 data URL 由 toWire 负责 ✓
 	return []map[string]any{
 		{"type": "text", "text": "截屏完成：当前屏幕截图如下。"},
-		{"type": "image", "url": "/shots/" + name},
+		{"type": "image", "url": "/shots/" + out},
 	}, nil
 }
 

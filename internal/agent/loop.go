@@ -727,6 +727,11 @@ func wireLen(v any) int {
 			if s, ok := p["text"].(string); ok {
 				n += utf8.RuneCountInString(s)
 			}
+			// 图片按 base64 长度折算 token（约 4 字符 ≈ 1 token）：
+			// 不算进来的话 compact 永远低估，图片会一直堆到请求爆掉
+			if iu, ok := p["image_url"].(map[string]string); ok {
+				n += len(iu["url"]) / 4
+			}
 		}
 		return n
 	}
@@ -743,7 +748,11 @@ func inlineImage(img string) string {
 		if err != nil {
 			return ""
 		}
-		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
+		mime := "image/png"
+		if strings.HasSuffix(strings.ToLower(img), ".jpg") || strings.HasSuffix(strings.ToLower(img), ".jpeg") {
+			mime = "image/jpeg"
+		}
+		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)
 	}
 	return img
 }
