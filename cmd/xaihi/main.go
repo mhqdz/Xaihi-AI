@@ -39,6 +39,12 @@ func main() {
 	cfg := config.Load()
 	// 上游看得到我们是谁（而不是 Go-http-client/1.1）：OpenCode 这类网关明确要求
 	llm.UserAgent = "xaihi/" + version
+	// 请求体超过 150KB 才记：大 body 是"连接被掐"的头号嫌疑
+	llm.OnRequest = func(n int) {
+		if n > 150<<10 {
+			logx.Warn("llm.request body=%dKB", n>>10)
+		}
+	}
 	// 日志：写 <data_dir>/xaihi.log（同时打 stderr）
 	if err := logx.Init(cfg.DataDir); err != nil {
 		fmt.Fprintf(os.Stderr, "日志初始化失败：%v（仅 stderr）\n", err)

@@ -65,6 +65,10 @@ type Stats struct {
 // main 启动时设成 xaihi/<版本>；测试里保持 dev。
 var UserAgent = "xaihi/dev"
 
+// OnRequest：每发出一次请求回调一次（body 字节数）。
+// 用来发现"请求体异常大"——走代理/境外接口时，大 body 是连接被掐的常见原因。
+var OnRequest func(bodyBytes int)
+
 type Client struct {
 	BaseURL string
 	APIKey  string
@@ -127,6 +131,9 @@ func (c *Client) post(ctx context.Context, body any) (*http.Response, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
+	}
+	if OnRequest != nil {
+		OnRequest(len(b))
 	}
 	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
 	var lastErr error
