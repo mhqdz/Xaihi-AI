@@ -10,7 +10,7 @@
 | 目录 | `~/Workspace/Xaihi-AI`（2026-11-10 从 `agentd` 改名） |
 | Go module | `xaihi` |
 | 二进制 | `~/.local/bin/xaihi`（旧 `agentd` 已删） |
-| 服务 | `xaihi.service`（systemd --user），监听 `0.0.0.0:18400` |
+| 服务 | `xaihi.service`（systemd --user）；监听地址在 `~/.config/xaihi/env` 的 `XAIHI_ADDR`（unit 用 `EnvironmentFile=` 引它，改端口不用改 unit） |
 | 数据目录 | `~/.data/xaihi/`（xaihi.db、profiles.json、endpoints.json、settings.json、tools.json、memory/、hooks/、shots/、watch.db、pixel-base/） |
 | 前端 | `web/`（Vite + React），`cd web && npm run build` → `web/dist`；服务读 `XAIHI_WEB_DIR` |
 | Vite dev | `127.0.0.1:5173`（用户自己起的；改名前它固化了旧路径导致 404，用户已重启） |
