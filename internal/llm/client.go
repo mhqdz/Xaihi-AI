@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -157,6 +158,13 @@ func New(baseURL, apiKey string) *Client {
 			Proxy:              http.ProxyFromEnvironment,
 			DisableKeepAlives:  true,
 			DisableCompression: true,
+			// 强制 IPv4：这台机器到 Cloudflare 的 IPv6 是坏的（`connection reset by peer`
+			// 全是 v6 地址）。Go 默认 happy-eyeballs 会先连上更快的 v6，然后被 reset。
+			// DSH 那边也是直连、没配代理，说明 v4 直连是通的。
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+				return d.DialContext(ctx, "tcp4", addr)
+			},
 		}}}
 }
 
