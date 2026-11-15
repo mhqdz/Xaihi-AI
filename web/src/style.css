@@ -1,11 +1,5 @@
 /* 布局与视觉都在 theme.css；这里留空，避免旧规则覆盖 */
 
-/* 配置失效提示：localStorage / 会话里记着的配置名对不上现存配置时出现 */
-.profile-warn {
-  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-  margin: .35rem 0 0; padding: .3rem .6rem;
-  font-size: 11px; line-height: 1.6;
-  color: #c9a227; border: 1px solid rgba(201, 162, 39, .45);
-  border-radius: 4px; background: rgba(201, 162, 39, .08);
-}
-.profile-warn .btn.tiny { padding: 0 .5rem; height: 20px; font-size: 11px; white-space: nowrap; }
+/* 配置失效：直接改原本那个下拉的样子，不额外加提示条 */
+.composer .pick.invalid select{border-color:#c0392b;color:#c0392b}
+.composer .pick.invalid .caret{color:#c0392b}

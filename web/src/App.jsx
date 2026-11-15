@@ -1260,7 +1260,8 @@ export default function App() {
           <div className="composer" onWheel={onComposerWheel} inert={settingsUI.showSet ? '' : undefined}>
             <div className="row1">
               <span className="eb" style={{ display: 'inline', letterSpacing: '.14em' }}>PROFILE</span>
-              <label className="pick">
+              <label className={profileMissing ? 'pick invalid' : 'pick'}
+                title={profileMissing ? '配置「' + profile + '」不存在（已改名或删除），这一轮用的是服务默认' : ''}>
                 <select value={profile} onChange={e => setProfile(e.target.value)}>
                   {profileMissing ? <option value={profile}>{profile}（不存在）</option> : null}
                   {(profiles.length ? profiles : [{ name: profile, model: '' }]).map(p => (
@@ -1283,17 +1284,11 @@ export default function App() {
               </label>
               <span className="model" style={{ marginLeft: 'auto' }}
                 title={cur && cur.model_id ? cur.model_id : ''}>
-                {cur && cur.model_id ? cur.model_id : (profileMissing ? '—' : '')}
+                {cur && cur.model_id ? cur.model_id : (profileMissing ? '(unknown profile)' : '')}
                 {cur && cur.input && !cur.input.includes('image') ? <span className="no-vision" title="这个模型只收文字，图像输入会被拦下">　文字</span> : null}
               </span>
             </div>
             <i className="resizer" onMouseDown={startResize} title="拖动调整输入框高度" />
-            {profileMissing ? (
-              <div className="profile-warn" role="status">
-                <span>配置「{profile}」不存在（已改名或删除），这一轮用的是服务默认</span>
-                <button className="btn tiny" onClick={() => setProfile(profiles[0]?.name || '')}>改用 {profiles[0]?.name}</button>
-              </div>
-            ) : null}
             <textarea value={text} style={{ height: inputH + 'px' }} onChange={e => setText(e.target.value)}
               onKeyDown={e => {
                 if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return   // Shift+Enter 换行 ✓
