@@ -361,14 +361,6 @@ func clipOutput(s string, limit int) string {
 		string(r[len(r)-tailN:])
 }
 
-func tail(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return "…（前略）\n" + string(r[len(r)-n:])
-}
-
 var _ = json.Marshal
 
 // runRecall：只搜本会话。RE2 线性时间（无回溯爆炸），外加 300ms 兜底超时。

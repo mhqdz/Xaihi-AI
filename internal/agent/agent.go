@@ -3,8 +3,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -95,12 +93,6 @@ func (a *Agent) Memory() *memory.Store { return a.mem }
 
 // ModelID 是发给上游的模型名（profile.model 现在是复合键，不能直接发）
 func (a *Agent) ModelID() string { return a.profile.Resolve().ModelID }
-
-func NewID() string {
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
 
 // Load 或新建会话。
 func (a *Agent) Conversation(id string) (*store.Conversation, error) {

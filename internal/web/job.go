@@ -58,8 +58,6 @@ func (j *job) snapshot(from int) ([]string, bool) {
 	return out, j.done
 }
 
-func (j *job) length() int { j.mu.Lock(); defer j.mu.Unlock(); return len(j.buf) }
-
 // GET /api/conv/<id>/stream?from=N：先回放缓冲，再跟随后续帧；结束后返回。
 //
 // 这里所有刷行都用 http.NewResponseController(w).Flush() 而不是 w.(http.Flusher).Flush()：

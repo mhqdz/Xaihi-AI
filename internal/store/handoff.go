@@ -160,16 +160,6 @@ func (s *SQLiteStore) CreateOutbox(conv int64, origin, text string) (int64, erro
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) OutboxItem(id int64) (*Outbox, error) {
-	var o Outbox
-	err := s.db.QueryRow(`SELECT id,conv_id,origin,status,text,created_at,delivered_at FROM outbox WHERE id=?`, id).
-		Scan(&o.ID, &o.ConvID, &o.Origin, &o.Status, &o.Text, &o.CreatedAt, &o.DeliveredAt)
-	if err != nil {
-		return nil, err
-	}
-	return &o, nil
-}
-
 func (s *SQLiteStore) PendingOutbox() ([]*Outbox, error) {
 	rows, err := s.db.Query(`SELECT id,conv_id,origin,status,text,created_at,delivered_at FROM outbox WHERE status='pending' ORDER BY id`)
 	if err != nil {
