@@ -778,7 +778,9 @@ export default function App() {
     // 只有真的在跑才去接续传流；否则后端会回 404（控制台里那条红字），纯噪声
     const runningNow = ((await api('/api/running').catch(() => [])) || []).includes(String(id))
     if (convIdRef.current !== id) return   // 同上：别把已经切走的会话接上流
-    if (runningNow) attachStream(id)
+    // 后端在跑就先把 busy 立起来：attachStream 可能接不上（流被别的页面消费了），
+    // 但"正在运行"是事实，按钮必须显示成"中止"，否则用户以为没在跑。
+    if (runningNow) { setBusy(true); attachStream(id) }
     else setBusy(false)
   }
 
