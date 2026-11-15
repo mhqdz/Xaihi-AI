@@ -177,6 +177,10 @@ cd scripts/ui-test && python3 check_config.py
 "模型不自动吃图"两件事就都有。落点：`web/src/components/MessageCard.jsx`（或 ToolGroup 的 tool 结果渲染），
 识别 `/shots/` 前缀 + 图片扩展名。
 
+**llm.ChatRequest.Temperature 没接上**
+`Temperature *float64` 有 json tag 但全库没有赋值点，永远 nil、永远不发出去 —— 看着支持实际不支持。
+要么接上（前端给个开关 / profile 加字段），要么删掉。2026-11-15 记下，暂不做。
+
 ## 九、下一步建议顺序
 
 1. 收尾"工具分类"（第五节 1–3）：后端校验 + 前端分组禁用 —— 用户当前最想要。
