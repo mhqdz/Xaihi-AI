@@ -829,6 +829,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ag.FailTask = func(reason, evidence string) (string, error) { return "（父会话无 handoff_fail）", nil }
 	if in.Profile != "" {
 		if prof, ok := config.GetProfile(in.Profile); ok {
+			// 记住：下次这个会话不带 profile 也用同一个配置。
+			// 之前只在内存里换，前端一忘就退回服务默认。
+			// 只记配置名。思考强度是"这一轮"的意图，不落盘：
+			// 落了就变成"这个会话永远 high"，下次问简单问题还得手动改回来。
+			if c, err := s.st.Get(in.ConvID); err == nil && c.Profile != in.Profile {
+				c.Profile = in.Profile
+				_ = s.st.Save(c)
+			}
 			if e := strings.TrimSpace(in.ReasoningEffort); e != "" {
 				prof.ReasoningEffort = e
 			}

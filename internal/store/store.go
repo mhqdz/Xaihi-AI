@@ -51,6 +51,9 @@ type Conversation struct {
 	// **不注入 system prompt** —— 之前那段 `[已知事实]` 已经删了：
 	// 它设计成"已知事实"，但没有写入方，实际永远为空。
 	KV map[string]string `json:"kv,omitempty"`
+	// Profile：这个会话用哪个配置（模型/人格/工具的组合）。空 = 服务默认。
+	// 之前只有子会话把它塞在 KV 里，普通会话每次请求靠前端带 —— 换了模型下次就丢。
+	Profile string `json:"profile,omitempty"`
 }
 
 type Store interface {

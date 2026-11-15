@@ -61,7 +61,7 @@ func (s *Server) outboxLoop() {
 }
 
 func (s *Server) profileOf(c *store.Conversation) config.Profile {
-	name := c.KV["profile"]
+	name := c.Profile
 	if name != "" {
 		if p, ok := config.GetProfile(name); ok {
 			return p
@@ -97,7 +97,7 @@ func (s *Server) runChild(ctx context.Context, parent int64, profileName, card s
 	// 子会话工具固定：bash + handoff_fail（不受配方 profile 的 tools 影响）
 	prof.Tools = []string{"bash", "handoff_fail"}
 	c := &store.Conversation{Title: childTitle(card, parent), ParentID: parent, Kind: "child",
-		KV: map[string]string{"profile": profileName}}
+		Profile: profileName}
 	if err := s.st.Save(c); err != nil {
 		return 0, "", err
 	}
