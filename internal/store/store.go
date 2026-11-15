@@ -43,12 +43,14 @@ type Conversation struct {
 	Kind      string    `json:"kind,omitempty"`      // chat | child
 
 	// 压缩检查点（模型可换、可追溯）
-	Summary      string            `json:"summary,omitempty"`
-	SummaryUpto  int               `json:"summary_upto,omitempty"` // 压到第几条 Seq
-	SummaryModel string            `json:"summary_model,omitempty"`
-	SummaryAt    time.Time         `json:"summary_at,omitempty"`
-	KV           map[string]string `json:"kv,omitempty"`     // 5 类固定字段 + generated_by
-	KVSeq        []string          `json:"kv_seq,omitempty"` // KV 的插入顺序（队列；淘汰最旧的用）
+	Summary      string    `json:"summary,omitempty"`
+	SummaryUpto  int       `json:"summary_upto,omitempty"` // 压到第几条 Seq
+	SummaryModel string    `json:"summary_model,omitempty"`
+	SummaryAt    time.Time `json:"summary_at,omitempty"`
+	// KV：会话级元数据（handoff 子会话用它记 profile 名）。
+	// **不注入 system prompt** —— 之前那段 `[已知事实]` 已经删了：
+	// 它设计成"已知事实"，但没有写入方，实际永远为空。
+	KV map[string]string `json:"kv,omitempty"`
 }
 
 type Store interface {
@@ -246,48 +248,4 @@ func (s *JSONStore) FirstAt() (time.Time, error) {
 		}
 	}
 	return first, nil
-}
-
-// MaxKV：KV 队列上限。它是"已知事实"，不是第二份记忆 —— 超过就丢最旧的，
-// 免得一个会话攒了几百条每轮全量注入（记忆有预算，KV 也得有）。
-const MaxKV = 32
-
-// PutKV 写一条已知事实（维护插入顺序，超上限淘汰最旧的）。
-func PutKV(c *Conversation, k, v string) {
-	if c.KV == nil {
-		c.KV = map[string]string{}
-	}
-	if _, ok := c.KV[k]; !ok {
-		c.KVSeq = append(c.KVSeq, k)
-	}
-	c.KV[k] = v
-	for len(c.KVSeq) > MaxKV {
-		old := c.KVSeq[0]
-		c.KVSeq = c.KVSeq[1:]
-		delete(c.KV, old)
-	}
-}
-
-// KVPairs 按插入顺序返回已知事实（map 无序，注入时要稳定顺序才能命中 KV cache）。
-func (c *Conversation) KVPairs() [][2]string {
-	out := make([][2]string, 0, len(c.KV))
-	seen := map[string]bool{}
-	for _, k := range c.KVSeq {
-		if v, ok := c.KV[k]; ok && !seen[k] {
-			seen[k] = true
-			out = append(out, [2]string{k, v})
-		}
-	}
-	// 旧数据没有 KVSeq：按字典序补上（顺序稳定即可）
-	rest := make([]string, 0, len(c.KV))
-	for k := range c.KV {
-		if !seen[k] {
-			rest = append(rest, k)
-		}
-	}
-	sort.Strings(rest)
-	for _, k := range rest {
-		out = append(out, [2]string{k, c.KV[k]})
-	}
-	return out
 }

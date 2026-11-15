@@ -232,7 +232,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		if a.profile.Persistent {
 			memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
 		}
-		if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
+		if a.profile.System != "" || c.Summary != "" || memText != "" {
 			sys := a.profile.System
 			// 顺序：人格 → 时间感 → 记忆 → 已知事实（越易变越靠后，KV cache 才能多命中）
 			if ct := a.clockText(c); ct != "" {
@@ -249,12 +249,6 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 					sys += "\n\n"
 				}
 				sys += memText
-			}
-			if len(c.KV) > 0 {
-				sys += "\n\n[已知事实]\n"
-				for _, kv := range c.KVPairs() {
-					sys += "- " + kv[0] + ": " + kv[1] + "\n"
-				}
 			}
 			sys = a.guardSystem(sys)
 			pfx := make([]llm.Message, 0, 2)
@@ -653,11 +647,7 @@ func (a *Agent) maybeSummarize(ctx context.Context, c *store.Conversation, keep 
 	c.SummaryUpto = c.Messages[cut-1].Seq
 	c.SummaryModel = sr.ModelID
 	c.SummaryAt = time.Now()
-	// KV：先只放"生成者"，其余由后续从摘要里抽（下一轮做）
-	if c.KV == nil {
-		c.KV = map[string]string{}
-	}
-	store.PutKV(c, "summary_generated_by", sr.ModelID+" @ "+c.SummaryAt.Format("2006-01-02 15:04"))
+	// 摘要元数据就在 SummaryModel / SummaryAt 里，不再往 KV 写一份
 	return a.st.Save(c)
 }
 
@@ -786,7 +776,7 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	if a.profile.Persistent {
 		memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
 	}
-	if a.profile.System != "" || c.Summary != "" || len(c.KV) > 0 || memText != "" {
+	if a.profile.System != "" || c.Summary != "" || memText != "" {
 		sys := a.profile.System
 		if ct := a.clockText(c); ct != "" {
 			sys += "\n\n" + ct
