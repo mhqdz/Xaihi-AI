@@ -847,7 +847,8 @@ export default function App() {
       const guard = setInterval(async () => { if (!done && !(await running())) finish('已同步') }, 2500)
       try {
         await pumpSSE(reader, (ev, d) => {
-            if (ev === 'seq') { live.seq = d.seq; push() }
+            if (ev === 'stage') { setStage(d.stage || '') }
+            else if (ev === 'seq') { live.seq = d.seq; push() }
             else if (ev === 'reasoning') { live.reasoning += d.text || ''; push() }
             else if (ev === 'delta') { live.content += d.text || ''; push() }
             else if (ev === 'tool_start') {

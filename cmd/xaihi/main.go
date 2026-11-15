@@ -91,9 +91,12 @@ func main() {
 	}
 	switch cmd {
 	case "serve":
-		addr := "127.0.0.1:18400"
-		if v := os.Getenv("XAIHI_ADDR"); v != "" {
-			addr = v
+		// 监听地址严格依赖配置：不猜默认端口，没配就报错退出。
+		// 端口是部署细节，写在 ~/.config/xaihi/env 里（unit 用 EnvironmentFile 引它）。
+		addr := os.Getenv("XAIHI_ADDR")
+		if addr == "" {
+			logx.Error("serve 需要 XAIHI_ADDR（例如 XAIHI_ADDR=127.0.0.1:18400）；见 ~/.config/xaihi/env")
+			os.Exit(1)
 		}
 		// 迁移，顺序不能反：先把老 profile 里的地址抽成接口，
 		// 再把三层的模型条目收回两层（裸 id + 能力进 profile）。

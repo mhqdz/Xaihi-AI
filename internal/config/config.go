@@ -21,9 +21,12 @@ type Config struct {
 func Default() Config {
 	home, _ := os.UserHomeDir()
 	return Config{
-		BaseURL:      "http://127.0.0.1:18320/9/v1",
-		Model:        "Qwen3.5-9B-int4-ov",
-		APIKey:       "local-no-auth",
+		// 基址与模型留空：严格依赖配置（profiles.json / endpoints.json）。
+		// 之前这里有 Qwen3.5-9B-int4-ov 之类的默认值，早就和现实脱节，
+		// 而且会让人以为"没配置也能跑"。
+		BaseURL:      "",
+		Model:        "",
+		APIKey:       "",
 		DataDir:      filepath.Join(home, ".data/xaihi"),
 		WebDir:       "web/dist",
 		System:       "", // 系统提示只在 profiles.json 里维护（见 docs/DESIGN.md）
