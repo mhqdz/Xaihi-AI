@@ -849,6 +849,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			if set.ToolRoundsEnabled {
 				ag.MaxRounds = set.ToolRounds
 			}
+		} else {
+			// 配置被改名/删除后，前端还拿着旧名字：静默回退到服务默认，但留条日志
+			logx.Warn("chat.profile_missing name=%s conv=%s", in.Profile, in.ConvID)
 		}
 	}
 	ag.OnStats = func(st llm.Stats) {

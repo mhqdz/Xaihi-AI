@@ -987,6 +987,8 @@ export default function App() {
     for (const k of (kidsOf.get(c.ID) || []).sort((a, b) => a.Seq - b.Seq)) list.push(k)
   }
   const cur = profiles.find(p => p.name === profile)
+  // 配置失效：localStorage / 会话里记着的名字对不上任何现存配置（被改名或删掉）
+  const profileMissing = !!profile && profiles.length > 0 && !cur
   // 轮次进度：本轮工具轮次 / 本会话落库的最大 seq（也即已记录的轮次）
   // 分组/统计是纯函数（conversation/messageGroups.js）；这里一次算好，作为 props 传给展示组件
   const isGhostMsg = isGhostM
@@ -1260,6 +1262,7 @@ export default function App() {
               <span className="eb" style={{ display: 'inline', letterSpacing: '.14em' }}>PROFILE</span>
               <label className="pick">
                 <select value={profile} onChange={e => setProfile(e.target.value)}>
+                  {profileMissing ? <option value={profile}>{profile}（不存在）</option> : null}
                   {(profiles.length ? profiles : [{ name: profile, model: '' }]).map(p => (
                     <option key={p.name} value={p.name}>{p.name}</option>
                   ))}
@@ -1280,11 +1283,17 @@ export default function App() {
               </label>
               <span className="model" style={{ marginLeft: 'auto' }}
                 title={cur && cur.model_id ? cur.model_id : ''}>
-                {cur && cur.model_id ? cur.model_id : (profile === '9-exec' ? 'Qwen3.5-9B-int4-ov' : 'qwen3.8-flash-next-iq3_xxs')}
+                {cur && cur.model_id ? cur.model_id : (profileMissing ? '—' : '')}
                 {cur && cur.input && !cur.input.includes('image') ? <span className="no-vision" title="这个模型只收文字，图像输入会被拦下">　文字</span> : null}
               </span>
             </div>
             <i className="resizer" onMouseDown={startResize} title="拖动调整输入框高度" />
+            {profileMissing ? (
+              <div className="profile-warn" role="status">
+                <span>配置「{profile}」不存在（已改名或删除），这一轮用的是服务默认</span>
+                <button className="btn tiny" onClick={() => setProfile(profiles[0]?.name || '')}>改用 {profiles[0]?.name}</button>
+              </div>
+            ) : null}
             <textarea value={text} style={{ height: inputH + 'px' }} onChange={e => setText(e.target.value)}
               onKeyDown={e => {
                 if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return   // Shift+Enter 换行 ✓
