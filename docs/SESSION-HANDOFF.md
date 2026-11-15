@@ -169,6 +169,14 @@ cd scripts/ui-test && python3 check_config.py
 | `docs/API.md` | 接口文档（含"触发器：本地 socket"一节） |
 | `docs/REPAIR.md` | 踩坑记录（WAL 那条必读） |
 
+## 八点五、待做（2026-11-14 记下，下次做）
+
+**前端：截图按路径渲染缩略图**
+截图工具现在只返回 `/shots/xxx.jpg` 路径（看图改成显式 `view_image`），所以截完图界面上不再自动出现那张图。
+要在前端把消息里出现的 `/shots/…` 路径渲染成缩略图（点击放大 / 打开原图），这样"截图后能看到"和
+"模型不自动吃图"两件事就都有。落点：`web/src/components/MessageCard.jsx`（或 ToolGroup 的 tool 结果渲染），
+识别 `/shots/` 前缀 + 图片扩展名。
+
 ## 九、下一步建议顺序
 
 1. 收尾"工具分类"（第五节 1–3）：后端校验 + 前端分组禁用 —— 用户当前最想要。
