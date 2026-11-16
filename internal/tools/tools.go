@@ -548,19 +548,36 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 	if st.IsDir() {
 		return "✗ 这是一个目录：" + p, nil
 	}
-	if st.Size() > 8<<20 {
-		return fmt.Sprintf("✗ 图片太大（%.1f MB，上限 8 MB）：%s", float64(st.Size())/1048576, p), nil
+	if st.Size() > 32<<20 {
+		return fmt.Sprintf("✗ 图片太大（%.1f MB，上限 32 MB）：%s", float64(st.Size())/1048576, p), nil
 	}
 	mime := mime.TypeByExtension(strings.ToLower(filepath.Ext(p)))
 	if !strings.HasPrefix(mime, "image/") {
 		return "✗ 不支持的图片类型：" + filepath.Ext(p), nil
+	}
+	// 大图先压：一张 2.5MB 的 PNG 进上下文就是 3.4MB 的 base64，
+	// 看几次就能把窗口撑爆（实测 conv 1469 累积到 7.28MB，compact 都砍不动）。
+	// 阈值以下原样发，以上过一道 ffmpeg（长边 ≤1600、q=4，通常 100-200KB）。
+	note := ""
+	if st.Size() > 500<<10 {
+		if _, err := exec.LookPath("ffmpeg"); err == nil {
+			out := filepath.Join(os.TempDir(), fmt.Sprintf("view_%d.jpg", time.Now().UnixNano()))
+			c := exec.CommandContext(context.Background(), "ffmpeg", "-y", "-loglevel", "error",
+				"-i", p, "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", out)
+			if err := c.Run(); err == nil {
+				if ost, err := os.Stat(out); err == nil {
+					note = fmt.Sprintf("（原图 %d KB，已压到 %d KB 以节省上下文）", st.Size()/1024, ost.Size()/1024)
+					p, st, mime = out, ost, "image/jpeg"
+				}
+			}
+		}
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
 		return "✗ 读文件失败：" + err.Error(), nil
 	}
 	return []map[string]any{
-		{"type": "text", "text": fmt.Sprintf("图片：%s（%d KB）", p, st.Size()/1024)},
+		{"type": "text", "text": fmt.Sprintf("图片：%s（%d KB）%s", p, st.Size()/1024, note)},
 		{"type": "image", "url": "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(b)},
 	}, nil
 }

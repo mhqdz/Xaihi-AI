@@ -6,7 +6,7 @@ set -u
 GAME="${STS2_GAME:-$HOME/Games/steamLib/steamapps/common/Slay the Spire 2}"
 ARG1="${1:-}"
 DATADIR="${2:-}"
-export SteamAppId=2868840
+export SteamAppId="${STS2_APPID:-2868840}"
 export STS2_BRIDGE=1
 if [ -n "$DATADIR" ]; then export XDG_DATA_HOME="$DATADIR"; fi
 if [ "$ARG1" = "--restart" ]; then pkill -x SlayTheSpire2 || true; sleep 3; fi
