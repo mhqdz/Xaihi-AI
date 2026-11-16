@@ -536,8 +536,10 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	// 保留下限：没超预算时以 keep 为目标；超预算时必须能砍到预算内 ✗
 	// （之前固定"至少留 keep=16 条"→ 消息数<16 时完全砍不动 → 请求体超上限被拒 ✓ 复现于 conv 22）
 	minKeep := keep
-	if total > budget && minKeep > 4 {
-		minKeep = 4 // 至少留 4 条（约 2 轮），其余按预算砍
+	if total > budget && minKeep > 1 {
+		// 超预算时至少要能砍到 1 条：之前固定留 4 条，遇到"最后几条里有大图"
+		// 就砍不动了（实测：416 条砍到 6 条仍剩 7MB，最后一条是 2.5MB 截图）。
+		minKeep = 1
 	}
 	if max := len(body) - minKeep; cut > max {
 		cut = max
@@ -545,10 +547,15 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	if cut <= 0 {
 		return msgs
 	}
-	// 边界不能落在 tool 上：那会把 tool 结果与它的 tool_call 拆开
-	// （之前要求必须落在 user 上 ✗ 只有一条 user 时会一路退到 0，等于完全不压缩 ✓ 复现于 conv 24）
-	for cut > 0 && body[cut].Role == "tool" {
+	// 边界优先落在 user 上：落在 tool 上会把 tool 结果和它的 tool_call 拆开，
+	// 落在 assistant 上可能把 tool_calls 和后续 tool 消息拆开。
+	// 但如果最近几条里没有 user（连续工具轮），就保持原切点 —— 退到 0 等于完全不压缩。
+	origCut := cut
+	for cut > 0 && body[cut].Role != "user" {
 		cut--
+	}
+	if cut == 0 && origCut > 0 {
+		cut = origCut
 	}
 	if cut <= 0 {
 		return msgs
@@ -578,6 +585,15 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	}
 	out = append(out, note)
 	out = append(out, body[cut:]...)
+	// 砍到底仍然超预算（典型：最后几条里有几 MB 的截图）→ 剥图再来一次。
+	// 不这么做只能拒绝请求，而她本来也不需要反复看那张图。
+	var after int
+	for _, m := range out {
+		after += wireLen(m.Content)
+	}
+	if after > budget {
+		out = stripImages(out)
+	}
 	return out
 }
 
@@ -842,4 +858,28 @@ func (a *Agent) todoText() string {
 // journalHint：只给路径，不塞内容（塞进去会吃掉记忆预算，而且日记会越来越长）
 func (a *Agent) journalHint() string {
 	return (&journal.Store{Dir: config.DataPath("journal")}).Hint()
+}
+
+// stripImages：把所有多模态 content 里的 image_url 换成文字占位。
+// compact 砍到底仍超预算时用 —— 图片是唯一能让"几条消息 = 几 MB"的东西，
+// 与其拒绝请求，不如让她看不见那张图（她本来也不会反复看）。
+func stripImages(msgs []llm.Message) []llm.Message {
+	out := make([]llm.Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		parts, ok := out[i].Content.([]map[string]any)
+		if !ok {
+			continue
+		}
+		kept := make([]map[string]any, 0, len(parts))
+		for _, p := range parts {
+			if _, has := p["image_url"]; has {
+				kept = append(kept, map[string]any{"type": "text", "text": "（这里原本有一张图，为节省上下文已省略）"})
+				continue
+			}
+			kept = append(kept, p)
+		}
+		out[i].Content = kept
+	}
+	return out
 }

@@ -1,0 +1,6 @@
+.godot/
+*.pck
+*.dll
+dist/
+bin/
+obj/

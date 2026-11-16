@@ -1,0 +1,11 @@
+{
+    "id": "sts2textbridge",
+    "name": "StS2 Text Bridge",
+    "author": "xaihi",
+    "description": "Exposes game state as text files and accepts text actions. Read-only for gameplay.",
+    "version": "0.1.0",
+    "has_pck": false,
+    "has_dll": true,
+    "dependencies": [],
+    "affects_gameplay": false
+}
