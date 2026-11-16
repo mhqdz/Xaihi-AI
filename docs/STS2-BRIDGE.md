@@ -88,6 +88,8 @@ dotnet build "/p:Sts2Path=$HOME/Games/steamLib/steamapps/common/Slay the Spire 2
 
 | scene | 出现时机 | 额外字段 | 动作 |
 |---|---|---|---|
+| `menu` | 主菜单（游戏启动后的第一屏） | `items: [{index, id, label, enabled}]`（新游戏/继续/设置/退出） | `menu_click` |
+| `char_select` | 选角色 | `characters: [{index, id, name, locked}]` | `pick_character` |
 | `combat` | 战斗中 | `hand` / `enemies` | `play` / `potion` / `end_turn` |
 | `reward` | 战斗后奖励 | `rewards: [{index, kind, name, desc}]` | `choose_reward` / `skip_rewards` |
 | `map` | 选路 | `nodes: [{index, row, kind, leads_to}]` | `choose_node` |
@@ -97,7 +99,10 @@ dotnet build "/p:Sts2Path=$HOME/Games/steamLib/steamapps/common/Slay the Spire 2
 | `card_select` | 选牌（升级、移除等） | `cards: [{index, id, name, upgraded}]` / `prompt` / `can_skip` | `select_card` / `cancel` |
 | `game_over` | 结束 | `result: "victory"/"defeat"` / `score` | — |
 
-其它场景（主菜单、设置）不输出，`scene` 沿用上一次的值或写 `"idle"`。
+**从启动到进第一层，至少要经过 `menu → char_select → map` 三步**——所以 `menu` / `char_select` 必须实现，
+否则 agent 连游戏都进不去（游戏没有跳过主菜单的命令行参数）。
+
+`settings`、`credits` 这类纯粹给人看的界面不用输出，`scene` 写 `"idle"` 并给一个 `{"id":"back"}` 动作就够。
 
 ### action.json
 
@@ -111,6 +116,21 @@ dotnet build "/p:Sts2Path=$HOME/Games/steamLib/steamapps/common/Slay the Spire 2
 2. 处理完立刻删除 `action.json`（或改名 `.done`），避免重复执行。
 3. 动作无效：不执行、清空、写 `last_error`。
 4. 状态变化时才重写 `state.json`（`seq` 自增），不要每帧写。
+
+## 启动与接管流程
+
+```bash
+cd "<游戏>"
+./launch_vulkan.sh          # 或 --rendering-driver opengl（A770 上 Vulkan 有问题时）
+```
+
+游戏起来后停在主菜单。agent 的完整路径：
+
+```
+menu（新游戏）→ char_select（选角色）→ map（选第一个节点）→ combat → reward → map → ...
+```
+
+**不要假设 agent 能跳步**：主菜单之外，选角色、开局确认、地图选路都得走桥。
 
 ## 实现要点
 
@@ -138,7 +158,10 @@ A. **能编译、能加载**：游戏 mod 列表里能看到，日志有一行 "
 B. **状态能读**：`cat state.json | jq .` 看到 `scene` / `player.hp` / `hand` / `available_actions`。
 C. **动作能执行**：写 `{"action":"play","card":0,"target":0}`，牌真的打出去，`seq` 变了。
 D. **非法动作被拒**：写 `{"action":"play","card":99}`，游戏不动、有 `last_error`、不崩。
-E. **全流程**：从第一层打到第一场战斗结束，至少经过 `map → combat → reward` 三种 scene。
+E. **全流程**：从**启动游戏**开始，agent 只通过桥把流程走到第一场战斗结束——
+   至少经过 `menu → char_select → map → combat → reward` 五种 scene，中间不需要人碰鼠标键盘。
+
+这条是真正的验收标准：**没有任何一步需要人工介入**。
 
 ## 约束
 
