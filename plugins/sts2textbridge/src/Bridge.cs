@@ -39,6 +39,9 @@ public static class Bridge
 	public static string StatePath = "";
 	public static string ActionPath = "";
 
+	/// <summary>排障开关：STS2_BRIDGE_QUIET=1 时不轮询界面，只在收到动作时读一次。</summary>
+	public static bool Quiet { get; private set; }
+
 	private static long _seq;
 	private static string _lastSig = "";
 	private static bool _started;
@@ -50,6 +53,7 @@ public static class Bridge
 			return;
 		}
 		_started = true;
+		Quiet = System.Environment.GetEnvironmentVariable("STS2_BRIDGE_QUIET") == "1";
 
 		Dir = ResolveDir();
 		Directory.CreateDirectory(Dir);
@@ -94,18 +98,27 @@ public static class Bridge
 
 	internal static void Tick()
 	{
+		bool didAction = false;
 		try
 		{
-			if (ActionExecutor.ProcessFile(ActionPath))
-			{
-				TryDelete(ActionPath);
-			}
+			didAction = ActionExecutor.ProcessFile(ActionPath);
 		}
 		catch (Exception e)
 		{
 			Log.Error("[bridge] action processing failed: " + e);
 		}
 
+		if (Quiet && !didAction)
+		{
+			return;
+		}
+
+		CollectAndWrite();
+	}
+
+	/// <summary>读一次界面；内容没变就不写盘。</summary>
+	internal static void CollectAndWrite()
+	{
 		try
 		{
 			BridgeState state = StateCollector.Collect();

@@ -533,6 +533,15 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 		start = 1
 	}
 	body := msgs[start:]
+	// system prompt 也要从预算里扣：它不参与裁剪，但同样占请求体。
+	// 之前不扣，导致 compact 把 body 压到 145,005 字符（预算 151,200），
+	// 加上 45,000 的 system 之后仍然超上限（实测 conv 1469）。
+	if sys != nil {
+		budget -= wireLen(sys.Content)
+		if budget < 0 {
+			budget = 0
+		}
+	}
 	total := 0
 	for _, m := range body {
 		total += wireLen(m.Content)

@@ -60,8 +60,10 @@ def show(d):
 
 if len(sys.argv) > 1:
     before = load().get("seq")
-    with open(AP, "w") as f:
+    tmp = AP + ".tmp"
+    with open(tmp, "w") as f:
         f.write(sys.argv[1])
+    os.replace(tmp, AP)  # 原子替换：mod 那边改名取走，不会读到半截文件
     for _ in range(30):
         time.sleep(0.3)
         d = load()

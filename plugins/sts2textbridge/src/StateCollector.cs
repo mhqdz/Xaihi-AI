@@ -10,6 +10,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 
 namespace Sts2TextBridge;
 
@@ -18,16 +19,33 @@ namespace Sts2TextBridge;
 /// </summary>
 public static class StateCollector
 {
+	/// <summary>对象还在不在（null 和已释放都算不在）。切场景时到处是半死的节点。</summary>
+	public static bool Alive(GodotObject? o)
+	{
+		if (o == null)
+		{
+			return false;
+		}
+		try
+		{
+			return GodotObject.IsInstanceValid(o);
+		}
+		catch (Exception)
+		{
+			return false;
+		}
+	}
+
 	public static BridgeState Collect()
 	{
 		BridgeState state = new BridgeState();
 		Dictionary<string, object?> probe = new Dictionary<string, object?>();
 
 		NGame? game = NGame.Instance;
-		if (game == null)
+		if (!Alive(game))
 		{
 			state.Scene = "idle";
-			probe["reason"] = "NGame.Instance is null";
+			probe["reason"] = "NGame.Instance is null or freed";
 			state.Probe = probe;
 			return state;
 		}
@@ -68,11 +86,17 @@ public static class StateCollector
 			else
 			{
 				// 局内：地图 / 战斗 / 奖励 / 其他房间
-				active = RunCollector.GetActiveRoot() ?? scene;
-				if (!RunCollector.TryFill(state, probe))
+				if (RunCollector.TryFill(state, probe))
 				{
-					state.Scene = "idle";
-					probe["note"] = "in-run scene not handled yet";
+					active = RunCollector.GetActiveRoot() ?? scene;
+				}
+				else
+				{
+					// NRun 已经在、但地图/战斗界面还没挂好：过场，不是异常。
+					state.Scene = "loading";
+					probe["note"] = !Alive(NRun.Instance)
+						? "left the menu, run is being built"
+						: "run is up but no room node is ready yet";
 				}
 			}
 		}
@@ -84,6 +108,7 @@ public static class StateCollector
 			return state;
 		}
 
+		LastActiveRoot = active;
 		List<NClickableControl> clicks = CollectClickables(active);
 		probe["clickable_count"] = clicks.Count;
 		LastClickables = clicks;
@@ -108,6 +133,13 @@ public static class StateCollector
 				FillMenu(state, clicks);
 				break;
 			case "char_select":
+				if (clicks.Count == 0)
+				{
+					// 刚点完「出发」：预载资源、建 RunState、切场景，这期间屏幕上没有可点项。
+					state.Scene = "loading";
+					probe["note"] = "char select is transitioning (embark in flight)";
+					break;
+				}
 				FillCharSelect(state, clicks);
 				break;
 			case "modal":
@@ -138,7 +170,7 @@ public static class StateCollector
 		{
 			return modal;
 		}
-		if (NRun.Instance != null)
+		if (Alive(NRun.Instance))
 		{
 			Node? inRun = RunCollector.GetActiveRoot();
 			if (inRun != null)
@@ -164,6 +196,10 @@ public static class StateCollector
 	public static Node? GetOpenModal()
 	{
 		NModalContainer? container = NModalContainer.Instance;
+		if (!Alive(container))
+		{
+			return null;
+		}
 		if (container == null)
 		{
 			return null;
@@ -285,6 +321,49 @@ public static class StateCollector
 	/// <summary>上一次采集到的可点元素，执行动作时按 index 取。</summary>
 	public static List<NClickableControl> LastClickables { get; private set; } = new List<NClickableControl>();
 
+	/// <summary>上一次采集时的活动根节点（调试用）。</summary>
+	public static Node? LastActiveRoot { get; private set; }
+
+	/// <summary>把活动根节点（或整棵场景树）连类型和可见性一起打印出来，排障用。</summary>
+	public static string DumpTree(bool wholeTree)
+	{
+		Node? root = wholeTree ? (Node?)NGame.Instance?.GetTree()?.Root : LastActiveRoot;
+		if (root == null)
+		{
+			root = NGame.Instance?.RootSceneContainer?.CurrentScene;
+		}
+		if (root == null)
+		{
+			return "<no root>";
+		}
+		System.Text.StringBuilder sb = new System.Text.StringBuilder();
+		sb.Append("root=").Append(root.GetType().FullName).Append(" name=").Append(root.Name).Append('\n');
+		DumpNode(root, sb, 0, 10);
+		return sb.ToString();
+	}
+
+	private static void DumpNode(Node node, System.Text.StringBuilder sb, int depth, int maxDepth)
+	{
+		foreach (Node child in node.GetChildren())
+		{
+			string vis = child is CanvasItem ci ? (ci.IsVisibleInTree() ? "vis" : "HID") : "---";
+			string extra = "";
+			if (child is NClickableControl cc)
+			{
+				extra = " [clickable" + (cc.IsEnabled ? "" : ",disabled") + "]";
+			}
+			if (child is Control c)
+			{
+				extra += $" rect={c.Position.X:0},{c.Position.Y:0} {c.Size.X:0}x{c.Size.Y:0}";
+			}
+			sb.Append(new string(' ', depth * 2)).Append(child.GetType().Name).Append(" '").Append(child.Name).Append("' ").Append(vis).Append(extra).Append('\n');
+			if (depth + 1 < maxDepth && child.GetChildCount() > 0)
+			{
+				DumpNode(child, sb, depth + 1, maxDepth);
+			}
+		}
+	}
+
 	public static List<NClickableControl> CollectClickables(Node? root)
 	{
 		List<NClickableControl> result = new List<NClickableControl>();
@@ -297,8 +376,27 @@ public static class StateCollector
 
 	private static void Walk(Node node, List<NClickableControl> outList)
 	{
-		foreach (Node child in node.GetChildren())
+		// 场景切换时节点会被 free。先拷一份 children，再逐个验活——
+		// 直接 foreach GetChildren() 碰上正在释放的节点会让引擎原生崩掉。
+		if (!GodotObject.IsInstanceValid(node) || !node.IsInsideTree())
 		{
+			return;
+		}
+		Node[] kids;
+		try
+		{
+			kids = node.GetChildren().ToArray();
+		}
+		catch (Exception)
+		{
+			return;
+		}
+		foreach (Node child in kids)
+		{
+			if (!GodotObject.IsInstanceValid(child) || !child.IsInsideTree())
+			{
+				continue;
+			}
 			if (child is CanvasItem ci && !ci.IsVisibleInTree())
 			{
 				continue;

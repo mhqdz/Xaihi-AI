@@ -39,7 +39,7 @@ public static class RunCollector
 	public static RunState? GetRunState()
 	{
 		NRun? run = NRun.Instance;
-		if (run == null)
+		if (!StateCollector.Alive(run))
 		{
 			return null;
 		}
@@ -49,7 +49,9 @@ public static class RunCollector
 
 	public static Player? LocalPlayer()
 	{
-		CombatState? cs = CombatManager.Instance.DebugOnlyGetState();
+		CombatState? cs = StateCollector.Alive(CombatManager.Instance)
+			? CombatManager.Instance.DebugOnlyGetState()
+			: null;
 		Player? p = cs?.Players.FirstOrDefault();
 		if (p != null)
 		{
@@ -62,7 +64,7 @@ public static class RunCollector
 	public static bool TryFill(BridgeState state, Dictionary<string, object?> probe)
 	{
 		NRun? run = NRun.Instance;
-		if (run == null)
+		if (!StateCollector.Alive(run))
 		{
 			return false;
 		}
@@ -79,7 +81,9 @@ public static class RunCollector
 		FillPlayer(state);
 
 		// 1) 覆盖层：奖励、牌堆、游戏结束……
-		Node? overlay = NOverlayStack.Instance?.Peek() as Node;
+		Node? overlay = StateCollector.Alive(NOverlayStack.Instance)
+			? NOverlayStack.Instance!.Peek() as Node
+			: null;
 		if (overlay != null)
 		{
 			probe["overlay"] = overlay.GetType().Name;
@@ -102,7 +106,7 @@ public static class RunCollector
 
 		// 2) 战斗
 		NCombatRoom? combat = run.CombatRoom;
-		if (combat != null && CombatManager.Instance.IsInProgress)
+		if (combat != null && StateCollector.Alive(CombatManager.Instance) && CombatManager.Instance.IsInProgress)
 		{
 			state.Scene = "combat";
 			FillCombat(state, probe);
@@ -132,7 +136,7 @@ public static class RunCollector
 	private static Node? GetActiveRoomNode()
 	{
 		NRun? run = NRun.Instance;
-		if (run == null)
+		if (!StateCollector.Alive(run))
 		{
 			return null;
 		}
@@ -143,13 +147,15 @@ public static class RunCollector
 	/// <summary>局内时，屏幕上的「当前界面」根节点。</summary>
 	public static Node? GetActiveRoot()
 	{
-		Node? overlay = NOverlayStack.Instance?.Peek() as Node;
+		Node? overlay = StateCollector.Alive(NOverlayStack.Instance)
+			? NOverlayStack.Instance!.Peek() as Node
+			: null;
 		if (overlay != null)
 		{
 			return overlay;
 		}
 		NRun? run = NRun.Instance;
-		if (run == null)
+		if (!StateCollector.Alive(run))
 		{
 			return null;
 		}
@@ -163,7 +169,7 @@ public static class RunCollector
 		if (run.TreasureRoom != null) { return run.TreasureRoom; }
 		if (run.MapRoom != null)
 		{
-			return (Node?)NMapScreen.Instance ?? run.MapRoom;
+			return StateCollector.Alive(NMapScreen.Instance) ? (Node?)NMapScreen.Instance : (Node?)run.MapRoom;
 		}
 		return run;
 	}
@@ -228,7 +234,7 @@ public static class RunCollector
 	{
 		TravelablePoints.Clear();
 		state.Nodes = new List<MapNodeInfo>();
-		NMapScreen? screen = NMapScreen.Instance;
+		NMapScreen? screen = StateCollector.Alive(NMapScreen.Instance) ? NMapScreen.Instance : null;
 		RunState? rs = GetRunState();
 		if (rs != null)
 		{
@@ -269,7 +275,9 @@ public static class RunCollector
 		HandCards.Clear();
 		Enemies.Clear();
 
-		CombatState? cs = CombatManager.Instance.DebugOnlyGetState();
+		CombatState? cs = StateCollector.Alive(CombatManager.Instance)
+			? CombatManager.Instance.DebugOnlyGetState()
+			: null;
 		Player? p = LocalPlayer();
 		if (cs == null || p == null)
 		{
@@ -370,13 +378,13 @@ public static class RunCollector
 
 	public static bool CanEndTurn()
 	{
-		NEndTurnButton? button = NRun.Instance?.CombatRoom?.Ui?.EndTurnButton;
+		NEndTurnButton? button = StateCollector.Alive(NRun.Instance) ? NRun.Instance!.CombatRoom?.Ui?.EndTurnButton : null;
 		return button != null && GodotObject.IsInstanceValid(button) && button.IsEnabled;
 	}
 
 	public static NEndTurnButton? EndTurnButton()
 	{
-		NEndTurnButton? button = NRun.Instance?.CombatRoom?.Ui?.EndTurnButton;
+		NEndTurnButton? button = StateCollector.Alive(NRun.Instance) ? NRun.Instance!.CombatRoom?.Ui?.EndTurnButton : null;
 		if (button == null || !GodotObject.IsInstanceValid(button))
 		{
 			return null;

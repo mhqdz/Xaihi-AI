@@ -37,20 +37,34 @@ public static class ActionExecutor
 			return false;
 		}
 
+		// 先原子改名再处理：处理期间新写入的动作不会被随后的删除误删。
+		string proc = path + ".processing";
+		try
+		{
+			File.Move(path, proc, overwrite: true);
+		}
+		catch (Exception e)
+		{
+			Log.Warn("[bridge] could not take action file: " + e.Message);
+			return false;
+		}
+
 		string text;
 		try
 		{
-			text = File.ReadAllText(path);
+			text = File.ReadAllText(proc);
 		}
 		catch (Exception e)
 		{
 			Log.Warn("[bridge] could not read action file: " + e.Message);
+			Bridge.TryDelete(proc);
 			return false;
 		}
 
 		if (string.IsNullOrWhiteSpace(text))
 		{
 			// 可能是刚创建还没写完，给几次机会
+			Bridge.TryDelete(proc);
 			return BumpParseFailure("action file is empty");
 		}
 
@@ -61,6 +75,7 @@ public static class ActionExecutor
 		}
 		catch (Exception e)
 		{
+			Bridge.TryDelete(proc);
 			return BumpParseFailure("action file is not valid json: " + e.Message);
 		}
 
@@ -77,6 +92,7 @@ public static class ActionExecutor
 				Log.Error("[bridge] action failed: " + e);
 			}
 		}
+		Bridge.TryDelete(proc);
 		return true;
 	}
 
@@ -107,6 +123,12 @@ public static class ActionExecutor
 		}
 		string action = idEl.GetString() ?? "";
 		Log.Info("[bridge] action: " + action);
+
+		if (Bridge.Quiet)
+		{
+			// 静默模式下没有常态采集，动作需要自己先看一眼界面
+			StateCollector.Collect();
+		}
 
 		switch (action)
 		{
@@ -178,6 +200,16 @@ public static class ActionExecutor
 			case "modal_no":
 				PressModal(yes: false);
 				break;
+			case "dump_tree":
+			{
+				bool whole = root.TryGetProperty("whole", out JsonElement wEl) && wEl.ValueKind == JsonValueKind.True;
+				string dump = StateCollector.DumpTree(whole);
+				string path = Path.Combine(Bridge.Dir, "dump.txt");
+				File.WriteAllText(path, dump);
+				ClearError();
+				Log.Info("[bridge] tree dumped -> " + path + " (" + dump.Length + " chars)");
+				break;
+			}
 			case "wait":
 				ClearError();
 				break;
