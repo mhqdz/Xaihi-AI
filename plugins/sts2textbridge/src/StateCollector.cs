@@ -41,6 +41,7 @@ public static class StateCollector
 		BridgeState state = new BridgeState();
 		Dictionary<string, object?> probe = new Dictionary<string, object?>();
 
+		Bridge.Mark("c.enter");
 		NGame? game = NGame.Instance;
 		if (!Alive(game))
 		{
@@ -59,17 +60,34 @@ public static class StateCollector
 			return state;
 		}
 
+		Bridge.Mark("c.scene=" + scene.GetType().Name);
 		probe["root_scene"] = scene.GetType().Name;
 
 		Node? active = null;
 		try
 		{
+			Bridge.Mark("c.modal");
 			Node? modal = GetOpenModal();
 			if (modal != null)
 			{
 				probe["modal"] = modal.GetType().Name;
 				active = modal;
 				state.Scene = "modal";
+			}
+			else if (RunCollector.IsInRun())
+			{
+				// root_scene 切换有延迟：NRun 已经在了就以 NRun 为准
+				Bridge.Mark("c.inrun.tryfill");
+				if (RunCollector.TryFill(state, probe))
+				{
+					Bridge.Mark("c.inrun.filled");
+					active = RunCollector.GetActiveRoot() ?? scene;
+				}
+				else
+				{
+					state.Scene = "loading";
+					probe["note"] = "NRun is up but no room node is ready yet";
+				}
 			}
 			else if (scene is NMainMenu menu)
 			{
@@ -85,19 +103,9 @@ public static class StateCollector
 			}
 			else
 			{
-				// 局内：地图 / 战斗 / 奖励 / 其他房间
-				if (RunCollector.TryFill(state, probe))
-				{
-					active = RunCollector.GetActiveRoot() ?? scene;
-				}
-				else
-				{
-					// NRun 已经在、但地图/战斗界面还没挂好：过场，不是异常。
-					state.Scene = "loading";
-					probe["note"] = !Alive(NRun.Instance)
-						? "left the menu, run is being built"
-						: "run is up but no room node is ready yet";
-				}
+				// 既不在局内、也不是菜单：场景切换中
+				state.Scene = "loading";
+				probe["note"] = "scene is transitioning";
 			}
 		}
 		catch (Exception e)
@@ -109,6 +117,7 @@ public static class StateCollector
 		}
 
 		LastActiveRoot = active;
+		Bridge.Mark("c.clicks");
 		List<NClickableControl> clicks = CollectClickables(active);
 		probe["clickable_count"] = clicks.Count;
 		LastClickables = clicks;
@@ -157,6 +166,7 @@ public static class StateCollector
 			state.AvailableActions.Add(ActionSpec.Make("wait"));
 		}
 
+		Bridge.Mark("c.done scene=" + state.Scene);
 		state.LastError = ActionExecutor.LastError;
 		state.Probe = probe;
 		return state;
@@ -415,6 +425,10 @@ public static class StateCollector
 	/// <summary>按钮上能读到的文字：所有后代 Label/RichTextLabel 的文本拼起来。</summary>
 	public static string LabelOf(Node node)
 	{
+		if (!Alive(node))
+		{
+			return "";
+		}
 		List<string> parts = new List<string>();
 		GatherText(node, parts, 0);
 		string joined = string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()));
@@ -532,6 +546,136 @@ public static class StateCollector
 		}
 		return "";
 	}
+	// ── 「继续」类按钮：不靠 NClickableControl，按名字在树里找 ─────────────
+
+	private static readonly string[] ProceedNeedles = { "proceed", "continue", "skip" };
+
+	/// <summary>依次在覆盖层、当前场景、整棵树里找「继续」按钮。</summary>
+	public static Node? FindProceed()
+	{
+		List<Node?> roots = new List<Node?>();
+		if (Alive(NOverlayStack.Instance))
+		{
+			roots.Add(NOverlayStack.Instance!.Peek() as Node);
+		}
+		roots.Add(NGame.Instance?.RootSceneContainer?.CurrentScene);
+		roots.Add(NGame.Instance?.GetTree()?.Root);
+
+		foreach (Node? root in roots)
+		{
+			if (root == null || !GodotObject.IsInstanceValid(root))
+			{
+				continue;
+			}
+			List<Node> hits = new List<Node>();
+			FindAllByName(root, 0, 14, hits);
+			if (hits.Count == 0)
+			{
+				continue;
+			}
+			Node? pick = null;
+			foreach (Node h in hits)
+			{
+				if (h is BaseButton bb && bb.IsVisibleInTree() && !bb.Disabled)
+				{
+					pick = h;
+					break;
+				}
+			}
+			if (pick == null)
+			{
+				foreach (Node h in hits)
+				{
+					if (h is CanvasItem ci && ci.IsVisibleInTree())
+					{
+						pick = h;
+						break;
+					}
+				}
+			}
+			pick ??= hits[0];
+			Log.Info("[bridge] proceed candidate: " + PathOf(pick) + " (" + hits.Count + " hits under " + root.GetType().Name + ")");
+			return pick;
+		}
+		return null;
+	}
+
+	private static void FindAllByName(Node node, int depth, int maxDepth, List<Node> acc)
+	{
+		if (depth > maxDepth)
+		{
+			return;
+		}
+		foreach (Node child in node.GetChildren())
+		{
+			if (!GodotObject.IsInstanceValid(child))
+			{
+				continue;
+			}
+			string id = (child.GetType().Name + " " + child.Name).ToLowerInvariant();
+			foreach (string needle in ProceedNeedles)
+			{
+				if (id.Contains(needle))
+				{
+					acc.Add(child);
+					break;
+				}
+			}
+			FindAllByName(child, depth + 1, maxDepth, acc);
+		}
+	}
+
+	public static string PathOf(Node node)
+	{
+		List<string> parts = new List<string>();
+		Node? cur = node;
+		for (int i = 0; i < 12 && cur != null; i++)
+		{
+			parts.Insert(0, cur.GetType().Name + "'" + cur.Name + "'");
+			cur = cur.GetParent();
+		}
+		return string.Join("/", parts);
+	}
+
+	/// <summary>按下去：先试语义方法，再试信号，最后塞一次真实鼠标点击。</summary>
+	public static void PressNode(Node node)
+	{
+		if (node is NClickableControl cc && cc.IsEnabled)
+		{
+			cc.ForceClick();
+			return;
+		}
+		if (node is BaseButton btn)
+		{
+			if (btn.Disabled)
+			{
+				Log.Warn("[bridge] proceed button is disabled");
+				return;
+			}
+			btn.EmitSignal(BaseButton.SignalName.Pressed);
+			return;
+		}
+		foreach (string name in new[] { "ForceClick", "Click", "Press", "OnPressed", "Activate" })
+		{
+			var mi = node.GetType().GetMethod(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, Type.EmptyTypes);
+			if (mi != null)
+			{
+				mi.Invoke(node, null);
+				return;
+			}
+		}
+		if (node is Control ctrl)
+		{
+			Vector2 p = ctrl.GetGlobalRect().GetCenter();
+			Viewport? vp = ctrl.GetViewport();
+			vp?.PushInput(new InputEventMouseMotion { Position = p, GlobalPosition = p });
+			vp?.PushInput(new InputEventMouseButton { Position = p, GlobalPosition = p, ButtonIndex = MouseButton.Left, Pressed = true });
+			vp?.PushInput(new InputEventMouseButton { Position = p, GlobalPosition = p, ButtonIndex = MouseButton.Left, Pressed = false });
+			return;
+		}
+		Log.Warn("[bridge] proceed node is not pressable: " + node.GetType().Name);
+	}
+
 }
 
 public static class ActionSpec

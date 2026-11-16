@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
@@ -132,6 +133,38 @@ public static class ActionExecutor
 
 		switch (action)
 		{
+			case "choose_card":
+			{
+				int cardIdx = RequireInt(root, "index");
+				if (cardIdx < 0 || cardIdx >= RunCollector.RewardHolders.Count)
+				{
+					Fail($"card {cardIdx} is not on screen (0..{RunCollector.RewardHolders.Count - 1})");
+					break;
+				}
+				NCardHolder? holder = RunCollector.RewardHolders[cardIdx];
+				if (!GodotObject.IsInstanceValid(holder))
+				{
+					Fail($"card {cardIdx} node is freed");
+					break;
+				}
+				ClearError();
+				Log.Info($"[bridge] choose_card {cardIdx}");
+				holder!.Call("EmitPressed");
+				break;
+			}
+			case "skip_card_reward":
+			{
+				NClickableControl? alt = RunCollector.SkipButton;
+				if (alt == null || !GodotObject.IsInstanceValid(alt))
+				{
+					Fail("no skip button on screen");
+					break;
+				}
+				ClearError();
+				Log.Info("[bridge] skip_card_reward");
+				alt!.ForceClick();
+				break;
+			}
 			case "click":
 				ClickByIndex(RequireInt(root, "index"));
 				break;
@@ -194,6 +227,9 @@ public static class ActionExecutor
 			case "take_reward":
 				ClickByIndex(RequireInt(root, "index"));
 				break;
+			case "proceed":
+				Proceed();
+				break;
 			case "modal_yes":
 				PressModal(yes: true);
 				break;
@@ -217,6 +253,20 @@ public static class ActionExecutor
 				Fail($"unknown action \"{action}\" in scene");
 				break;
 		}
+	}
+
+	/// <summary>奖励/结算界面上的「继续」。</summary>
+	private static void Proceed()
+	{
+		Node? btn = StateCollector.FindProceed();
+		if (btn == null)
+		{
+			Fail("no proceed button on screen");
+			return;
+		}
+		ClearError();
+		Log.Info("[bridge] proceed -> " + StateCollector.PathOf(btn));
+		StateCollector.PressNode(btn);
 	}
 
 	private static void MoveOnMap(int index)

@@ -39,6 +39,9 @@ public static class Bridge
 	public static string StatePath = "";
 	public static string ActionPath = "";
 
+	/// <summary>排障开关：STS2_BRIDGE_TRACE=1 时把每个阶段写进 trace.log，用来定位原生崩溃点。</summary>
+	public static bool Trace { get; private set; }
+
 	/// <summary>排障开关：STS2_BRIDGE_QUIET=1 时不轮询界面，只在收到动作时读一次。</summary>
 	public static bool Quiet { get; private set; }
 
@@ -54,6 +57,7 @@ public static class Bridge
 		}
 		_started = true;
 		Quiet = System.Environment.GetEnvironmentVariable("STS2_BRIDGE_QUIET") == "1";
+		Trace = System.Environment.GetEnvironmentVariable("STS2_BRIDGE_TRACE") == "1";
 
 		Dir = ResolveDir();
 		Directory.CreateDirectory(Dir);
@@ -119,6 +123,7 @@ public static class Bridge
 	/// <summary>读一次界面；内容没变就不写盘。</summary>
 	internal static void CollectAndWrite()
 	{
+		Mark("collect.start");
 		try
 		{
 			BridgeState state = StateCollector.Collect();
@@ -136,6 +141,21 @@ public static class Bridge
 		catch (Exception e)
 		{
 			Log.Error("[bridge] tick failed: " + e);
+		}
+	}
+
+	internal static void Mark(string what)
+	{
+		if (!Trace)
+		{
+			return;
+		}
+		try
+		{
+			File.AppendAllText(Path.Combine(Dir, "trace.log"), what + "\n");
+		}
+		catch (Exception)
+		{
 		}
 	}
 

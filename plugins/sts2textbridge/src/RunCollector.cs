@@ -10,10 +10,13 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
+using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Runs;
@@ -27,6 +30,82 @@ public static class RunCollector
 {
 	private static FieldInfo? _stateField;
 
+	/// <summary>卡牌三选一的候选（按 index 对应，供 choose_card 用）。</summary>
+	public static readonly List<NCardHolder> RewardHolders = new();
+
+	/// <summary>三选一界面上的「跳过」按钮。</summary>
+	public static NClickableControl? SkipButton { get; private set; }
+
+	/// <summary>卡牌三选一：牌在 NCardHolder 里，点的是 holder 的 Pressed 信号，不是那个 Hitbox。</summary>
+	private static void FillCardReward(BridgeState state, NCardRewardSelectionScreen screen)
+	{
+		RewardHolders.Clear();
+		SkipButton = null;
+		foreach (NClickableControl c in FindAll<NClickableControl>(screen))
+		{
+			if (StateCollector.Alive(c) && c.GetType().Name.Contains("Alternative"))
+			{
+				SkipButton = c;
+				break;
+			}
+		}
+		state.Cards = new List<SelectCardInfo>();
+		state.Prompt = "选一张牌加入牌组";
+		state.CanSkip = true;
+		foreach (NCardHolder holder in FindAll<NCardHolder>(screen))
+		{
+			if (!StateCollector.Alive(holder))
+			{
+				continue;
+			}
+			CardModel? model = null;
+			try
+			{
+				model = holder.CardModel;
+			}
+			catch (Exception)
+			{
+			}
+			if (model == null)
+			{
+				continue;
+			}
+			int idx = RewardHolders.Count;
+			RewardHolders.Add(holder);
+			state.Cards.Add(new SelectCardInfo
+			{
+				Index = idx,
+				Id = model.Id.Entry,
+				Name = StateCollector.SafeText(model.TitleLocString),
+				Upgraded = model.CurrentUpgradeLevel > 0,
+			});
+			state.AvailableActions.Add(ActionSpec.Make("choose_card", ("index", idx)));
+		}
+		state.AvailableActions.Add(ActionSpec.Make("skip_card_reward"));
+	}
+
+	/// <summary>从 NRun 上拿地图界面（比 NMapScreen.Instance 稳，切换期间那个静态引用会发虚）。</summary>
+	public static NMapScreen? MapScreenOf(NRun? run)
+	{
+		if (!StateCollector.Alive(run))
+		{
+			return null;
+		}
+		try
+		{
+			NGlobalUi? ui = run!.GlobalUi;
+			if (!StateCollector.Alive(ui))
+			{
+				return null;
+			}
+			return ui!.MapScreen;
+		}
+		catch (Exception)
+		{
+			return null;
+		}
+	}
+
 	/// <summary>地图上可去的点，按下标对应。</summary>
 	public static List<NMapPoint> TravelablePoints { get; } = new List<NMapPoint>();
 
@@ -35,6 +114,12 @@ public static class RunCollector
 
 	/// <summary>敌人，按下标对应（play_card 的 target 就是这里的下标）。</summary>
 	public static List<Creature> Enemies { get; } = new List<Creature>();
+
+	/// <summary>NRun 已经建起来了吗（进游戏了，不一定界面就绪）。</summary>
+	public static bool IsInRun()
+	{
+		return StateCollector.Alive(NRun.Instance);
+	}
 
 	public static RunState? GetRunState()
 	{
@@ -49,9 +134,7 @@ public static class RunCollector
 
 	public static Player? LocalPlayer()
 	{
-		CombatState? cs = StateCollector.Alive(CombatManager.Instance)
-			? CombatManager.Instance.DebugOnlyGetState()
-			: null;
+		CombatState? cs = CombatManager.Instance?.DebugOnlyGetState();
 		Player? p = cs?.Players.FirstOrDefault();
 		if (p != null)
 		{
@@ -63,13 +146,16 @@ public static class RunCollector
 	/// <summary>局内界面：返回 true 表示已经填好了 state。</summary>
 	public static bool TryFill(BridgeState state, Dictionary<string, object?> probe)
 	{
+		Bridge.Mark("tf.enter");
 		NRun? run = NRun.Instance;
 		if (!StateCollector.Alive(run))
 		{
 			return false;
 		}
 
+		Bridge.Mark("tf.state");
 		RunState? rs = GetRunState();
+		Bridge.Mark("tf.state.done");
 		if (rs != null)
 		{
 			state.Floor = rs.TotalFloor;
@@ -78,7 +164,9 @@ public static class RunCollector
 			probe["act"] = rs.CurrentActIndex + 1;
 		}
 
+		Bridge.Mark("tf.player");
 		FillPlayer(state);
+		Bridge.Mark("tf.player.done");
 
 		// 1) 覆盖层：奖励、牌堆、游戏结束……
 		Node? overlay = StateCollector.Alive(NOverlayStack.Instance)
@@ -87,10 +175,20 @@ public static class RunCollector
 		if (overlay != null)
 		{
 			probe["overlay"] = overlay.GetType().Name;
+			if (overlay is NCardRewardSelectionScreen cardScreen)
+			{
+				state.Scene = "card_reward";
+				FillCardReward(state, cardScreen);
+				return true;
+			}
 			if (overlay is NRewardsScreen)
 			{
 				state.Scene = "reward";
 				FillRewards(state);
+				if (!state.AvailableActions.Any(a => (a["id"] as string) == "proceed"))
+				{
+					state.AvailableActions.Add(ActionSpec.Make("proceed"));
+				}
 				return true;
 			}
 			if (overlay.GetType().Name.Contains("GameOver"))
@@ -105,16 +203,20 @@ public static class RunCollector
 		}
 
 		// 2) 战斗
+		Bridge.Mark("tf.combat");
 		NCombatRoom? combat = run.CombatRoom;
-		if (combat != null && StateCollector.Alive(CombatManager.Instance) && CombatManager.Instance.IsInProgress)
+		if (combat != null && CombatManager.Instance.IsInProgress)
 		{
 			state.Scene = "combat";
 			FillCombat(state, probe);
 			return true;
 		}
 
-		// 3) 地图
-		if (run.MapRoom != null)
+		// 3) 地图：RoomContainer 的当前场景是 NMapRoom 就是地图
+		Bridge.Mark("tf.map");
+		NMapScreen? mapScreen = MapScreenOf(run);
+		Bridge.Mark("tf.map.screen=" + (mapScreen != null) + " room=" + (run.MapRoom != null));
+		if (run.MapRoom != null || (mapScreen != null && mapScreen.IsOpen))
 		{
 			state.Scene = "map";
 			FillMap(state, probe);
@@ -122,14 +224,20 @@ public static class RunCollector
 		}
 
 		// 4) 其他房间（事件、休息、商店……）先只报个名，靠 clickables 兜底
+		Bridge.Mark("tf.room");
 		probe["room"] = run.GetType().Name;
 		string roomName = "room";
+		Bridge.Mark("tf.r.event");
 		if (run.EventRoom != null) { roomName = "event"; }
 		else if (run.RestSiteRoom != null) { roomName = "rest"; }
 		else if (run.MerchantRoom != null) { roomName = "shop"; }
 		else if (run.TreasureRoom != null) { roomName = "treasure"; }
+		Bridge.Mark("tf.r.=" + roomName);
 		state.Scene = roomName;
-		state.Prompt = StateCollector.LabelOf(GetActiveRoomNode());
+		Node? roomNode = GetActiveRoomNode();
+		Bridge.Mark("tf.r.node=" + (roomNode != null));
+		state.Prompt = roomNode != null ? StateCollector.LabelOf(roomNode) : "";
+		Bridge.Mark("tf.r.done");
 		return true;
 	}
 
@@ -234,7 +342,7 @@ public static class RunCollector
 	{
 		TravelablePoints.Clear();
 		state.Nodes = new List<MapNodeInfo>();
-		NMapScreen? screen = StateCollector.Alive(NMapScreen.Instance) ? NMapScreen.Instance : null;
+		NMapScreen? screen = MapScreenOf(NRun.Instance);
 		RunState? rs = GetRunState();
 		if (rs != null)
 		{
@@ -275,9 +383,7 @@ public static class RunCollector
 		HandCards.Clear();
 		Enemies.Clear();
 
-		CombatState? cs = StateCollector.Alive(CombatManager.Instance)
-			? CombatManager.Instance.DebugOnlyGetState()
-			: null;
+		CombatState? cs = CombatManager.Instance?.DebugOnlyGetState();
 		Player? p = LocalPlayer();
 		if (cs == null || p == null)
 		{

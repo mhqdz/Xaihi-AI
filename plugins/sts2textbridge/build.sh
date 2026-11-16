@@ -1,6 +1,7 @@
 #!/bin/bash
 # 编译 mod 并装到游戏 mods 目录。
 set -e
+set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GAME="${STS2_GAME:-$HOME/Games/steamLib/steamapps/common/Slay the Spire 2}"
 MODID=sts2textbridge
