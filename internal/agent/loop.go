@@ -549,7 +549,7 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	body := msgs[start:]
 	total := 0
 	for _, m := range body {
-		total += wireLen(m.Content)
+		total += msgLen(m)
 	}
 	if keep <= 0 {
 		keep = 12
@@ -563,7 +563,7 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	cut := 0
 	remain := total
 	for cut < len(body) && remain > budget/2 {
-		remain -= wireLen(body[cut].Content)
+		remain -= msgLen(body[cut])
 		cut++
 	}
 	// 保留下限：没超预算时以 keep 为目标；超预算时必须能砍到预算内 ✗
@@ -624,7 +624,7 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	// 不这么做只能拒绝请求，而她本来也不需要反复看那张图。
 	var after int
 	for _, m := range out {
-		after += wireLen(m.Content)
+		after += msgLen(m)
 	}
 	if after > budget {
 		out = stripImages(out)
@@ -893,6 +893,20 @@ func (a *Agent) todoText() string {
 // journalHint：只给路径，不塞内容（塞进去会吃掉记忆预算，而且日记会越来越长）
 func (a *Agent) journalHint() string {
 	return (&journal.Store{Dir: config.DataPath("journal")}).Hint()
+}
+
+// msgLen：一条消息的完整字符数（Content + 所有 tool_calls 的参数）。
+//
+// compact 之前只用 wireLen(Content) 算，漏掉了 tool_calls 的 arguments ——
+// 而工具轮的绝大多数内容都在 arguments 里（bash 命令、编译输出、文件内容）。
+// 结果就是"以为砍够了，实际请求体还差几十万字符"（复现 conv 1469：算出 51,975，
+// 实际 145,569，反复顶穿 189,000 上限）。
+func msgLen(m llm.Message) int {
+	n := wireLen(m.Content)
+	for _, tc := range m.ToolCalls {
+		n += len(tc.Function.Arguments) + len(tc.Function.Name)
+	}
+	return n
 }
 
 // stripImages：把所有多模态 content 里的 image_url 换成文字占位。
