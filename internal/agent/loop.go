@@ -596,7 +596,9 @@ func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	if len(done) > 0 {
 		noteText += "这些工具调用已经执行过，结果是当时就地看过的，不要重复执行：\n" + strings.Join(done, "\n")
 	}
-	noteText += "\n如果缺少必要信息，请向用户确认，不要猜。）"
+	noteText += "\n这些内容没有丢：它们还在本会话记录里，用 recall <关键词> 就能检索回来" +
+		"（一次最多 3 条，命中不够再换关键词，不要反复搜同一件事）。" +
+		"找不到再问用户，不要猜。）"
 	note := llm.Message{Role: "user", Content: noteText}
 	out := make([]llm.Message, 0, keep+2)
 	if sys != nil {

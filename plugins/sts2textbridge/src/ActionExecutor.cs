@@ -5,7 +5,13 @@ using System.Text.Json;
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
+using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 
 namespace Sts2TextBridge;
 
@@ -147,6 +153,31 @@ public static class ActionExecutor
 				ClickByIndex(startIdx);
 				break;
 			}
+			case "map_move":
+				MoveOnMap(RequireInt(root, "index"));
+				break;
+			case "play_card":
+			{
+				int target = -1;
+				if (root.TryGetProperty("target", out JsonElement tEl) && tEl.ValueKind == JsonValueKind.Number && tEl.TryGetInt32(out int tv))
+				{
+					target = tv;
+				}
+				PlayCard(RequireInt(root, "index"), target);
+				break;
+			}
+			case "end_turn":
+				EndTurn();
+				break;
+			case "take_reward":
+				ClickByIndex(RequireInt(root, "index"));
+				break;
+			case "modal_yes":
+				PressModal(yes: true);
+				break;
+			case "modal_no":
+				PressModal(yes: false);
+				break;
 			case "wait":
 				ClearError();
 				break;
@@ -154,6 +185,106 @@ public static class ActionExecutor
 				Fail($"unknown action \"{action}\" in scene");
 				break;
 		}
+	}
+
+	private static void MoveOnMap(int index)
+	{
+		if (index < 0 || index >= RunCollector.TravelablePoints.Count)
+		{
+			Fail($"map point {index} is not travelable (0..{RunCollector.TravelablePoints.Count - 1})");
+			return;
+		}
+		NMapPoint point = RunCollector.TravelablePoints[index];
+		if (!GodotObject.IsInstanceValid(point))
+		{
+			Fail($"map point {index} node is freed");
+			return;
+		}
+		ClearError();
+		Log.Info($"[bridge] map_move {index} -> {point.Point.PointType} ({point.Point.coord.col},{point.Point.coord.row})");
+		point.ForceClick();
+	}
+
+	private static void PlayCard(int index, int targetIndex)
+	{
+		if (index < 0 || index >= RunCollector.HandCards.Count)
+		{
+			Fail($"card {index} is not in hand (0..{RunCollector.HandCards.Count - 1})");
+			return;
+		}
+		CardModel card = RunCollector.HandCards[index];
+		Creature? target = null;
+		if (targetIndex >= 0)
+		{
+			if (targetIndex >= RunCollector.Enemies.Count)
+			{
+				Fail($"enemy {targetIndex} is not on screen (0..{RunCollector.Enemies.Count - 1})");
+				return;
+			}
+			target = RunCollector.Enemies[targetIndex];
+		}
+		bool needsTarget = card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly;
+		if (needsTarget && target == null)
+		{
+			if (RunCollector.Enemies.Count == 1)
+			{
+				target = RunCollector.Enemies[0];
+			}
+			else
+			{
+				Fail("this card needs a target; give \"target\" (enemy index)");
+				return;
+			}
+		}
+		ClearError();
+		Log.Info($"[bridge] play_card {index} ({card.Id.Entry}) target={(target == null ? "-" : target.Name)}");
+		if (!card.TryManualPlay(target))
+		{
+			Fail($"card {card.Id.Entry} cannot be played right now");
+		}
+	}
+
+	private static void EndTurn()
+	{
+		NEndTurnButton? button = RunCollector.EndTurnButton();
+		if (button == null)
+		{
+			Fail("no end turn button");
+			return;
+		}
+		if (!button.IsEnabled)
+		{
+			Fail("end turn button is disabled");
+			return;
+		}
+		ClearError();
+		Log.Info("[bridge] end_turn");
+		button.ForceClick();
+	}
+
+	private static void PressModal(bool yes)
+	{
+		Node? modal = StateCollector.GetOpenModal();
+		if (modal == null)
+		{
+			Fail("no modal is open");
+			return;
+		}
+		NVerticalPopup? popup = StateCollector.GetPopup(modal);
+		NClickableControl? button = popup == null ? null : (yes ? popup.YesButton : popup.NoButton);
+		if (button == null || !GodotObject.IsInstanceValid(button))
+		{
+			Fail("this modal has no " + (yes ? "yes" : "no") + " button");
+			return;
+		}
+		if (!button.IsVisibleInTree() || !button.IsEnabled)
+		{
+			Fail("modal " + (yes ? "yes" : "no") + " button is not available");
+			return;
+		}
+		ClearError();
+		Log.Info($"[bridge] modal {(yes ? "yes" : "no")} ({button.Name})");
+		button.ForceClick();
 	}
 
 	private static void ClickByIndex(int index)

@@ -7,6 +7,8 @@ using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
+using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 
 namespace Sts2TextBridge;
@@ -44,7 +46,14 @@ public static class StateCollector
 		Node? active = null;
 		try
 		{
-			if (scene is NMainMenu menu)
+			Node? modal = GetOpenModal();
+			if (modal != null)
+			{
+				probe["modal"] = modal.GetType().Name;
+				active = modal;
+				state.Scene = "modal";
+			}
+			else if (scene is NMainMenu menu)
 			{
 				NSubmenu? sub = menu.SubmenuStack?.Peek();
 				probe["submenu"] = sub?.GetType().Name ?? "<none>";
@@ -58,10 +67,13 @@ public static class StateCollector
 			}
 			else
 			{
-				// 非主菜单（游戏内）——本版先不处理，留给下一步
-				active = scene;
-				state.Scene = "idle";
-				probe["note"] = "in-run scene not handled yet";
+				// 局内：地图 / 战斗 / 奖励 / 其他房间
+				active = RunCollector.GetActiveRoot() ?? scene;
+				if (!RunCollector.TryFill(state, probe))
+				{
+					state.Scene = "idle";
+					probe["note"] = "in-run scene not handled yet";
+				}
 			}
 		}
 		catch (Exception e)
@@ -98,6 +110,9 @@ public static class StateCollector
 			case "char_select":
 				FillCharSelect(state, clicks);
 				break;
+			case "modal":
+				FillModal(state, active, clicks);
+				break;
 		}
 
 		// 兜底：任何可点的东西都能通过 click 点到
@@ -118,6 +133,19 @@ public static class StateCollector
 	/// <summary>当前应当被操作的那个节点（子菜单优先于主菜单）。</summary>
 	public static Node? GetActiveRoot()
 	{
+		Node? modal = GetOpenModal();
+		if (modal != null)
+		{
+			return modal;
+		}
+		if (NRun.Instance != null)
+		{
+			Node? inRun = RunCollector.GetActiveRoot();
+			if (inRun != null)
+			{
+				return inRun;
+			}
+		}
 		Control? scene = NGame.Instance?.RootSceneContainer?.CurrentScene;
 		if (scene is NMainMenu menu)
 		{
@@ -131,6 +159,123 @@ public static class StateCollector
 
 	/// <summary>角色下标 -> 按钮本体。</summary>
 	public static List<NCharacterSelectButton> CharButtons { get; } = new List<NCharacterSelectButton>();
+
+	/// <summary>当前打开的模态弹窗（教程提示、确认框……）。没有就返回 null。</summary>
+	public static Node? GetOpenModal()
+	{
+		NModalContainer? container = NModalContainer.Instance;
+		if (container == null)
+		{
+			return null;
+		}
+		// OpenModal 才是真正的弹窗；Backstop 只是它背后那层灰幕。
+		if (container.OpenModal is Node open && GodotObject.IsInstanceValid(open) && open.IsInsideTree())
+		{
+			return open;
+		}
+		Node? found = null;
+		foreach (Node child in container.GetChildren())
+		{
+			if (child.Name.ToString().Contains("Backstop"))
+			{
+				continue;
+			}
+			if (child is CanvasItem ci && !ci.IsVisibleInTree())
+			{
+				continue;
+			}
+			found = child;
+		}
+		return found;
+	}
+
+	/// <summary>弹窗里的 NVerticalPopup（标题 + 正文 + 是/否）。</summary>
+	public static NVerticalPopup? GetPopup(Node? modal)
+	{
+		if (modal == null || !GodotObject.IsInstanceValid(modal))
+		{
+			return null;
+		}
+		if (modal is NVerticalPopup direct)
+		{
+			return direct;
+		}
+		return FindFirst<NVerticalPopup>(modal, 4);
+	}
+
+	private static T? FindFirst<T>(Node node, int depth) where T : class
+	{
+		if (depth < 0)
+		{
+			return null;
+		}
+		foreach (Node child in node.GetChildren())
+		{
+			if (child is T hit)
+			{
+				return hit;
+			}
+			T? deeper = FindFirst<T>(child, depth - 1);
+			if (deeper != null)
+			{
+				return deeper;
+			}
+		}
+		return null;
+	}
+
+	private static void FillModal(BridgeState state, Node? modal, List<NClickableControl> clicks)
+	{
+		string title = "";
+		string body = "";
+		NVerticalPopup? popup = GetPopup(modal);
+		if (popup != null)
+		{
+			title = RawText(popup.GetNodeOrNull("Header"));
+			body = RawText(popup.GetNodeOrNull("Description"));
+		}
+		string joined = (title + (title.Length > 0 && body.Length > 0 ? " — " : "") + body).Trim();
+		state.Prompt = joined.Length > 0 ? joined : (modal != null ? LabelOf(modal) : "");
+
+		state.Options = new List<OptionInfo>();
+		for (int i = 0; i < clicks.Count; i++)
+		{
+			if (clicks[i] is not NPopupYesNoButton button)
+			{
+				continue;
+			}
+			string name = button.Name.ToString();
+			bool isYes = name.StartsWith("Yes");
+			string text = RawText(button);
+			state.Options.Add(new OptionInfo
+			{
+				Index = state.Options.Count,
+				Text = (isYes ? "是: " : "否: ") + (text.Length > 0 ? text : name),
+				Disabled = !button.IsEnabled,
+			});
+			state.AvailableActions.Add(ActionSpec.Make(isYes ? "modal_yes" : "modal_no"));
+		}
+	}
+
+	/// <summary>只取文字，不退回节点名——弹窗里要区分「有没有文字」。</summary>
+	private static string RawText(Node? node)
+	{
+		if (node == null)
+		{
+			return "";
+		}
+		List<string> parts = new List<string>();
+		if (node is Label l)
+		{
+			parts.Add(l.Text);
+		}
+		else if (node is RichTextLabel r)
+		{
+			parts.Add(r.Text);
+		}
+		GatherText(node, parts, 0);
+		return string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim())).Trim();
+	}
 
 	public static List<NClickableControl> CollectClickablesOfCurrentScene()
 	{
