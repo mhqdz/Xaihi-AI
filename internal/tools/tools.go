@@ -101,10 +101,13 @@ func Registry() map[string]*Spec {
 		{Name: "screenshot", Category: toolmeta.GroupView, Needs: []string{"vision"}, Description: "截屏并返回文字说明 + 截屏原图（模型能看到像素）。用于判断窗口内容/排版/报错。",
 			Params: map[string]any{"question": map[string]any{"type": "string", "description": "可留空；留空只返回截图，填了也不会回显"}},
 			Run:    runScreenshot},
-		{Name: "view_image", Category: toolmeta.GroupView, Needs: []string{"vision"}, Description: "打开本机的一张图片给模型看（png/jpg/webp/gif，≤8MB）。" +
-			"用于验收渲染产物、查看截图文件；支持 ~/ 开头和通配符（取第一个匹配）。",
+		{Name: "view_image", Category: toolmeta.GroupView, Needs: []string{"vision"}, Description: "打开本机的一张图片给模型看（png/jpg/webp/gif）。" +
+			"用于验收渲染产物、查看截图文件；支持 ~/ 开头和通配符（取第一个匹配）。" +
+			"大于 500KB 会自动压缩以节省上下文；需要看清精密细节时传 full=true 读原图。" +
+			"注意：图会进入对话历史，之后几轮请求都会带上它，直到被上下文压缩丢掉。",
 			Params: map[string]any{
 				"path": map[string]any{"type": "string", "description": "图片路径（绝对路径或 ~/…）"},
+				"full": map[string]any{"type": "boolean", "description": "true = 读原图不压缩（默认压缩）"},
 			}, Required: []string{"path"}, Run: runViewImage},
 		{Name: "spawn_task", Description: "派发一个已注册的后台任务（会换模型/让出显卡，完成后回到本会话回报）。" +
 			"kind 必须是任务注册表里的名字；card 是交接卡内容（目标/输入/约束/产物）。",
@@ -527,6 +530,12 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 	if p == "" {
 		return "[error] 缺少 path", nil
 	}
+	// full=true 读原图（不压缩）：需要看清精密细节时用。
+	// 默认压缩（>500KB 才压），因为图会留在历史里被后续请求重发。
+	full := false
+	if v, ok := args["full"].(bool); ok {
+		full = v
+	}
 	// 截图返回的是 "/shots/x.jpg" 这种 URL，读图时转成数据目录里的真实路径
 	if strings.HasPrefix(p, "/shots/") {
 		p = config.DataPath(strings.TrimPrefix(p, "/"))
@@ -548,8 +557,8 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 	if st.IsDir() {
 		return "✗ 这是一个目录：" + p, nil
 	}
-	if st.Size() > 32<<20 {
-		return fmt.Sprintf("✗ 图片太大（%.1f MB，上限 32 MB）：%s", float64(st.Size())/1048576, p), nil
+	if st.Size() == 0 {
+		return "✗ 空文件：" + p, nil
 	}
 	mime := mime.TypeByExtension(strings.ToLower(filepath.Ext(p)))
 	if !strings.HasPrefix(mime, "image/") {
@@ -559,7 +568,7 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 	// 看几次就能把窗口撑爆（实测 conv 1469 累积到 7.28MB，compact 都砍不动）。
 	// 阈值以下原样发，以上过一道 ffmpeg（长边 ≤1600、q=4，通常 100-200KB）。
 	note := ""
-	if st.Size() > 500<<10 {
+	if !full && st.Size() > 500<<10 {
 		if _, err := exec.LookPath("ffmpeg"); err == nil {
 			out := filepath.Join(os.TempDir(), fmt.Sprintf("view_%d.jpg", time.Now().UnixNano()))
 			c := exec.CommandContext(context.Background(), "ffmpeg", "-y", "-loglevel", "error",

@@ -469,15 +469,34 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 // echoField：上游要求的思考字段名（reasoning_content / reasoning / ""）。
 // 空 = 这个上游不吐思考，别回传 —— 严格的兼容实现遇到不认识的字段会 400。
 func toWire(msgs []store.Message, reg map[string]*tools.Spec, echoField string) ([]llm.Message, bool) {
+	// 只有**最后一条带图的消息**保留图片实体，更早的剥成文字占位。
+	//
+	// 图片一旦进了请求，之后每一轮都会被重发（历史是完整发出去的）。
+	// 实测 conv 1469：看了四五次 2.5MB 的截图，上下文累积到 7.28MB，
+	// compact 砍到只剩 6 条还有 7MB —— 因为它砍不动"几条消息里塞着几 MB 的图"。
+	// 剥掉之后，"看一眼"就真的只是看一眼：下一轮起它是文字，需要再看就再调 view_image。
+	lastImg := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if len(msgs[i].Images) > 0 {
+			lastImg = i
+			break
+		}
+	}
 	out := make([]llm.Message, 0, len(msgs))
-	for _, m := range msgs {
+	for i, m := range msgs {
 		var content any = m.Content
 		if len(m.Images) > 0 {
-			parts := []map[string]any{{"type": "text", "text": m.Content}}
-			for _, img := range m.Images {
-				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": inlineImage(img)}})
+			if i == lastImg {
+				parts := []map[string]any{{"type": "text", "text": m.Content}}
+				for _, img := range m.Images {
+					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": inlineImage(img)}})
+				}
+				content = parts
+			} else {
+				// 早前的图：留一行说明，模型想要再看可以重新调 view_image
+				hint := "\n（这里原本有 " + fmt.Sprint(len(m.Images)) + " 张图，为节省上下文已省略；需要再看请调 view_image）"
+				content = m.Content + hint
 			}
-			content = parts
 		}
 		w := llm.Message{Role: m.Role, Content: content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID}
 		// 思考回传：DeepSeek 系要求 assistant 历史带上它，否则多轮里模型每轮都在"重新想"
