@@ -190,3 +190,34 @@ cd scripts/ui-test && python3 check_config.py
    "插件式人格 + 共同记忆"）。拼装顺序改为 人格 → 记忆 → KV → 摘要（`loop.go`），
    记忆只在 persistent 开启时注入。**尚未实现**。
 5. 重拍像素基线。
+
+## 十、2026-11-17 凌晨：StS2 文本桥（未完成，明天继续）
+
+**目标**：给 Slay the Spire 2 写一个文本桥 mod，让 agent 通过 state.json / action.json 玩一局，
+用来取代"宝可梦测试"评估长任务能力。**这是评测工具，不是产品功能。**
+
+**位置**：`plugins/sts2textbridge/`（5 个源文件 2055 行 + README 210 行，已提交 4ad4653）
+
+**能跑通的**：`menu → char_select → loading → combat → card_reward → reward`
+真打过一场：HP 80→54、金币 99→115、手牌/敌人/意图/动作白名单都采到了。
+
+**没验证的**：`reward → map`。`proceed` 动作是最后才加的，`Proceed()` 一次都没跑过。
+
+**明天要做**：
+1. 实测 `reward → map`（`{"id":"proceed"}`）
+2. 补它还没遇到的界面。已知至少还有：宝箱、商店、篝火、问号事件、Boss 遗物选择、
+   阵营/进阶选择、以及事件里的多页嵌套
+3. 跑通之后再谈"用它评测通过率"
+
+**环境**（已验证，别再摸索）：见 `docs/STS2-BRIDGE.md`；BaseLib 在
+`~/Games/steamLib/steamapps/workshop/content/2868840/3737335127/BaseLib/`（v3.4.8），
+自己写的 mod 放 `<游戏>/mods/`，编译只要 `dotnet build`（不需要 Godot 编辑器），
+但**必须先把 `data_sts2_linuxbsd_x86_64/sts2.dll` 复制到工程根**。
+
+**教训**：这一轮 agentd 的压缩逻辑被这个长任务逼出五个 bug（图片累积、压缩没提 recall、
+预算没预留 system、compact 不算 tool_calls、view_image 不压图），已全部修复。
+其中"compact 不算 tool_calls" 是真根因——工具轮的参数才是上下文的大头。
+
+**注意**：测试期间的 Steam Cloud 目录已恢复（`remote` 104 个 history）。
+`remote.bak-xaihi` / `remote.before-restore` 两个备份还在，确认无用后可删。
+
