@@ -34,7 +34,10 @@ import (
 //	· 内部按 charsPerToken 估算字符数，用于实际裁剪（模型侧没有分词器可调）
 const (
 	defaultMaxPromptTokens = 105000 // 默认输入上限（模型窗口 131072 的 ~80%）
-	charsPerToken          = 1.8    // 中英混合经验值：1 token ≈ 1.8 字符
+	imageTokenCost         = 1000   // 一张图的固定 token 档位（按分辨率，不按字节）
+	charsPerToken          = 4      // 和 DSH 的 token-meter 一致（CHARS_PER_TOKEN=4）。
+	// 原来是 1.8（中英混合经验值），对代码/英文/base64 高估 2.2 倍；
+	// 宁可估少靠 headroom 兜，也不要估多把历史砍光。
 )
 
 func (a *Agent) maxTokens() int {
@@ -768,11 +771,18 @@ func wireLen(v any) int {
 			if s, ok := p["text"].(string); ok {
 				n += utf8.RuneCountInString(s)
 			}
-			// 图片按 base64 的**字符数**计入（wireLen 的单位就是字符数，
-			// maxChars 也是字符数）。不要折成 token —— 单位混了会低估 4 倍，
-			// compact 还是不会丢图。
-			if iu, ok := p["image_url"].(map[string]string); ok {
-				n += len(iu["url"])
+			// 图片按**固定档位**计入，不按 base64 长度。
+			//
+			// API 的图片计费是按分辨率算的固定值（约 1000 token/张），
+			// 和字节数无关；DSH 也是只算引用结构、不算 base64
+			// （dsh-token-meter 里 image 分支只 JSON.stringify(reference)）。
+			//
+			// 按字节算会高估 155 倍：一张 150KB 截图 → base64 280KB → 算成 15.5 万"字符"，
+			// 而实际只值 1000 token ≈ 4000 字符当量。后果是压缩逻辑以为
+			// "一张图撑爆预算"，把几百条历史全砍掉，模型失忆后重读源码——
+			// 长任务里工具调用暴涨就是这么来的。
+			if iu, ok := p["image_url"].(map[string]string); ok && iu["url"] != "" {
+				n += imageTokenCost * charsPerToken
 			}
 		}
 		return n
