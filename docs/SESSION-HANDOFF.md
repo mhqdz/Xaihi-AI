@@ -244,3 +244,34 @@ cd scripts/ui-test && python3 check_config.py
    看游戏自己是怎么完成这个转换的（重点看 `NRun` 的 scene 容器换没换、有没有过渡动画节点）
 2. 通了之后再往下补界面
 3. 桥已经能自己写 `bot.py` 自动打，评测脚本这块不用重新造
+
+### 2026-11-18 凌晨：两个大突破
+
+**通了**（这是之前一直卡的）：
+
+1. **`reward → map`**：根因是奖励界面关掉后，`NRewardsScreen` 节点还留在 `NOverlayStack` 里，
+   但 `Visible` 仍报 True（淡出动画做完了节点没删）。判定要加 `Modulate.A` / `SelfModulate.A`，
+   alpha 接近 0 就当它不存在。
+2. **商店**：`items` 一直是 0，因为商店屋里没有带名字的按钮，只有一排 `Hitbox`，
+   `LabelOf` 拼不出内容。改成按槽位读 `NMerchantSlot.Entry`。
+3. **敌人采集（关键）**：`enemies` 一直是 0，但数据层明明有 3 个双尾鼠。
+   根因是 **index 错位**：`FillCombat` 用 `Enemies.Count` 当编号，死掉的敌人被 `continue` 跳过，
+   后面全部错位。改成 `for i in cs.Enemies` 直接用下标做 `index`。
+   数据源：`CombatManager.Instance.DebugOnlyGetState() -> CombatState`，`cs.Enemies` 是纯数据。
+
+**完整链路（已验证）**：
+`menu → char_select → loading → combat → card_reward → reward → map → shop → map → combat`
+
+**当前卡点**：战斗里 3 个敌人全死之后，`enemies` 变成空、但 `scene` 还是 `combat`，
+不自动结算成 reward。试过 `end_turn` 没验证（那一轮没执行）。
+
+**下次从这里接**：
+```
+敌人全死 → cs.Enemies 为空
+  → 查 CombatManager.Instance.IsOver / IsInProgress
+  → 如果 IsOver，scene 应该直接判 reward
+  → 如果没 IsOver，说明还差一次 end_turn 或一次 tick
+```
+
+**环境备份**：`/tmp/sts2-src`（反编译源码，29MB）、`/tmp/sts2-eval*/`（三个测试存档目录）。
+存档 3（profile3）是后期存档，floor 8 起，适合快速测后期界面。
