@@ -275,3 +275,49 @@ cd scripts/ui-test && python3 check_config.py
 
 **环境备份**：`/tmp/sts2-src`（反编译源码，29MB）、`/tmp/sts2-eval*/`（三个测试存档目录）。
 存档 3（profile3）是后期存档，floor 8 起，适合快速测后期界面。
+
+### 2026-11-18 凌晨：上下文计价的三个根本错误（已修）
+
+这一轮没有推进桥的界面，全部时间在修 agentd 的上下文管理。**桥本身没退步**。
+
+**① `max_prompt_tokens` 是 None → 吃了默认值 105,000**
+
+`defaultMaxPromptTokens = 105000`（按 131K 窗口的 80% 设的），而 `deepseek-v4.1-flash` 是 1M 窗口。
+等于用 131K 模型的参数跑 1M 模型，**只用了一成的能力**。
+→ 已给 `Xaihi` / `ds-opencode` 两个 profile 设成 900,000。
+
+**② `charsPerToken = 1.8`，DSH 用的是 4**
+
+DSH 的 `dsh-token-meter` 里 `CHARS_PER_TOKEN = 4`。1.8 是中英混合经验值，
+对代码/英文/base64 都高估 2.2 倍。→ 已改成 4。
+
+**③ 图片按 base64 长度计价（错得最离谱）**
+
+一张 150KB 截图 → base64 280KB → 按 1.8 折算成 15.5 万"token"，
+而 API 实际只收约 1000 token（按分辨率算固定档位，和字节数无关）。
+DSH 的处理（`dsh-compaction-image-offload` + token-meter 的 image 分支）：
+**只算引用结构的 JSON 长度，不算 base64**。
+→ 已改成固定 `imageTokenCost = 1000` token/张。
+
+**三个错误叠加的后果**：一张图占预算 17% → 每轮必触发 compact（1935 次）
+→ 历史被砍到 70 条 → 模型失忆 → 重读源码 → 工具调用暴涨。
+
+**④ 压缩改成 surface 缓存（对应 DSH 的 `replaceGeneration`）**
+
+原来每轮都从完整历史（4644 条 / 280 万字符）重算一遍、发完又丢掉。
+现在缓存上次算好的 surface，只把新增消息接上去；历史被改写（seq 不连续）
+或预算变了才全量重算。
+**数据一层完全不动**（`Save` 本来就是只追加），`recall` 照样能搜到被省略的部分。
+→ 压缩从 1935 次降到「重启后首轮 1 次」。
+
+**验证数据**：
+```
+compact 次数        1935 → 1
+数据库消息数        4647（一条没少）
+surface             1439 条 / 82 万字符（预算 198 万）
+② 之后的日志        02:29:10 起无 compact
+```
+
+**下次从这里接**：桥卡在「3 个敌人全死但 scene 还是 combat」。
+只需要打印四个值：`CombatManager.Instance.IsOver` / `IsInProgress` / `IsOverOrEnding`、
+`cs.Enemies.Count`。`IsOver=true` 就是 scene 判定漏了。
