@@ -444,10 +444,30 @@ public static class RunCollector
 				Playable = playable,
 				NeedsTarget = card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly,
 			});
-			state.AvailableActions.Add(ActionSpec.Make("play_card", ("index", idx)));
+			// 只列真能打出去的牌：列了打不出去的，agent 会反复试同一张
+			if (playable)
+			{
+				bool needsTarget = card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly;
+				if (needsTarget && Enemies.Count == 1)
+				{
+					state.AvailableActions.Add(ActionSpec.Make("play_card", ("index", idx), ("target", 0)));
+				}
+				else
+				{
+					state.AvailableActions.Add(ActionSpec.Make("play_card", ("index", idx)));
+				}
+			}
 		}
 
-		if (CanEndTurn())
+		// 手牌正被「拿着」（点了牌在等目标）时，别的按钮全是灰的：
+		// 这时只给 cancel，否则 agent 会以为游戏卡死了。
+		if (IsHandBusy())
+		{
+			state.AvailableActions.Clear();
+			state.AvailableActions.Add(ActionSpec.Make("cancel"));
+			probe["hand_busy"] = true;
+		}
+		else if (CanEndTurn())
 		{
 			state.AvailableActions.Add(ActionSpec.Make("end_turn"));
 		}
@@ -480,6 +500,30 @@ public static class RunCollector
 		{
 			return null;
 		}
+	}
+
+	/// <summary>手牌是不是正处在「选中/拖拽一张牌，等目标」的状态。</summary>
+	public static bool IsHandBusy()
+	{
+		NPlayerHand? hand = PlayerHand();
+		if (hand == null || !GodotObject.IsInstanceValid(hand))
+		{
+			return false;
+		}
+		try
+		{
+			return hand.InCardPlay || hand.CurrentMode != NPlayerHand.Mode.Play;
+		}
+		catch (Exception)
+		{
+			return false;
+		}
+	}
+
+	public static NPlayerHand? PlayerHand()
+	{
+		NPlayerHand? hand = StateCollector.Alive(NRun.Instance) ? NRun.Instance!.CombatRoom?.Ui?.Hand : null;
+		return hand != null && GodotObject.IsInstanceValid(hand) ? hand : null;
 	}
 
 	public static bool CanEndTurn()

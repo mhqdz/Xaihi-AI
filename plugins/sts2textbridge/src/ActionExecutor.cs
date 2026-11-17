@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
@@ -13,6 +14,9 @@ using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Helpers;
 
 namespace Sts2TextBridge;
 
@@ -22,6 +26,9 @@ namespace Sts2TextBridge;
 public static class ActionExecutor
 {
 	public static string? LastError { get; private set; }
+
+	/// <summary>有异步动作（目前只有出牌）还没落地。此期间不吃新动作，免得两次出牌搅在一起。</summary>
+	public static bool Busy { get; private set; }
 
 	private static int _parseFailures;
 
@@ -33,6 +40,10 @@ public static class ActionExecutor
 	/// <summary>返回 true 表示这个文件已经被处理完（可以删）。</summary>
 	public static bool ProcessFile(string path)
 	{
+		if (Busy)
+		{
+			return false;
+		}
 		if (!File.Exists(path))
 		{
 			return false;
@@ -224,6 +235,20 @@ public static class ActionExecutor
 			case "end_turn":
 				EndTurn();
 				break;
+			case "cancel":
+			{
+				// 手牌被「拿着」时唯一的出路：把那张牌放回手里。
+				NPlayerHand? hand = RunCollector.PlayerHand();
+				if (hand == null)
+				{
+					Fail("no hand on screen");
+					break;
+				}
+				ClearError();
+				Log.Info("[bridge] cancel card play");
+				hand.CancelAllCardPlay();
+				break;
+			}
 			case "take_reward":
 				ClickByIndex(RequireInt(root, "index"));
 				break;
@@ -318,11 +343,37 @@ public static class ActionExecutor
 				return;
 			}
 		}
+		if (!card.CanPlay(out UnplayableReason reason, out AbstractModel? _))
+		{
+			Fail($"card {card.Id.Entry} cannot be played: {reason}");
+			return;
+		}
 		ClearError();
 		Log.Info($"[bridge] play_card {index} ({card.Id.Entry}) target={(target == null ? "-" : target.Name)}");
-		if (!card.TryManualPlay(target))
+		// 不走 CardModel.TryManualPlay / NCardPlay：那条路要手牌的视觉节点做 holder，
+		// 桥直接拿模型时 holder 是 null，NCardPlayQueue 会直接报错。改用游戏 AutoSlay 同款：
+		// 先自己扣能量/星（SpendResources），再 CardCmd.AutoPlay（skipXCapture=true，X 值已由 SpendResources 记下）。
+		Busy = true;
+		TaskHelper.RunSafely(PlayCardAsync(card, target));
+	}
+
+	private static async Task PlayCardAsync(CardModel card, Creature? target)
+	{
+		string entry = card.Id.Entry;
+		try
 		{
-			Fail($"card {card.Id.Entry} cannot be played right now");
+			await card.SpendResources();
+			await CardCmd.AutoPlay(new BlockingPlayerChoiceContext(), card, target, AutoPlayType.Default, skipXCapture: true);
+			Log.Info($"[bridge] play_card {entry} resolved");
+		}
+		catch (Exception e)
+		{
+			LastError = "play_card failed: " + e.Message;
+			Log.Error("[bridge] play_card failed: " + e);
+		}
+		finally
+		{
+			Busy = false;
 		}
 	}
 
@@ -395,7 +446,7 @@ public static class ActionExecutor
 		}
 		ClearError();
 		Log.Info($"[bridge] click {index} ({target.GetType().Name} {target.Name})");
-		target.ForceClick();
+		StateCollector.PressNode(target);
 	}
 
 	private static int RequireInt(JsonElement root, string key, string? fallback = null)

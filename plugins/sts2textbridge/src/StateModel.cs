@@ -58,6 +58,10 @@ public sealed class BridgeState
 	[JsonPropertyName("cards")]
 	public List<SelectCardInfo>? Cards { get; set; }
 
+	/// <summary>压在最上层的模态弹窗（教程提示、确认框……）。底层场景的数据照常输出，只有这个字段变了。</summary>
+	[JsonPropertyName("modal")]
+	public string? Modal { get; set; }
+
 	[JsonPropertyName("prompt")]
 	public string? Prompt { get; set; }
 
@@ -82,6 +86,10 @@ public sealed class BridgeState
 
 	[JsonPropertyName("last_error")]
 	public string? LastError { get; set; }
+
+	/// <summary>本次状态对应的界面截图（相对桥目录，如 shots/00012-combat.png）。只在界面变了的那次写。</summary>
+	[JsonPropertyName("shot")]
+	public string? Shot { get; set; }
 
 	/// <summary>调试探针：只在不认识的场景里填，用来事后反推界面结构。</summary>
 	[JsonPropertyName("probe")]

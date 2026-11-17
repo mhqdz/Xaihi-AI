@@ -5,6 +5,7 @@ using Godot;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 using MegaCrit.Sts2.Core.Nodes;
@@ -64,26 +65,37 @@ public static class StateCollector
 		probe["root_scene"] = scene.GetType().Name;
 
 		Node? active = null;
+		Node? modal = null;
+		bool haveScene = false;
 		try
 		{
 			Bridge.Mark("c.modal");
-			Node? modal = GetOpenModal();
+			modal = GetOpenModal();
 			if (modal != null)
 			{
 				probe["modal"] = modal.GetType().Name;
-				active = modal;
-				state.Scene = "modal";
 			}
-			else if (RunCollector.IsInRun())
+
+			if (RunCollector.IsInRun())
 			{
 				// root_scene 切换有延迟：NRun 已经在了就以 NRun 为准
 				Bridge.Mark("c.inrun.tryfill");
-				if (RunCollector.TryFill(state, probe))
+				try
+				{
+					haveScene = RunCollector.TryFill(state, probe);
+				}
+				catch (Exception e)
+				{
+					// 弹窗压着的时候底层节点可能是半死的：记下来，别把整个状态变成 error
+					probe["inrun_error"] = e.GetType().Name + ": " + e.Message;
+					haveScene = false;
+				}
+				if (haveScene)
 				{
 					Bridge.Mark("c.inrun.filled");
 					active = RunCollector.GetActiveRoot() ?? scene;
 				}
-				else
+				else if (modal == null)
 				{
 					state.Scene = "loading";
 					probe["note"] = "NRun is up but no room node is ready yet";
@@ -100,12 +112,27 @@ public static class StateCollector
 					NCharacterSelectScreen => "char_select",
 					_ => "menu",
 				};
+				haveScene = true;
 			}
-			else
+			else if (modal == null)
 			{
 				// 既不在局内、也不是菜单：场景切换中
 				state.Scene = "loading";
 				probe["note"] = "scene is transitioning";
+			}
+
+			if (modal != null)
+			{
+				// 弹窗压在最上层（教程提示、确认框……）：底层的战斗/地图数据照留
+				// ——手牌、敌人一点没变，变的只有 modal——但可执行动作只能来自弹窗本身，
+				// 否则 agent 会去点被挡住的手牌，然后一直不知道自己在被什么拦着。
+				state.Modal = modal.GetType().Name;
+				active = modal;
+				state.AvailableActions.Clear();
+				if (!haveScene)
+				{
+					state.Scene = "modal";
+				}
 			}
 		}
 		catch (Exception e)
@@ -136,7 +163,11 @@ public static class StateCollector
 			}
 		}
 
-		switch (state.Scene)
+		if (modal != null)
+		{
+			FillModal(state, modal, clicks);
+		}
+		else switch (state.Scene)
 		{
 			case "menu":
 				FillMenu(state, clicks);
@@ -150,9 +181,6 @@ public static class StateCollector
 					break;
 				}
 				FillCharSelect(state, clicks);
-				break;
-			case "modal":
-				FillModal(state, active, clicks);
 				break;
 		}
 
@@ -411,7 +439,10 @@ public static class StateCollector
 			{
 				continue;
 			}
-			if (child is NClickableControl cc && cc.IsEnabled)
+			// 手牌的点击热区不算可点项：ForceClick 只发 Released、不发 Pressed，
+			// 点一下会把牌「拿」在手上（等目标），整个战斗 UI 变灰，比死还难受。
+			// 打牌一律走 play_card。
+			if (child is NClickableControl cc && cc.IsEnabled && child is not NCardHolderHitbox)
 			{
 				outList.Add(cc);
 			}
@@ -640,6 +671,25 @@ public static class StateCollector
 	/// <summary>按下去：先试语义方法，再试信号，最后塞一次真实鼠标点击。</summary>
 	public static void PressNode(Node node)
 	{
+		// NProceedButton 是 NButton，禁用态下 ForceClick 会被吞；界面是接 Released 信号推进的，
+		// 所以这里直接发信号（对应各屏幕的 OnProceedButtonPressed）。
+		if (node is NProceedButton)
+		{
+			Node? screen = node.GetParent();
+			System.Reflection.MethodInfo? mi = screen?.GetType().GetMethod(
+				"OnProceedButtonPressed",
+				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+				null, new[] { typeof(NButton) }, null);
+			if (screen != null && mi != null)
+			{
+				Log.Info("[bridge] invoke " + screen.GetType().Name + ".OnProceedButtonPressed");
+				mi.Invoke(screen, new object[] { node });
+				return;
+			}
+			Log.Warn("[bridge] no OnProceedButtonPressed on " + (screen?.GetType().Name ?? "null") + ", fallback to Released signal");
+			node.EmitSignal(NClickableControl.SignalName.Released, node);
+			return;
+		}
 		if (node is NClickableControl cc && cc.IsEnabled)
 		{
 			cc.ForceClick();
