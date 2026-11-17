@@ -229,20 +229,18 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 		if a.OnStage != nil {
 			a.OnStage("generating")
 		}
-		msgs, toolMsgs := toWire(c.Messages, reg, a.llm.ReasoningField())
-		before := len(msgs)
 		beforeChars := 0
-		for _, m := range msgs {
+		for _, m := range c.Messages {
 			beforeChars += wireLen(m.Content)
 		}
-		msgs = compact(msgs, keep, a.compactAt())
-		if before != len(msgs) {
-			afterChars := 0
-			for _, m := range msgs {
-				afterChars += wireLen(m.Content)
-			}
-			logx.Info("compact conv=%s msgs=%d->%d chars=%d->%d budget=%d keep=%d",
-				c.ID, before, len(msgs), beforeChars, afterChars, a.compactAt(), keep)
+		msgs, compacted := a.buildSurface(c, reg, keep)
+		afterChars := 0
+		for _, m := range msgs {
+			afterChars += wireLen(m.Content)
+		}
+		if compacted {
+			logx.Info("compact conv=%s total=%d surface=%d chars=%d->%d budget=%d",
+				c.ID, len(c.Messages), len(msgs), beforeChars, afterChars, a.compactAt())
 		}
 		// 记忆只在持久化会话里注入：纯执行用的 profile 不该带着"她"的记忆
 		memText := ""
@@ -455,7 +453,6 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 					onTool(call.Function.Name, call.Function.Arguments, res, ms)
 				}
 			}(i, call)
-			_ = toolMsgs
 		}
 		wg.Wait()
 		for i, call := range calls {
@@ -542,6 +539,90 @@ func stringify(v any) string {
 // compact：上下文压缩（轻量、可预测）。
 // 规则：保留 system + 最近 keep 条消息；更早的折叠成一条"省略说明"。
 // 不调用模型做摘要（省钱、可预测）；需要更聪明的摘要时再换。
+
+// ---------------------------------------------------------------------------
+// surface 缓存
+//
+// 压缩只影响"发给模型的那一份"（surface），数据库里的历史一条不动。
+// 但以前每轮都从完整历史重算：4599 条消息、280 万字符的会话里，
+// compact 被触发 1900 多次，每次都在做同一件事，日志也刷屏。
+//
+// 这里缓存上一次算好的 surface：只要历史是"只追加"（seq 连续），
+// 就复用缓存、只把新消息 toWire 后接上去，再决定要不要压。
+// 会话被回滚/改写（seq 不连续）或预算变了，自动全量重算。
+//
+// 对应 DSH 的 surface.replaceGeneration —— 换的是发送视图的版本，不是数据。
+// ---------------------------------------------------------------------------
+
+type surfaceCache struct {
+	lastSeq int
+	budget  int
+	msgs    []llm.Message // 不含 system
+}
+
+var (
+	surfaceMu       sync.Mutex
+	surfaceCacheMap = map[string]*surfaceCache{}
+)
+
+// isCompactNote：判断一条消息是不是压缩时插入的说明。
+func isCompactNote(m llm.Message) bool {
+	if m.Role != "user" {
+		return false
+	}
+	s, ok := m.Content.(string)
+	return ok && strings.HasPrefix(s, "（上下文压缩：")
+}
+
+// buildSurface：返回本轮要发给模型的消息（不含 system），尽量复用缓存。
+func (a *Agent) buildSurface(c *store.Conversation, reg map[string]*tools.Spec, keep int) ([]llm.Message, bool) {
+	budget := a.compactAt()
+
+	surfaceMu.Lock()
+	cache := surfaceCacheMap[c.ID]
+	surfaceMu.Unlock()
+
+	var prev []llm.Message
+	start := 0
+	if cache != nil && cache.budget == budget && len(cache.msgs) > 0 {
+		for i, m := range c.Messages {
+			if m.Seq > cache.lastSeq {
+				start = i
+				break
+			}
+			start = i + 1
+		}
+		// 只追加才能复用：上一条正好是缓存记的那条，说明历史没被改写
+		if start > 0 && c.Messages[start-1].Seq == cache.lastSeq {
+			prev = cache.msgs
+		} else {
+			start = 0
+		}
+	}
+
+	fresh, _ := toWire(c.Messages[start:], reg, a.llm.ReasoningField())
+	all := make([]llm.Message, 0, len(prev)+len(fresh))
+	all = append(all, prev...)
+	all = append(all, fresh...)
+
+	// 已经压过一次的 surface 首条是 note，不能再叠一条
+	if len(all) > 0 && isCompactNote(all[0]) {
+		all = all[1:]
+	}
+	preLen := len(all)
+	all = compact(all, keep, budget)
+	compacted := len(all) < preLen
+
+	var lastSeq int
+	if len(c.Messages) > 0 {
+		lastSeq = c.Messages[len(c.Messages)-1].Seq
+	}
+	surfaceMu.Lock()
+	surfaceCacheMap[c.ID] = &surfaceCache{lastSeq: lastSeq, budget: budget, msgs: all}
+	surfaceMu.Unlock()
+	return all, compacted
+}
+
 func compact(msgs []llm.Message, keep int, budget int) []llm.Message {
 	var sys *llm.Message
 	start := 0

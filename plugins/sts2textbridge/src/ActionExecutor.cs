@@ -274,6 +274,9 @@ public static class ActionExecutor
 			case "diag_enemies":
 				DiagEnemies();
 				break;
+			case "diag_combat":
+				DiagCombat();
+				break;
 			case "diag_click":
 				DiagClick();
 				break;
@@ -565,6 +568,44 @@ public static class ActionExecutor
 		File.WriteAllText(path, sb.ToString());
 		ClearError();
 		Log.Info("[bridge] diag -> " + path + " (" + sb.Length + " chars)");
+	}
+
+	// ── 临时探测：CombatManager 的三个状态位 + cs.Enemies 计数（只打印）──────
+	private static void DiagCombat()
+	{
+		StringBuilder sb = new StringBuilder();
+		try
+		{
+			CombatManager? cm = CombatManager.Instance;
+			sb.AppendLine("cm = " + (cm == null ? "<null>" : cm.GetType().FullName!));
+			if (cm != null)
+			{
+				sb.AppendLine("IsInProgress  = " + cm.IsInProgress);
+				sb.AppendLine("IsEnding      = " + cm.IsEnding);
+				sb.AppendLine("IsOverOrEnding= " + cm.IsOverOrEnding);
+				sb.AppendLine("IsPaused      = " + cm.IsPaused);
+				sb.AppendLine("IsEnemyTurnStarted = " + cm.IsEnemyTurnStarted);
+			}
+			CombatState? cs = cm?.DebugOnlyGetState();
+			sb.AppendLine("cs = " + (cs == null ? "<null>" : "ok"));
+			if (cs != null)
+			{
+				int alive = 0;
+				foreach (Creature e in cs.Enemies) if (e != null && e.IsAlive) alive++;
+				sb.AppendLine("cs.Enemies.Count = " + cs.Enemies.Count + "  alive = " + alive);
+				int i = 0;
+				foreach (Creature e in cs.Enemies)
+				{
+					sb.AppendLine("  [" + i + "] " + (e == null ? "<null>" : e.Name + " " + e.CurrentHp + "/" + e.MaxHp + " alive=" + e.IsAlive));
+					i++;
+				}
+			}
+		}
+		catch (Exception e) { sb.AppendLine("!! " + e); }
+		string path = Path.Combine(Bridge.Dir, "diag_combat.txt");
+		File.WriteAllText(path, sb.ToString());
+		ClearError();
+		Log.Info("[bridge] diag_combat -> " + path);
 	}
 
 	// ── 临时探测：数据层里到底有没有敌人（只打印，不改采集）──────────────
