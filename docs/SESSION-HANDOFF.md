@@ -221,3 +221,26 @@ cd scripts/ui-test && python3 check_config.py
 **注意**：测试期间的 Steam Cloud 目录已恢复（`remote` 104 个 history）。
 `remote.bak-xaihi` / `remote.before-restore` 两个备份还在，确认无用后可删。
 
+### 2026-11-17 下午续：进展与断点
+
+**新增能力**（已提交）：
+
+- 触发策略按文档实现：事件驱动 + 10 秒兜底 + 新界面（scene/overlay/modal 变化）必截图
+- `NProceedButton` 改用 `OnProceedButtonPressed()`（`ForceClick` 对它无效）
+- 战斗：`CardCmd.AutoPlay(new BlockingPlayerChoiceContext(), card, target)` 出牌，
+  不再走 `TryManualPlay`（那条路要 UI holder，桥拿不到，会报 "card holder passed is null"）
+- reward 界面能列奖励项、`take_reward` 能领、`proceed` 能点
+
+**已验证走通**：`menu → char_select → loading → combat → card_reward → reward`
+
+**当前断点**：`reward → map`。`proceed` 点了之后 state 还在 reward（点击有反应但不进地图）。
+试过 ForceClick、OnProceedButtonPressed、等 1.5 秒，都没过去。
+`card_reward` 之后也停在奖励循环里。
+
+**没验证的界面**：map、shop、rest、event、宝箱、Boss 遗物、层间过渡、通关后场景。
+
+**下次建议**：
+1. 先单独攻 `reward → map`：在游戏里手动点一次「前进」，同时让桥记录点击前后的节点树差异，
+   看游戏自己是怎么完成这个转换的（重点看 `NRun` 的 scene 容器换没换、有没有过渡动画节点）
+2. 通了之后再往下补界面
+3. 桥已经能自己写 `bot.py` 自动打，评测脚本这块不用重新造
