@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Map;
@@ -19,6 +22,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace Sts2TextBridge;
@@ -236,9 +240,249 @@ public static class RunCollector
 		state.Scene = roomName;
 		Node? roomNode = GetActiveRoomNode();
 		Bridge.Mark("tf.r.node=" + (roomNode != null));
-		state.Prompt = roomNode != null ? StateCollector.LabelOf(roomNode) : "";
+		if (roomName == "shop")
+		{
+			// 商店的商品名/价格/类型读得出来，就别拿 LabelOf 去糊整棵树的文字
+			// （那会把商人身上每个 Label、连字体图集的字形编号一起拼进 prompt）。
+			FillShop(state, probe);
+		}
+		else
+		{
+			state.Prompt = roomNode != null ? StateCollector.LabelOf(roomNode) : "";
+		}
 		Bridge.Mark("tf.r.done");
 		return true;
+	}
+
+	// ── 商店 ────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// 还在卖的槽位，按屏幕上的顺序（卡牌 → 遗物 → 药水 → 删牌服务）。
+	/// 买和读都走这一份顺序，agent 看到第 i 项就 buy i。
+	/// </summary>
+	public static List<NMerchantSlot> ShopSlots()
+	{
+		List<NMerchantSlot> result = new List<NMerchantSlot>();
+		NRun? run = NRun.Instance;
+		if (!StateCollector.Alive(run) || !StateCollector.Alive(run!.MerchantRoom))
+		{
+			return result;
+		}
+		foreach (NMerchantSlot slot in FindAll<NMerchantSlot>(run.MerchantRoom))
+		{
+			if (!StateCollector.Alive(slot) || !slot.IsInsideTree() || !slot.IsVisibleInTree())
+			{
+				continue;
+			}
+			MerchantEntry? entry = null;
+			try
+			{
+				entry = slot.Entry;
+				if (entry == null || !entry.IsStocked)
+				{
+					continue;
+				}
+			}
+			catch (Exception)
+			{
+				continue;
+			}
+			result.Add(slot);
+		}
+		return result;
+	}
+
+	private static void FillShop(BridgeState state, Dictionary<string, object?> probe)
+	{
+		state.Items = new List<ItemInfo>();
+		state.Prompt = "商店：buy <index> 买，leave 走人";
+		List<NMerchantSlot> slots = ShopSlots();
+		probe["shop_slots"] = slots.Count;
+		for (int i = 0; i < slots.Count; i++)
+		{
+			NMerchantSlot slot = slots[i];
+			ItemInfo info = new ItemInfo
+			{
+				Index = i,
+				Id = slot.Name.ToString(),
+				Kind = "item",
+				Enabled = true,
+			};
+			MerchantEntry? entry = null;
+			try
+			{
+				entry = slot.Entry;
+				if (entry != null)
+				{
+					info.Price = entry.Cost;
+					info.Enabled = entry.EnoughGold;
+				}
+			}
+			catch (Exception)
+			{
+			}
+			try
+			{
+				switch (entry)
+				{
+					case MerchantCardEntry ce:
+						info.Kind = "card";
+						CardModel? card = ce.CreationResult?.Card;
+						if (card != null)
+						{
+							info.Name = card.Title;
+							info.Desc = CardSummary(card);
+						}
+						break;
+					case MerchantRelicEntry re:
+						info.Kind = "relic";
+						info.Name = re.Model != null ? re.Model.Title.GetFormattedText() : null;
+						if (string.IsNullOrWhiteSpace(info.Name))
+						{
+							info.Name = re.Model?.Id.Entry;
+						}
+						break;
+					case MerchantPotionEntry pe:
+						info.Kind = "potion";
+						info.Name = pe.Model != null ? pe.Model.Title.GetFormattedText() : null;
+						if (string.IsNullOrWhiteSpace(info.Name))
+						{
+							info.Name = pe.Model?.Id.Entry;
+						}
+						break;
+					case MerchantCardRemovalEntry:
+						info.Kind = "removal";
+						info.Name = "删掉牌组里的一张牌";
+						break;
+				}
+			}
+			catch (Exception e)
+			{
+				probe["shop_item_" + i] = e.GetType().Name + ": " + e.Message;
+			}
+			if (string.IsNullOrWhiteSpace(info.Name))
+			{
+				info.Name = slot.Name.ToString();
+			}
+			state.Items.Add(info);
+			state.AvailableActions.Add(ActionSpec.Make("buy", ("index", i)));
+		}
+		state.AvailableActions.Add(ActionSpec.Make("leave"));
+	}
+
+	/// <summary>一张牌的「类型 · 稀有度 —— 说明」，给 agent 判断值不值这个价。</summary>
+	private static string CardSummary(CardModel card)
+	{
+		string head = card.Rarity + " " + card.Type;
+		string desc = "";
+		try
+		{
+			desc = card.GetDescriptionForPile(PileType.None) ?? "";
+		}
+		catch (Exception)
+		{
+		}
+		// 能量图标在文本里就是 [img]…energy_icon.png[/img]，读屏时换成「能量」，
+		// 连续两个再合并成「2能量」，不然一句话里蹦出「能量能量」。
+		desc = System.Text.RegularExpressions.Regex.Replace(desc, @"\[img\][^\[]*\[/img\]", "\u0001");
+		desc = System.Text.RegularExpressions.Regex.Replace(desc, @"(\u0001)+",
+			m => (m.Value.Length == 1 ? "" : m.Value.Length.ToString()) + "能量");
+		desc = System.Text.RegularExpressions.Regex.Replace(desc, @"\[/?[a-z]+\]", "");
+		desc = desc.Replace("\n", " ").Trim();
+		if (desc.Length > 160)
+		{
+			desc = desc.Substring(0, 160);
+		}
+		return string.IsNullOrWhiteSpace(desc) ? head : head + " —— " + desc;
+	}
+
+	/// <summary>
+	/// 买第 index 项。走 MerchantInventory.TryPurchaseEntryWithIdUnsynchronized / 
+	/// MerchantEntry.OnTryPurchaseUnsynchronized —— 界面点下去也是这条链，库存、金币、视觉一起更新。
+	/// （0.99.1 反编译源码里的 OnTryPurchaseWrapper 在实机 DLL 里已改名，别照抄。）
+	/// </summary>
+	public static void BuyItem(int index)
+	{
+		List<NMerchantSlot> slots = ShopSlots();
+		if (index < 0 || index >= slots.Count)
+		{
+			ActionExecutor.Fail("shop item " + index + " is not on sale (have " + slots.Count + ")");
+			return;
+		}
+		MerchantEntry? entry = null;
+		try
+		{
+			entry = slots[index].Entry;
+		}
+		catch (Exception)
+		{
+		}
+		if (entry == null)
+		{
+			ActionExecutor.Fail("shop item " + index + " has no entry");
+			return;
+		}
+		MerchantInventory? inventory = null;
+		try
+		{
+			inventory = NMerchantRoom.Instance?.Inventory?.Inventory;
+		}
+		catch (Exception)
+		{
+		}
+		ActionExecutor.ClearError();
+		Log.Info("[bridge] buy " + index + " (" + entry.GetType().Name + " cost=" + entry.Cost + " id=" + entry.Id + ")");
+		BuyAsync(entry, inventory);
+	}
+
+	private static async void BuyAsync(MerchantEntry entry, MerchantInventory? inventory)
+	{
+		try
+		{
+			if (inventory == null)
+			{
+				ActionExecutor.Fail("no merchant inventory on screen");
+				return;
+			}
+			// 药水槽满了的话，OnTryPurchaseUnsynchronized 只会安静地返回 false
+			if (entry is MerchantPotionEntry && entry.Player != null && !entry.Player.HasOpenPotionSlots)
+			{
+				ActionExecutor.Fail("potion slots are full (" + entry.Player.PotionSlots.Count + "/" + entry.Player.MaxPotionCount + "), drink or drop one first");
+				return;
+			}
+			bool ok = await entry.OnTryPurchaseUnsynchronized(inventory, false);
+			Log.Info("[bridge] buy: OnTryPurchaseUnsynchronized -> " + ok);
+			if (ok)
+			{
+				return;
+			}
+			bool locked = false;
+			try
+			{
+				locked = inventory.TryBeginPurchase();
+				if (locked)
+				{
+					ok = await entry.OnTryPurchaseUnsynchronized(inventory, false);
+				}
+			}
+			finally
+			{
+				if (locked)
+				{
+					inventory.EndPurchase();
+				}
+			}
+			Log.Info("[bridge] buy: with lock(" + locked + ") -> " + ok);
+			if (!ok)
+			{
+				ActionExecutor.Fail("purchase refused (cost=" + entry.Cost + ", gold=" + (entry.Player != null ? entry.Player.Gold : -1) + ", stocked=" + entry.IsStocked + ")");
+			}
+		}
+		catch (Exception e)
+		{
+			ActionExecutor.Fail("buy failed: " + e.GetType().Name + ": " + e.Message);
+			Log.Warn("[bridge] buy failed: " + e);
+		}
 	}
 
 	private static Node? GetActiveRoomNode()
@@ -391,26 +635,35 @@ public static class RunCollector
 			return;
 		}
 
-		foreach (Creature enemy in cs.Enemies)
+		// 敌人一律以数据层 cs.Enemies 为准，下标就是 cs.Enemies 的下标。
+		// 不按屏幕上的节点数：群怪（第 13 层那批）会叠在一起，视觉数量少于数据层。
+		// 死掉的也保留（带 alive=false），否则后面下标会和 cs.Enemies 错位。
+		state.Enemies = new List<EnemyInfo>();
+		for (int i = 0; i < cs.Enemies.Count; i++)
 		{
-			if (!enemy.IsAlive)
+			Creature enemy = cs.Enemies[i];
+			Enemies.Add(enemy);
+			if (enemy == null)
 			{
+				state.Enemies.Add(new EnemyInfo { Index = i, Name = "<null>", Alive = false });
 				continue;
 			}
-			int idx = Enemies.Count;
-			Enemies.Add(enemy);
-			state.Enemies ??= new List<EnemyInfo>();
 			state.Enemies.Add(new EnemyInfo
 			{
-				Index = idx,
+				Index = i,
 				Id = enemy.ModelId.Entry,
 				Name = enemy.Name,
 				Hp = enemy.CurrentHp,
 				MaxHp = enemy.MaxHp,
 				Block = enemy.Block,
+				Alive = enemy.IsAlive,
 				Intent = DescribeIntent(enemy),
 			});
 		}
+		int aliveCount = 0;
+		foreach (Creature e in Enemies) if (e != null && e.IsAlive) aliveCount++;
+		probe["enemies"] = Enemies.Count;
+		probe["enemies_alive"] = aliveCount;
 
 		PlayerCombatState? pcs = p.PlayerCombatState;
 		if (pcs == null)
@@ -448,9 +701,10 @@ public static class RunCollector
 			if (playable)
 			{
 				bool needsTarget = card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly;
-				if (needsTarget && Enemies.Count == 1)
+				int onlyAlive = OnlyAliveIndex();
+				if (needsTarget && onlyAlive >= 0)
 				{
-					state.AvailableActions.Add(ActionSpec.Make("play_card", ("index", idx), ("target", 0)));
+					state.AvailableActions.Add(ActionSpec.Make("play_card", ("index", idx), ("target", onlyAlive)));
 				}
 				else
 				{
@@ -472,7 +726,19 @@ public static class RunCollector
 			state.AvailableActions.Add(ActionSpec.Make("end_turn"));
 		}
 		probe["hand"] = HandCards.Count;
-		probe["enemies"] = Enemies.Count;
+	}
+
+	/// <summary>场上只剩一个活敌时返回它在 cs.Enemies 里的下标，否则 -1。</summary>
+	public static int OnlyAliveIndex()
+	{
+		int found = -1;
+		for (int i = 0; i < Enemies.Count; i++)
+		{
+			if (Enemies[i] == null || !Enemies[i].IsAlive) continue;
+			if (found >= 0) return -1;
+			found = i;
+		}
+		return found;
 	}
 
 	private static string? DescribeIntent(Creature enemy)

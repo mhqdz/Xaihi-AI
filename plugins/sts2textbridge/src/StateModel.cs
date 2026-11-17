@@ -126,6 +126,7 @@ public sealed class EnemyInfo
 	[JsonPropertyName("hp")] public int Hp { get; set; }
 	[JsonPropertyName("max_hp")] public int MaxHp { get; set; }
 	[JsonPropertyName("block")] public int Block { get; set; }
+	[JsonPropertyName("alive")] public bool Alive { get; set; }
 	[JsonPropertyName("intent")] public string? Intent { get; set; }
 	[JsonPropertyName("powers")] public List<string>? Powers { get; set; }
 }
@@ -148,6 +149,7 @@ public sealed class ItemInfo
 	[JsonPropertyName("enabled")] public bool? Enabled { get; set; }
 	[JsonPropertyName("price")] public int? Price { get; set; }
 	[JsonPropertyName("kind")] public string? Kind { get; set; }
+	[JsonPropertyName("desc")] public string? Desc { get; set; }
 }
 
 public sealed class CharacterInfo

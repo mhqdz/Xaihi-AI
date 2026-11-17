@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
@@ -15,6 +17,7 @@ using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 
@@ -253,13 +256,32 @@ public static class ActionExecutor
 				ClickByIndex(RequireInt(root, "index"));
 				break;
 			case "proceed":
+			case "leave":
 				Proceed();
+				break;
+			case "buy":
+				RunCollector.BuyItem(RequireInt(root, "index"));
 				break;
 			case "modal_yes":
 				PressModal(yes: true);
 				break;
 			case "modal_no":
 				PressModal(yes: false);
+				break;
+			case "diag":
+				Diag();
+				break;
+			case "diag_enemies":
+				DiagEnemies();
+				break;
+			case "diag_click":
+				DiagClick();
+				break;
+			case "diag_proceed":
+				DiagProceed();
+				break;
+			case "diag_alpha":
+				DiagAlpha();
 				break;
 			case "dump_tree":
 			{
@@ -280,6 +302,405 @@ public static class ActionExecutor
 		}
 	}
 
+	// ── 探测：栈顶覆盖层的 alpha / 位置，判断它到底是「看得见」还是「已淡出」──────
+	private static void DiagAlpha()
+	{
+		StringBuilder sb = new StringBuilder();
+		object? stack = CallStaticByName("NOverlayStack", "Instance");
+		sb.AppendLine("ScreenCount = " + (Call(stack, "ScreenCount")?.ToString() ?? "?"));
+		object? peek = Call(stack, "Peek");
+		sb.AppendLine("peek = " + (peek?.GetType().FullName ?? "null"));
+		if (peek is CanvasItem ci)
+		{
+			sb.AppendLine("Visible          = " + ci.Visible);
+			sb.AppendLine("IsVisibleInTree  = " + ci.IsVisibleInTree());
+			sb.AppendLine("Modulate         = " + ci.Modulate + "   A=" + ci.Modulate.A);
+			sb.AppendLine("SelfModulate     = " + ci.SelfModulate + "   A=" + ci.SelfModulate.A);
+			sb.AppendLine("Color(a)         = " + ((peek as Control)?.GetThemeColor("font_color").ToString() ?? "-"));
+			sb.AppendLine("Position         = " + ((peek as Control)?.Position.ToString() ?? "-"));
+			sb.AppendLine("GlobalPosition   = " + ((peek as Control)?.GlobalPosition.ToString() ?? "-"));
+			sb.AppendLine("Size             = " + ((peek as Control)?.Size.ToString() ?? "-"));
+			if (peek is Control c2) sb.AppendLine("GlobalRect       = " + c2.GetGlobalRect() + "  VisibleRect=" + c2.GetGlobalRect().Intersection(new Rect2(0, 0, 1920, 1080)));
+			sb.AppendLine("ZIndex           = " + ci.ZIndex);
+			sb.AppendLine("ProcessMode      = " + ((Node)peek).ProcessMode);
+			// 父链上有没有人 alpha 是 0（Modulate 会沿树相乘）
+			Node? cur = peek as Node;
+			int guard = 0;
+			while (cur != null && guard++ < 8)
+			{
+				if (cur is CanvasItem pci)
+					sb.AppendLine("  chain " + cur.Name + " modulateA=" + pci.Modulate.A + " selfA=" + pci.SelfModulate.A + " visible=" + pci.Visible + " inTree=" + pci.IsVisibleInTree());
+				cur = cur.GetParent();
+			}
+			// 同一张屏上的按钮能不能点（mouseFilter / 位置）
+			Node? btn = StateCollector.FindProceed();
+			sb.AppendLine("proceed btn = " + (btn == null ? "null" : StateCollector.PathOf(btn)));
+			if (btn is Control bc)
+				sb.AppendLine("  btn rect=" + bc.GetGlobalRect() + " filter=" + bc.MouseFilter + " inTree=" + bc.IsVisibleInTree() + " modulateA=" + bc.Modulate.A + " selfA=" + bc.SelfModulate.A);
+		}
+		// 地图侧
+		List<string> maps = new List<string>();
+		Node? root = (CallStaticByName("NGame", "Instance") as Node)?.GetTree()?.Root;
+		if (root != null) FindByTypeName(root, "MapScreen", 0, 14, maps);
+		sb.AppendLine("MapScreenNodes = [" + string.Join(", ", maps) + "]");
+		// 光标底下是谁
+		Vector2 m = ((Node?)peek)?.GetViewport()?.GetMousePosition() ?? Vector2.Zero;
+		sb.AppendLine("mouse = " + m);
+		Node? hit = ((Node?)peek)?.GetViewport()?.GuiGetHoveredControl();
+		sb.AppendLine("hovered = " + (hit == null ? "null" : StateCollector.PathOf(hit)));
+		File.WriteAllText(Path.Combine(Bridge.Dir, "diag.txt"), sb.ToString());
+		ClearError();
+		Log.Info("[bridge] diag_alpha done");
+	}
+
+	// ── 探测：直接调 OnProceedButtonPressed 并把内部异常挖出来，再试 NOverlayStack 的关法 ──
+	private static void DiagProceed()
+	{
+		StringBuilder sb = new StringBuilder();
+		Node? node = StateCollector.FindProceed();
+		sb.AppendLine("BEFORE " + Snapshot());
+		if (node == null) { sb.AppendLine("no proceed node"); File.WriteAllText(Path.Combine(Bridge.Dir, "diag.txt"), sb.ToString()); return; }
+		sb.AppendLine("node = " + StateCollector.PathOf(node));
+		Node? screen = node.GetParent();
+		System.Reflection.MethodInfo? mi = screen?.GetType().GetMethod("OnProceedButtonPressed",
+			System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+			null, new[] { typeof(NButton) }, null);
+		sb.AppendLine("method = " + (mi == null ? "null" : mi.ToString()));
+		object? stack = CallStaticByName("NOverlayStack", "Instance");
+		if (mi != null && screen != null)
+		{
+			try
+			{
+				mi.Invoke(screen, new object[] { node });
+				sb.AppendLine("invoke ok");
+			}
+			catch (System.Reflection.TargetInvocationException e)
+			{
+				sb.AppendLine("INVOKE THREW: " + e.InnerException);
+			}
+			catch (Exception e)
+			{
+				sb.AppendLine("INVOKE THREW(outer): " + e);
+			}
+		}
+		sb.AppendLine("AFTER-INVOKE " + Snapshot());
+		// 覆盖层栈有哪些关法
+		if (stack != null)
+		{
+			List<string> ms = new List<string>();
+			foreach (System.Reflection.MethodInfo m in stack.GetType().GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+			{
+				if (m.IsSpecialName) continue;
+				ms.Add(m.Name + "(" + m.GetParameters().Length + ")");
+			}
+			sb.AppendLine("stack methods = " + string.Join(", ", ms));
+			object? peek = Call(stack, "Peek");
+			if (peek != null)
+			{
+				foreach (string name in new[] { "Remove", "Pop", "Hide", "Close" })
+				{
+					System.Reflection.MethodInfo? m = stack.GetType().GetMethod(name,
+						System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, new[] { peek.GetType() }, null)
+						?? stack.GetType().GetMethod(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, Type.EmptyTypes, null);
+					if (m == null) { sb.AppendLine("  " + name + ": not found"); continue; }
+					try
+					{
+						m.Invoke(stack, m.GetParameters().Length == 0 ? null : new[] { peek });
+						sb.AppendLine("  " + name + ": ok (" + m.GetParameters().Length + " args)");
+					}
+					catch (System.Reflection.TargetInvocationException e) { sb.AppendLine("  " + name + " THREW: " + e.InnerException); }
+					catch (Exception e) { sb.AppendLine("  " + name + " THREW: " + e.Message); }
+					sb.AppendLine("  after " + name + ": " + Snapshot());
+				}
+			}
+		}
+		File.WriteAllText(Path.Combine(Bridge.Dir, "diag.txt"), sb.ToString());
+		SceneTree? tree = node.GetTree();
+		if (tree != null)
+		{
+			SceneTreeTimer t = tree.CreateTimer(1.5);
+			t.Timeout += () => { try { File.WriteAllText(Path.Combine(Bridge.Dir, "diag_after.txt"), "AFTER(1.5s) " + Snapshot()); } catch { } };
+		}
+	}
+
+	// ── 探测：对「继续」按钮做一次真实模拟点击，点前点后各抓一次快照 ──────────
+	private static void DiagClick()
+	{
+		StringBuilder sb = new StringBuilder();
+		Node? node = StateCollector.FindProceed();
+		if (node == null)
+		{
+			sb.AppendLine("no proceed node found");
+			File.WriteAllText(Path.Combine(Bridge.Dir, "diag.txt"), sb.ToString());
+			return;
+		}
+		Control? ctrl = node as Control;
+		Vector2 p = ctrl != null ? ctrl.GetGlobalRect().GetCenter() : Vector2.Zero;
+		sb.AppendLine("node   = " + StateCollector.PathOf(node));
+		sb.AppendLine("type   = " + node.GetType().Name + "  (BaseButton=" + (node is BaseButton) + ", Disabled=" + ((node as BaseButton)?.Disabled.ToString() ?? "-") + ")");
+		sb.AppendLine("center = " + p);
+		if (ctrl != null)
+		{
+			sb.AppendLine("rect   = " + ctrl.GetGlobalRect() + "  mouseFilter=" + ctrl.MouseFilter + "  visibleInTree=" + ctrl.IsVisibleInTree());
+		}
+		sb.AppendLine("BEFORE " + Snapshot());
+		Viewport? vp = node.GetViewport();
+		sb.AppendLine("viewport = " + (vp?.GetType().Name ?? "null"));
+		Input.WarpMouse(p);
+		Input.ParseInputEvent(new InputEventMouseMotion { Position = p, GlobalPosition = p });
+		Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = true, Position = p, GlobalPosition = p });
+		Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = false, Position = p, GlobalPosition = p });
+		File.WriteAllText(Path.Combine(Bridge.Dir, "diag.txt"), sb.ToString());
+		Log.Info("[bridge] diag_click at " + p);
+		SceneTree? tree = node.GetTree();
+		if (tree != null)
+		{
+			SceneTreeTimer t = tree.CreateTimer(1.0);
+			t.Timeout += () =>
+			{
+				try
+				{
+					File.WriteAllText(Path.Combine(Bridge.Dir, "diag_after.txt"), "AFTER(1.0s) " + Snapshot());
+				}
+				catch (Exception e) { Log.Warn("[bridge] diag_after failed: " + e.Message); }
+			};
+		}
+	}
+
+	private static string Snapshot()
+	{
+		StringBuilder sb = new StringBuilder();
+		object? stack = CallStaticByName("NOverlayStack", "Instance");
+		sb.Append("ScreenCount=" + (Call(stack, "ScreenCount")?.ToString() ?? "?"));
+		object? peek = Call(stack, "Peek");
+		sb.Append("  peek=" + (peek?.GetType().Name ?? "null"));
+		if (peek is CanvasItem ci)
+		{
+			sb.Append("(Visible=" + ci.Visible + ",InTree=" + ci.IsVisibleInTree()
+				+ ",modA=" + ci.Modulate.A.ToString("0.###") + ",selfA=" + ci.SelfModulate.A.ToString("0.###") + ")");
+		}
+		// 地图：不靠属性名，直接在场景树里按类型名找
+		List<string> maps = new List<string>();
+		Node? scene = (CallStaticByName("NGame", "Instance") as Node);
+		Node? root = scene?.GetTree()?.Root;
+		if (root != null) FindByTypeName(root, "MapScreen", 0, 14, maps);
+		sb.Append("  MapScreenNodes=[" + string.Join(", ", maps) + "]");
+		// GlobalUi 上名字带 Map 的成员（找真名）
+		object? run = CallStatic("MegaCrit.Sts2.Core.Runs.RunManager", "Instance");
+		object? gui = Call(run, "GlobalUi");
+		sb.Append("  GlobalUi=" + (gui?.GetType().Name ?? "null"));
+		if (gui != null)
+		{
+			List<string> names = new List<string>();
+			foreach (System.Reflection.PropertyInfo pi in gui.GetType().GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+			{
+				if (pi.Name.ToLowerInvariant().Contains("map")) names.Add(pi.Name);
+			}
+			foreach (System.Reflection.FieldInfo fi in gui.GetType().GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+			{
+				if (fi.Name.ToLowerInvariant().Contains("map")) names.Add("_" + fi.Name);
+			}
+			sb.Append("  MapMembers=[" + string.Join(", ", names) + "]");
+		}
+		return sb.ToString();
+	}
+
+	private static void FindByTypeName(Node node, string needle, int depth, int maxDepth, List<string> acc)
+	{
+		if (depth > maxDepth || !GodotObject.IsInstanceValid(node)) return;
+		foreach (Node c in node.GetChildren())
+		{
+			if (!GodotObject.IsInstanceValid(c)) continue;
+			if (c.GetType().Name.Contains(needle))
+			{
+				acc.Add(c.GetType().Name + "'" + c.Name + "'" + (c is CanvasItem ci ? "(Visible=" + ci.Visible + ",InTree=" + ci.IsVisibleInTree() + ")" : ""));
+			}
+			FindByTypeName(c, needle, depth + 1, maxDepth, acc);
+		}
+	}
+
+	// ── 一次性诊断：覆盖层栈 + 地图界面（开发期用，别进运行路径）──────────
+	private static void Diag()
+	{
+		StringBuilder sb = new StringBuilder();
+		try
+		{
+			object? stack = CallStaticByName("NOverlayStack", "Instance");
+			sb.AppendLine("== OverlayStack ==");
+			DumpObj(sb, "stack", stack, 0);
+			object? peek = Call(stack, "Peek");
+			sb.AppendLine("peek type = " + (peek?.GetType().FullName ?? "null"));
+			if (peek is Node pn)
+			{
+				sb.AppendLine("peek name = " + pn.Name);
+				sb.AppendLine("peek Visible = " + (pn as CanvasItem)?.Visible);
+				sb.AppendLine("peek IsVisibleInTree = " + ((pn as CanvasItem)?.IsVisibleInTree()));
+				sb.AppendLine("peek path = " + StateCollector.PathOf(pn));
+			}
+			sb.AppendLine();
+			sb.AppendLine("== MapScreen ==");
+			object? run = CallStatic("MegaCrit.Sts2.Core.Runs.RunManager", "Instance");
+			object? globalUi = Call(run, "GlobalUi");
+			object? map = Call(globalUi, "MapScreen");
+			sb.AppendLine("map type = " + (map?.GetType().FullName ?? "null"));
+			DumpObj(sb, "map", map, 0);
+			if (map is Node mn)
+			{
+				sb.AppendLine("map Visible = " + (mn as CanvasItem)?.Visible + " IsVisibleInTree = " + ((mn as CanvasItem)?.IsVisibleInTree()));
+				List<Node> pts = new List<Node>();
+				Collect(mn, 0, 12, pts);
+				sb.AppendLine("map points found = " + pts.Count);
+				foreach (Node n in pts)
+				{
+					sb.AppendLine("-- " + StateCollector.PathOf(n));
+					DumpObj(sb, "  pt", n, 0);
+				}
+			}
+		}
+		catch (Exception e)
+		{
+			sb.AppendLine("!! " + e);
+		}
+		string path = Path.Combine(Bridge.Dir, "diag.txt");
+		File.WriteAllText(path, sb.ToString());
+		ClearError();
+		Log.Info("[bridge] diag -> " + path + " (" + sb.Length + " chars)");
+	}
+
+	// ── 临时探测：数据层里到底有没有敌人（只打印，不改采集）──────────────
+	private static void DiagEnemies()
+	{
+		StringBuilder sb = new StringBuilder();
+		const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+		try
+		{
+			object? cm = CombatManager.Instance;
+			sb.AppendLine("CombatManager.Instance = " + (cm == null ? "<null>" : cm.GetType().FullName!));
+			if (cm != null)
+			{
+				Type t = cm.GetType();
+				sb.AppendLine("-- props with \"State\" --");
+				foreach (PropertyInfo pi in t.GetProperties(F))
+				{
+					if (!pi.Name.Contains("State")) continue;
+					string v;
+					try { v = pi.GetValue(cm)?.ToString() ?? "<null>"; } catch (Exception e) { v = "!! " + e.GetType().Name + ": " + e.Message; }
+					sb.AppendLine("  prop " + pi.Name + " : " + pi.PropertyType.Name + " = " + v);
+				}
+				sb.AppendLine("-- fields with \"State\" --");
+				foreach (FieldInfo fi in t.GetFields(F))
+				{
+					if (!fi.Name.Contains("State")) continue;
+					string v;
+					try { v = fi.GetValue(cm)?.ToString() ?? "<null>"; } catch (Exception e) { v = "!! " + e.GetType().Name; }
+					sb.AppendLine("  field " + fi.Name + " : " + fi.FieldType.Name + " = " + v);
+				}
+				sb.AppendLine("-- methods with \"State\" (0 params) --");
+				foreach (MethodInfo mi in t.GetMethods(F))
+				{
+					if (!mi.Name.Contains("State") || mi.GetParameters().Length != 0) continue;
+					sb.AppendLine("  method " + mi.Name + "() -> " + mi.ReturnType.Name);
+				}
+			}
+
+			CombatState? cs = CombatManager.Instance?.DebugOnlyGetState();
+			sb.AppendLine("cs = " + (cs == null ? "<null>" : cs.GetType().FullName!));
+			if (cs != null)
+			{
+				sb.AppendLine("cs.Enemies = " + (cs.Enemies == null ? "<null>" : cs.Enemies.Count.ToString()));
+				if (cs.Enemies != null)
+				{
+					int i = 0;
+					foreach (Creature e in cs.Enemies)
+					{
+						if (e == null) { sb.AppendLine("  [" + i + "] <null>"); i++; continue; }
+						sb.AppendLine("  [" + i + "] Name=" + e.Name + " Hp=" + e.CurrentHp + "/" + e.MaxHp + " alive=" + e.IsAlive);
+						i++;
+					}
+				}
+			}
+		}
+		catch (Exception e)
+		{
+			sb.AppendLine("!! " + e);
+		}
+		string path = Path.Combine(Bridge.Dir, "diag_enemies.txt");
+		File.WriteAllText(path, sb.ToString());
+		ClearError();
+		Log.Info("[bridge] diag_enemies -> " + path);
+	}
+
+	private static void Collect(Node node, int depth, int maxDepth, List<Node> acc)
+	{
+		if (depth > maxDepth || !GodotObject.IsInstanceValid(node)) return;
+		foreach (Node c in node.GetChildren())
+		{
+			if (!GodotObject.IsInstanceValid(c)) continue;
+			if (c.GetType().Name.Contains("MapPoint")) acc.Add(c);
+			Collect(c, depth + 1, maxDepth, acc);
+		}
+	}
+
+	private static void DumpObj(StringBuilder sb, string label, object? o, int depth)
+	{
+		if (o == null) { sb.AppendLine(label + " = null"); return; }
+		Type t = o.GetType();
+		sb.AppendLine(label + " :: " + t.FullName);
+		foreach (System.Reflection.PropertyInfo pi in t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+		{
+			if (pi.GetIndexParameters().Length > 0) continue;
+			string v;
+			try { object? r = pi.GetValue(o); v = r == null ? "null" : (r is GodotObject go && !GodotObject.IsInstanceValid(go)) ? "<freed>" : r.ToString() ?? "null"; }
+			catch (Exception e) { v = "<" + e.GetType().Name + ">"; }
+			sb.AppendLine("  " + pi.Name + " = " + v);
+		}
+	}
+
+	private static object? Call(object? o, string name)
+	{
+		if (o == null) return null;
+		System.Reflection.PropertyInfo? pi = o.GetType().GetProperty(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+		if (pi != null) { try { return pi.GetValue(o); } catch { return null; } }
+		System.Reflection.MethodInfo? mi = o.GetType().GetMethod(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, Type.EmptyTypes, null);
+		if (mi != null) { try { return mi.Invoke(o, null); } catch { return null; } }
+		return null;
+	}
+
+	private static object? CallStatic(string typeName, string name)
+	{
+		Type? t = null;
+		foreach (System.Reflection.Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+		{
+			t = a.GetType(typeName);
+			if (t != null) break;
+		}
+		if (t == null) return null;
+		System.Reflection.PropertyInfo? pi = t.GetProperty(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+		if (pi != null) { try { return pi.GetValue(null); } catch { return null; } }
+		return null;
+	}
+
+	private static object? CallStaticByName(string simpleTypeName, string member)
+	{
+		Type? t = null;
+		foreach (System.Reflection.Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+		{
+			try
+			{
+				foreach (Type x in a.GetTypes())
+				{
+					if (x.Name == simpleTypeName) { t = x; break; }
+				}
+			}
+			catch { }
+			if (t != null) break;
+		}
+		if (t == null) return null;
+		System.Reflection.PropertyInfo? pi = t.GetProperty(member, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+		if (pi != null) { try { return pi.GetValue(null); } catch { return null; } }
+		return null;
+	}
+
 	/// <summary>奖励/结算界面上的「继续」。</summary>
 	private static void Proceed()
 	{
@@ -291,7 +712,31 @@ public static class ActionExecutor
 		}
 		ClearError();
 		Log.Info("[bridge] proceed -> " + StateCollector.PathOf(btn));
+		Node? screen = btn.GetParent();
 		StateCollector.PressNode(btn);
+		// OnProceedButtonPressed 在某些状态下不会把自己从覆盖层栈里摘掉（2026-11-17 实测：
+		// 调用成功、无异常、ScreenCount 仍是 1，地图已经可见但帘子还盖着）。
+		// 兜底：0.6s 后如果同一张屏还在栈顶，就直接 Remove 掉。
+		if (screen != null && btn.GetTree() != null)
+		{
+			SceneTreeTimer t = btn.GetTree().CreateTimer(0.6);
+			t.Timeout += () =>
+			{
+				try
+				{
+					if (!GodotObject.IsInstanceValid(screen)) return;
+					object? stack = CallStaticByName("NOverlayStack", "Instance");
+					object? peek = Call(stack, "Peek");
+					if (peek == null || !ReferenceEquals(peek, screen)) return;
+					System.Reflection.MethodInfo? rm = stack!.GetType().GetMethod("Remove",
+						System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, new[] { peek.GetType() }, null);
+					if (rm == null) { Log.Warn("[bridge] fallback remove: no Remove method"); return; }
+					rm.Invoke(stack, new[] { peek });
+					Log.Warn("[bridge] proceed fallback: overlay still up, removed " + screen.Name);
+				}
+				catch (Exception e) { Log.Warn("[bridge] proceed fallback failed: " + e.Message); }
+			};
+		}
 	}
 
 	private static void MoveOnMap(int index)
@@ -325,17 +770,23 @@ public static class ActionExecutor
 		{
 			if (targetIndex >= RunCollector.Enemies.Count)
 			{
-				Fail($"enemy {targetIndex} is not on screen (0..{RunCollector.Enemies.Count - 1})");
+				Fail($"enemy {targetIndex} is not in cs.Enemies (0..{RunCollector.Enemies.Count - 1})");
 				return;
 			}
 			target = RunCollector.Enemies[targetIndex];
+			if (target == null || !target.IsAlive)
+			{
+				Fail($"enemy {targetIndex} is already dead; target index is the cs.Enemies index");
+				return;
+			}
 		}
 		bool needsTarget = card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly;
 		if (needsTarget && target == null)
 		{
-			if (RunCollector.Enemies.Count == 1)
+			int onlyAlive = RunCollector.OnlyAliveIndex();
+			if (onlyAlive >= 0)
 			{
-				target = RunCollector.Enemies[0];
+				target = RunCollector.Enemies[onlyAlive];
 			}
 			else
 			{
@@ -463,7 +914,7 @@ public static class ActionExecutor
 		return -1;
 	}
 
-	private static void Fail(string message)
+	public static void Fail(string message)
 	{
 		LastError = message;
 		Log.Warn("[bridge] rejected action: " + message);

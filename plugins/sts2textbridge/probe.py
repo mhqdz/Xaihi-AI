@@ -32,6 +32,7 @@ def show(d):
     if d.get("enemies"):
         for e in d["enemies"]:
             print(f"  enemy[{e['index']}] {e['name']} {e['hp']}/{e['max_hp']} "
+                  f"{'' if e.get('alive', True) else 'DEAD '}"
                   f"block={e.get('block')} intent={e.get('intent')}")
     for key in ("items", "characters", "rewards", "nodes", "options", "cards"):
         if d.get(key):
