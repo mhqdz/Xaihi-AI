@@ -63,6 +63,9 @@ public static class Bridge
 
 	public static string ShotsDir = "";
 
+	/// <summary>调试开关：STS2_BRIDGE_GOD=1 时每场战斗给玩家 +999 力量/+999 敏捷（只为跑通流程，不是玩法）。</summary>
+	public static bool God { get; private set; }
+
 	public static void Start()
 	{
 		if (_started)
@@ -78,6 +81,11 @@ public static class Bridge
 		StatePath = Path.Combine(Dir, "state.json");
 		ActionPath = Path.Combine(Dir, "action.json");
 		Shots = System.Environment.GetEnvironmentVariable("STS2_BRIDGE_SHOTS") != "0";
+		God = System.Environment.GetEnvironmentVariable("STS2_BRIDGE_GOD") == "1";
+		if (God)
+		{
+			Log.Warn("[bridge] GOD MODE ON (+999 str/dex per combat)");
+		}
 		ShotsDir = Path.Combine(Dir, "shots");
 		if (Shots)
 		{

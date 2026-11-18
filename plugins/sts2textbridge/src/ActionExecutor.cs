@@ -15,6 +15,8 @@ using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
+using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Combat;
@@ -240,7 +242,27 @@ public static class ActionExecutor
 				break;
 			case "cancel":
 			{
-				// 手牌被「拿着」时唯一的出路：把那张牌放回手里。
+				// 先看是不是压着一层「看牌/预览」面板：那种情况下 hand.CurrentMode != Play，
+				// 光 CancelAllCardPlay() 关不掉，得点 OutsideClickHitbox 把它收起来。
+				bool found = false;
+				foreach (NClickableControl cc in StateCollector.CollectClickablesOfCurrentScene())
+				{
+					if (!GodotObject.IsInstanceValid(cc)) continue;
+					string nm = cc.Name.ToString();
+					if (nm.Contains("OutsideClick"))
+					{
+						ClearError();
+						// ForceClick 对这类遮罩不生效，走真实输入（和玩家点空白处一样）
+						Log.Info("[bridge] cancel -> real click on " + nm);
+						Vector2 pos = cc.GetGlobalRect().GetCenter();
+						Input.WarpMouse(pos);
+						Input.ParseInputEvent(new InputEventMouseMotion { Position = pos, GlobalPosition = pos });
+						Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = true, Position = pos, GlobalPosition = pos });
+						Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = false, Position = pos, GlobalPosition = pos });
+						found = true;
+						break;
+					}
+				}
 				NPlayerHand? hand = RunCollector.PlayerHand();
 				if (hand == null)
 				{
@@ -252,6 +274,34 @@ public static class ActionExecutor
 				hand.CancelAllCardPlay();
 				break;
 			}
+			case "use_potion":
+			{
+				int potionIdx = RequireInt(root, "potion", "index");
+				int tgt = -1;
+				if (root.TryGetProperty("target", out JsonElement te) && te.ValueKind == JsonValueKind.Number && te.TryGetInt32(out int tv)) tgt = tv;
+				RunCollector.UsePotion(potionIdx, tgt);
+				break;
+			}
+			case "diag_ascension":
+				DiagAscension();
+				break;
+			case "set_ascension":
+			{
+				int lv = RequireInt(root, "level", "index");
+				NAscensionPanel? panel = StateCollector.AscensionPanel();
+				if (panel == null)
+				{
+					Fail("ascension panel is not on screen");
+					break;
+				}
+				ClearError();
+				Log.Info($"[bridge] set_ascension {lv} (was {panel.Ascension})");
+				panel.SetAscensionLevel(lv);
+				break;
+			}
+			case "select_card":
+				SelectCard(RequireInt(root, "index"));
+				break;
 			case "take_reward":
 				ClickByIndex(RequireInt(root, "index"));
 				break;
@@ -780,6 +830,104 @@ public static class ActionExecutor
 		}
 	}
 
+	// ── 临时探测：面板 Ascension / lobby.Ascension / _isBeginningRun ──────────
+	private static void DiagAscension()
+	{
+		StringBuilder sb = new StringBuilder();
+		try
+		{
+			NAscensionPanel? panel = StateCollector.AscensionPanel();
+			sb.AppendLine("panel.Ascension = " + (panel == null ? "<null>" : panel.Ascension.ToString()));
+			object? lobby = null;
+			try
+			{
+				Control? scene = NGame.Instance?.RootSceneContainer?.CurrentScene;
+				if (scene is NMainMenu menu)
+				{
+					Node? sub = menu.SubmenuStack?.Peek();
+					if (sub != null)
+					{
+						var pi = sub.GetType().GetProperty("Lobby");
+						if (pi != null) lobby = pi.GetValue(sub);
+					}
+				}
+			}
+			catch (Exception e) { sb.AppendLine("lobby lookup !! " + e.Message); }
+			sb.AppendLine("lobby = " + (lobby?.GetType().Name ?? "<null>"));
+			if (lobby != null)
+			{
+				var ap = lobby.GetType().GetProperty("Ascension");
+				sb.AppendLine("lobby.Ascension = " + (ap?.GetValue(lobby)?.ToString() ?? "?"));
+				var mp = lobby.GetType().GetProperty("MaxAscension");
+				sb.AppendLine("lobby.MaxAscension = " + (mp?.GetValue(lobby)?.ToString() ?? "?"));
+				var fi = lobby.GetType().GetField("_isBeginningRun", BindingFlags.Instance | BindingFlags.NonPublic);
+				sb.AppendLine("_isBeginningRun = " + (fi == null ? "<no field>" : (fi.GetValue(lobby)?.ToString() ?? "null")));
+			}
+		}
+		catch (Exception e) { sb.AppendLine("!! " + e); }
+		string path = Path.Combine(Bridge.Dir, "diag_ascension.txt");
+		File.WriteAllText(path, sb.ToString());
+		ClearError();
+		Log.Info("[bridge] diag_ascension -> " + path);
+	}
+
+	/// <summary>
+	/// 牌组选牌界面选一张牌。走 NCardHolder 的 Pressed 信号 —— 和玩家点一下那张牌等价，
+	/// 不模拟坐标、不依赖布局。
+	/// </summary>
+	private static void SelectCard(int index)
+	{
+		List<NCardHolder> holders = RunCollector.SelectionHolders;
+		if (index < 0 || index >= holders.Count)
+		{
+			Fail($"card {index} is not selectable (0..{holders.Count - 1})");
+			return;
+		}
+		NCardHolder holder = holders[index];
+		if (!GodotObject.IsInstanceValid(holder))
+		{
+			Fail($"card {index} holder is freed");
+			return;
+		}
+		ClearError();
+		CardModel? model = null;
+		try { model = holder.CardModel; } catch (Exception) { }
+		Log.Info($"[bridge] select_card {index} ({holder.GetType().Name}) model={model?.Id.Entry ?? "?"}");
+		try
+		{
+			// 先试屏幕自己的入口 OnCardClicked(CardModel)（protected，反射拿）——
+			// 这是 UI 真正调用的那个方法，选中即生效的屏幕（NSimpleCardSelectScreen 等）
+			// 走这条才关得掉。找不到再退回发 Pressed 信号。
+			Node? cur = holder.GetParent();
+			int guard = 0;
+			bool done = false;
+			while (cur != null && guard++ < 8 && !done)
+			{
+				MethodInfo? mi = cur.GetType().GetMethod("OnCardClicked",
+					BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+					null, new[] { typeof(CardModel) }, null);
+				if (mi != null && model != null)
+				{
+					Log.Info("[bridge] select_card -> " + cur.GetType().Name + ".OnCardClicked");
+					mi.Invoke(cur, new object[] { model });
+					done = true;
+					break;
+				}
+				cur = cur.GetParent();
+			}
+			if (!done)
+			{
+				holder.EmitSignal(NCardHolder.SignalName.Pressed, holder);
+				Log.Info("[bridge] select_card -> EmitSignal Pressed");
+			}
+		}
+		catch (Exception e)
+		{
+			Fail("select_card failed: " + e.Message);
+			Log.Warn("[bridge] select_card failed: " + e);
+		}
+	}
+
 	private static void MoveOnMap(int index)
 	{
 		if (index < 0 || index >= RunCollector.TravelablePoints.Count)
@@ -854,9 +1002,33 @@ public static class ActionExecutor
 		string entry = card.Id.Entry;
 		try
 		{
-			await card.SpendResources();
-			await CardCmd.AutoPlay(new BlockingPlayerChoiceContext(), card, target, AutoPlayType.Default, skipXCapture: true);
-			Log.Info($"[bridge] play_card {entry} resolved");
+			// 走 TryManualPlay（手牌 holder 那条路），不用 CardCmd.AutoPlay。
+			// 原因：ActionExecutor 每跑完一个入队的 GameAction 都会 CheckWinCondition()，
+			// AutoPlay 不入队 → 敌人死光也没人检查 → 战斗永远不结束（2026-11-18 实测 40 秒不弹奖励）。
+			SceneTree? tree = Engine.GetMainLoop() as SceneTree;
+			double t0 = Time.GetTicksMsec();
+			while (tree != null && Time.GetTicksMsec() - t0 < 2000)
+			{
+				NPlayerHand? hand = RunCollector.PlayerHand();
+				int holders = 0;
+				try { holders = hand?.ActiveHolders?.Count ?? 0; } catch (Exception) { holders = 0; }
+				int cards = RunCollector.HandCards.Count;
+				if (hand != null && holders == cards && cards > 0)
+				{
+					break;
+				}
+				await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+			}
+			NPlayerHand? h2 = RunCollector.PlayerHand();
+			int hc = 0;
+			try { hc = h2?.ActiveHolders?.Count ?? 0; } catch (Exception) { hc = 0; }
+			Log.Info($"[bridge] play_card {entry} holders={hc} hand={RunCollector.HandCards.Count}");
+			bool ok = card.TryManualPlay(target);
+			Log.Info($"[bridge] play_card {entry} TryManualPlay -> {ok}");
+			if (!ok)
+			{
+				LastError = "TryManualPlay refused " + entry;
+			}
 		}
 		catch (Exception e)
 		{

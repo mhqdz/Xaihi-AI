@@ -5,13 +5,18 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Godot;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
@@ -41,6 +46,57 @@ public static class RunCollector
 	public static NClickableControl? SkipButton { get; private set; }
 
 	/// <summary>卡牌三选一：牌在 NCardHolder 里，点的是 holder 的 Pressed 信号，不是那个 Hitbox。</summary>
+	/// <summary>牌组选牌界面的 holder 列表，顺序和 state.cards 的 index 一致。</summary>
+	public static List<NCardHolder> SelectionHolders { get; } = new List<NCardHolder>();
+
+	/// <summary>
+	/// 牌组选牌那一族：变形/附魔/升级/移除/选牌/选包。
+	/// 这些屏幕里的牌是 NCard（不是 NClickableControl），所以 clickables 收不到，
+	/// 只能枚举 NCardHolder，动作走 NCardHolder 的 Pressed 信号（等价玩家点一下）。
+	/// </summary>
+	private static bool IsDeckSelection(Node overlay)
+	{
+		string n = overlay.GetType().Name;
+		foreach (string key in new[] { "DeckTransform", "DeckEnchant", "DeckUpgrade", "DeckCardSelect", "ChooseACard", "ChooseABundle", "CardSelect" })
+		{
+			if (n.Contains(key)) return true;
+		}
+		return false;
+	}
+
+	private static void FillDeckSelection(BridgeState state, Node overlay, Dictionary<string, object?> probe)
+	{
+		SelectionHolders.Clear();
+		state.Cards = new List<SelectCardInfo>();
+		foreach (NCardHolder holder in FindAll<NCardHolder>(overlay))
+		{
+			if (!StateCollector.Alive(holder) || !holder.IsInsideTree())
+			{
+				continue;
+			}
+			CardModel? model = null;
+			try { model = holder.CardModel; } catch (Exception) { }
+			if (model == null)
+			{
+				continue;
+			}
+			int idx = SelectionHolders.Count;
+			SelectionHolders.Add(holder);
+			bool up = false;
+			try { up = model.IsUpgraded; } catch (Exception) { }
+			state.Cards.Add(new SelectCardInfo
+			{
+				Index = idx,
+				Id = model.Id.Entry,
+				Name = StateCollector.SafeText(model.TitleLocString),
+				Upgraded = up,
+			});
+			state.AvailableActions.Add(ActionSpec.Make("select_card", ("index", idx)));
+		}
+		probe["selection_holders"] = SelectionHolders.Count;
+		state.Prompt = SelectionHolders.Count > 0 ? "选择一张牌（select_card <index>）" : "选牌界面没有可选的牌";
+	}
+
 	private static void FillCardReward(BridgeState state, NCardRewardSelectionScreen screen)
 	{
 		RewardHolders.Clear();
@@ -164,6 +220,7 @@ public static class RunCollector
 		{
 			state.Floor = rs.TotalFloor;
 			probe["floor"] = rs.TotalFloor;
+			try { state.Ascension = rs.AscensionLevel; } catch (Exception) { }
 			probe["act_floor"] = rs.ActFloor;
 			probe["act"] = rs.CurrentActIndex + 1;
 		}
@@ -183,6 +240,12 @@ public static class RunCollector
 			{
 				state.Scene = "card_reward";
 				FillCardReward(state, cardScreen);
+				return true;
+			}
+			if (IsDeckSelection(overlay))
+			{
+				state.Scene = "card_select";
+				FillDeckSelection(state, overlay, probe);
 				return true;
 			}
 			if (overlay is NRewardsScreen)
@@ -213,6 +276,24 @@ public static class RunCollector
 		{
 			state.Scene = "combat";
 			FillCombat(state, probe);
+			// 敌人清空到奖励界面弹出之间有一段空窗：CombatManager 还没走完结算，
+			// IsInProgress 可能还是 true，但 cs 里已经没有活着的敌人了。
+			// 这时别报 combat（agent 会对着空场一直 end_turn），直接按结算中处理。
+			// 注意：CombatManager 上没有 IsOver，只有 IsInProgress / IsEnding / IsOverOrEnding。
+			int aliveNow = CountAliveEnemies();
+			probe["enemies_alive_now"] = aliveNow;
+			if (aliveNow == 0 && (CombatManager.Instance.IsOverOrEnding || CombatManager.Instance.IsEnding))
+			{
+				// 敌人全死但界面还在战斗里：正常游戏里这一步是自动的——
+				// ActionExecutor 每跑完一个入队 GameAction 都会 CheckWinCondition()。
+				// 之前用 CardCmd.AutoPlay 出牌不入队，所以没人检查，才会卡住；
+				// 改成 TryManualPlay 之后这条路应该自己收尾，这里只是把空窗期如实报出来，
+				// 不发任何会推动游戏的动作（只给 wait），让 agent 看到真实情况。
+				state.Prompt = "结算中";
+				state.AvailableActions.Clear();
+				state.AvailableActions.Add(ActionSpec.Make("wait"));
+				probe["combat_settling"] = true;
+			}
 			return true;
 		}
 
@@ -547,39 +628,94 @@ public static class RunCollector
 			info.Energy = pcs.Energy;
 			info.MaxEnergy = pcs.MaxEnergy;
 		}
-		if (c.Powers.Count > 0)
-		{
-			info.Powers = c.Powers.Select(x => SafeName(x)).ToList();
-		}
+		info.Powers = PowerList(c.Powers);
 		state.Player = info;
 
 		if (p.Relics.Count > 0)
 		{
-			state.Relics = p.Relics.Select(r => StateCollector.SafeText(r.Title)).ToList();
+			state.Relics = new List<RelicInfo>();
+			for (int i = 0; i < p.Relics.Count; i++)
+			{
+				RelicModel r = p.Relics[i];
+				if (r == null) continue;
+				state.Relics.Add(new RelicInfo
+				{
+					Index = i,
+					Id = r.Id.Entry,
+					Name = LocOr(StateCollector.SafeText(r.Title), r.Id.Entry),
+					Description = SafeDesc(() => r.DynamicDescription),
+					Amount = SafeInt(() => r.DisplayAmount),
+				});
+			}
 		}
 		if (p.Potions.Any())
 		{
-			state.Potions = p.Potions.Select((potion, i) => new PotionInfo
+			bool globalOk = p.CanUseOrRemovePotions;
+			bool locked = true;
+			try { locked = RunManager.Instance != null && RunManager.Instance.IsPotionUseLocked; } catch (Exception) { locked = false; }
+			state.Potions = new List<PotionInfo>();
+			int pi = 0;
+			foreach (PotionModel potion in p.Potions)
 			{
-				Index = i,
-				Id = potion.Id.Entry,
-				Name = StateCollector.SafeText(potion.Title),
-				Usable = p.CanUseOrRemovePotions,
-			}).ToList();
+				if (potion == null) { pi++; continue; }
+				string tt = "";
+				try { tt = potion.TargetType.ToString(); } catch (Exception) { }
+				state.Potions.Add(new PotionInfo
+				{
+					Index = pi,
+					Id = potion.Id.Entry,
+					Name = LocOr(StateCollector.SafeText(potion.Title), potion.Id.Entry),
+					Description = SafeDesc(() => potion.DynamicDescription),
+					TargetType = tt,
+					CanUse = globalOk && !locked,
+				});
+				pi++;
+			}
 		}
 	}
 
-	private static string SafeName(PowerModel power)
+	/// <summary>状态列表：名字 + 层数 + 说明。</summary>
+	private static List<PowerInfo> PowerList(IReadOnlyList<PowerModel> powers)
+	{
+		List<PowerInfo> list = new List<PowerInfo>();
+		if (powers == null) return list;
+		foreach (PowerModel power in powers)
+		{
+			if (power == null) continue;
+			list.Add(new PowerInfo
+			{
+				Id = power.Id.Entry,
+				Name = LocOr(StateCollector.SafeText(power.Title), power.Id.Entry),
+				Amount = SafeInt(() => power.Amount),
+				Description = SafeDesc(() => power.Description),
+			});
+		}
+		return list;
+	}
+
+	private static string LocOr(string text, string fallback)
+	{
+		return string.IsNullOrWhiteSpace(text) ? fallback : text;
+	}
+
+	private static string? SafeDesc(Func<LocString> get)
 	{
 		try
 		{
-			string text = StateCollector.SafeText(power.Title);
-			return string.IsNullOrWhiteSpace(text) ? power.Id.Entry : text;
+			LocString loc = get();
+			if (loc == null) return null;
+			string s = loc.GetFormattedText();
+			return string.IsNullOrWhiteSpace(s) ? null : s;
 		}
 		catch (Exception)
 		{
-			return power.Id.Entry;
+			return null;
 		}
+	}
+
+	private static int SafeInt(Func<int> get)
+	{
+		try { return get(); } catch (Exception) { return 0; }
 	}
 
 	private static void FillMap(BridgeState state, Dictionary<string, object?> probe)
@@ -622,10 +758,69 @@ public static class RunCollector
 		state.Prompt = TravelablePoints.Count > 0 ? "选一条路" : "地图上暂时没有可走的点";
 	}
 
+	/// <summary>调试用：给玩家上 999 力量 + 999 敏捷（每场战斗一次）。</summary>
+	private static async Task ApplyGodPowers()
+	{
+		try
+		{
+			await Task.Delay(80);
+			Player? p = LocalPlayer();
+			if (p == null) return;
+			await PowerCmd.Apply<StrengthPower>(new BlockingPlayerChoiceContext(), p.Creature, 999m, null, null);
+			await PowerCmd.Apply<DexterityPower>(new BlockingPlayerChoiceContext(), p.Creature, 999m, null, null);
+			Log.Warn("[bridge] GOD: str/dex applied");
+		}
+		catch (Exception e)
+		{
+			Log.Error("[bridge] GOD apply failed: " + e);
+		}
+	}
+
+	/// <summary>数据层里还活着的敌人数量（cs.Enemies 里 IsAlive 的个数）。</summary>
+	private static int CountAliveEnemies()
+	{
+		try
+		{
+			CombatState? cs = CombatManager.Instance?.DebugOnlyGetState();
+			if (cs == null) return 0;
+			int n = 0;
+			foreach (Creature e in cs.Enemies)
+			{
+				if (e != null && e.IsAlive) n++;
+			}
+			return n;
+		}
+		catch (Exception)
+		{
+			return 0;
+		}
+	}
+
+	private static string _godCombatKey = "";
+
 	private static void FillCombat(BridgeState state, Dictionary<string, object?> probe)
 	{
 		HandCards.Clear();
 		Enemies.Clear();
+
+		if (Bridge.God)
+		{
+			probe["god"] = true;
+			try
+			{
+				string key = CombatManager.Instance?.CurrentCombatId?.ToString() ?? "";
+				if (key.Length > 0 && key != _godCombatKey)
+				{
+					_godCombatKey = key;
+					Log.Warn("[bridge] GOD: applying +999 str/dex for combat " + key);
+					TaskHelper.RunSafely(ApplyGodPowers());
+				}
+			}
+			catch (Exception e)
+			{
+				probe["god_error"] = e.Message;
+			}
+		}
 
 		CombatState? cs = CombatManager.Instance?.DebugOnlyGetState();
 		Player? p = LocalPlayer();
@@ -657,6 +852,7 @@ public static class RunCollector
 				MaxHp = enemy.MaxHp,
 				Block = enemy.Block,
 				Alive = enemy.IsAlive,
+				Powers = PowerList(enemy.Powers),
 				Intent = DescribeIntent(enemy),
 			});
 		}
@@ -725,6 +921,38 @@ public static class RunCollector
 		{
 			state.AvailableActions.Add(ActionSpec.Make("end_turn"));
 		}
+		// 药水：战斗中能用就列出来（agent 自己决定什么时候喝）
+		PotionModels.Clear();
+		try
+		{
+			Player? pl = LocalPlayer();
+			if (pl != null && pl.CanUseOrRemovePotions)
+			{
+				int pi = 0;
+				foreach (PotionModel pm in pl.Potions)
+				{
+					if (pm == null) { pi++; continue; }
+					int idx = PotionModels.Count;
+					PotionModels.Add(pm);
+					bool needsTarget = pm.TargetType == TargetType.AnyEnemy;
+					if (needsTarget)
+					{
+						int only = OnlyAliveIndex();
+						if (only >= 0) state.AvailableActions.Add(ActionSpec.Make("use_potion", ("potion", idx), ("target", only)));
+					}
+					else
+					{
+						state.AvailableActions.Add(ActionSpec.Make("use_potion", ("potion", idx)));
+					}
+					pi++;
+				}
+				probe["potions_usable"] = PotionModels.Count;
+			}
+		}
+		catch (Exception e)
+		{
+			probe["potion_error"] = e.Message;
+		}
 		probe["hand"] = HandCards.Count;
 	}
 
@@ -741,6 +969,10 @@ public static class RunCollector
 		return found;
 	}
 
+	/// <summary>
+	/// 意图 + 伤害数值。之前只输出类型名（SingleAttack），agent 算不出威胁，
+	/// 防御判断形同虚设。AttackIntent 有 GetTotalDamage(targets, self)，直接拿来用。
+	/// </summary>
 	private static string? DescribeIntent(Creature enemy)
 	{
 		MonsterModel? monster = enemy.Monster;
@@ -751,10 +983,37 @@ public static class RunCollector
 		try
 		{
 			List<string> parts = new List<string>();
+			List<Creature> targets = new List<Creature>();
+			Player? me = LocalPlayer();
+			if (me != null) targets.Add(me.Creature);
 			foreach (var intent in monster.NextMove.Intents)
 			{
 				string name = intent.GetType().Name.Replace("Intent", "");
-				parts.Add(name);
+				int dmg = 0;
+				int repeats = 1;
+				try
+				{
+					System.Reflection.MethodInfo? mi = intent.GetType().GetMethod("GetTotalDamage",
+						new[] { typeof(IEnumerable<Creature>), typeof(Creature) });
+					if (mi != null)
+					{
+						object? r = mi.Invoke(intent, new object[] { targets, enemy });
+						if (r is int v) dmg = v;
+					}
+					System.Reflection.PropertyInfo? rp = intent.GetType().GetProperty("Repeats");
+					if (rp != null && rp.GetValue(intent) is int rep && rep > 0) repeats = rep;
+				}
+				catch (Exception)
+				{
+				}
+				if (dmg > 0)
+				{
+					parts.Add(repeats > 1 ? name + " " + dmg + "x" + repeats : name + " " + dmg);
+				}
+				else
+				{
+					parts.Add(name);
+				}
 			}
 			if (parts.Count == 0)
 			{
@@ -806,6 +1065,75 @@ public static class RunCollector
 			return null;
 		}
 		return button;
+	}
+
+	/// <summary>药水槽里可用的药水（顺序和 state.potions 的 index 一致）。</summary>
+	public static List<PotionModel> PotionModels { get; } = new List<PotionModel>();
+
+	/// <summary>
+	/// 用掉第 index 瓶药水。走 PotionModel.EnqueueManualUse —— 和玩家点药水是同一个入口
+	/// （它自己入队 GameAction，所以战斗结算检查也会正常跑）。
+	/// </summary>
+	public static void UsePotion(int index, int targetIndex)
+	{
+		Player? p = LocalPlayer();
+		if (p == null)
+		{
+			ActionExecutor.Fail("no local player");
+			return;
+		}
+		List<PotionModel> list = new List<PotionModel>();
+		try
+		{
+			foreach (PotionModel m in p.Potions) list.Add(m);
+		}
+		catch (Exception e)
+		{
+			ActionExecutor.Fail("cannot read potions: " + e.Message);
+			return;
+		}
+		if (index < 0 || index >= list.Count)
+		{
+			ActionExecutor.Fail("potion " + index + " not found (0.." + (list.Count - 1) + ")");
+			return;
+		}
+		PotionModel potion = list[index];
+		Creature? target = null;
+		try
+		{
+			// 目标规则：AnyEnemy → 敌人；Self → 自己；其它 → null
+			TargetType tt = potion.TargetType;
+			if (tt == TargetType.AnyEnemy)
+			{
+				if (targetIndex >= 0 && targetIndex < Enemies.Count) target = Enemies[targetIndex];
+				else
+				{
+					int only = OnlyAliveIndex();
+					if (only >= 0) target = Enemies[only];
+				}
+				if (target == null)
+				{
+					ActionExecutor.Fail("this potion needs an enemy target");
+					return;
+				}
+			}
+			else if (tt == TargetType.Self)
+			{
+				target = potion.Owner?.Creature;
+			}
+			else if (targetIndex >= 0 && targetIndex < Enemies.Count)
+			{
+				target = Enemies[targetIndex];
+			}
+			ActionExecutor.ClearError();
+			Log.Info("[bridge] use_potion " + index + " (" + potion.Id.Entry + ") target=" + (target?.Name ?? "-"));
+			potion.EnqueueManualUse(target);
+		}
+		catch (Exception e)
+		{
+			ActionExecutor.Fail("use_potion failed: " + e.Message);
+			Log.Warn("[bridge] use_potion failed: " + e);
+		}
 	}
 
 	private static void FillRewards(BridgeState state)

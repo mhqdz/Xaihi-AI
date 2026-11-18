@@ -510,6 +510,34 @@ public static class StateCollector
 		}
 	}
 
+	/// <summary>选人界面上的进阶面板（找不到返回 null）。</summary>
+	public static NAscensionPanel? AscensionPanel()
+	{
+		Control? scene = NGame.Instance?.RootSceneContainer?.CurrentScene;
+		if (scene is NMainMenu menu)
+		{
+			Node? sub = menu.SubmenuStack?.Peek();
+			if (sub != null)
+			{
+				foreach (NAscensionPanel p in FindAllOf<NAscensionPanel>(sub))
+				{
+					if (Alive(p)) return p;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static IEnumerable<T> FindAllOf<T>(Node node) where T : Node
+	{
+		foreach (Node child in node.GetChildren())
+		{
+			if (!GodotObject.IsInstanceValid(child)) continue;
+			if (child is T hit) yield return hit;
+			foreach (T deeper in FindAllOf<T>(child)) yield return deeper;
+		}
+	}
+
 	private static void FillCharSelect(BridgeState state, List<NClickableControl> clicks)
 	{
 		state.Characters = new List<CharacterInfo>();
@@ -541,6 +569,19 @@ public static class StateCollector
 			CharButtons.Add(button);
 		}
 
+		// 进阶等级：找 NAscensionPanel，读当前值；A0 才是通关验证该打的难度
+		try
+		{
+			NAscensionPanel? panel = AscensionPanel();
+			if (panel != null)
+			{
+				state.Ascension = panel.Ascension;
+				state.AvailableActions.Add(ActionSpec.Make("set_ascension", ("level", 0)));
+			}
+		}
+		catch (Exception)
+		{
+		}
 		if (FindStartButtonIndex(clicks) >= 0)
 		{
 			state.AvailableActions.Add(ActionSpec.Make("start_run"));

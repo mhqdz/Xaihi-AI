@@ -22,6 +22,10 @@ public sealed class BridgeState
 	[JsonPropertyName("floor")]
 	public int? Floor { get; set; }
 
+	/// <summary>本局进阶等级（0 = A0）。选人界面和局内都尽量填。</summary>
+	[JsonPropertyName("ascension")]
+	public int? Ascension { get; set; }
+
 	[JsonPropertyName("player")]
 	public PlayerInfo? Player { get; set; }
 
@@ -32,7 +36,7 @@ public sealed class BridgeState
 	public List<EnemyInfo>? Enemies { get; set; }
 
 	[JsonPropertyName("relics")]
-	public List<string>? Relics { get; set; }
+	public List<RelicInfo>? Relics { get; set; }
 
 	[JsonPropertyName("potions")]
 	public List<PotionInfo>? Potions { get; set; }
@@ -104,7 +108,7 @@ public sealed class PlayerInfo
 	[JsonPropertyName("energy")] public int? Energy { get; set; }
 	[JsonPropertyName("max_energy")] public int? MaxEnergy { get; set; }
 	[JsonPropertyName("block")] public int? Block { get; set; }
-	[JsonPropertyName("powers")] public List<string>? Powers { get; set; }
+	[JsonPropertyName("powers")] public List<PowerInfo>? Powers { get; set; }
 }
 
 public sealed class CardInfo
@@ -128,7 +132,7 @@ public sealed class EnemyInfo
 	[JsonPropertyName("block")] public int Block { get; set; }
 	[JsonPropertyName("alive")] public bool Alive { get; set; }
 	[JsonPropertyName("intent")] public string? Intent { get; set; }
-	[JsonPropertyName("powers")] public List<string>? Powers { get; set; }
+	[JsonPropertyName("powers")] public List<PowerInfo>? Powers { get; set; }
 }
 
 public sealed class PotionInfo
@@ -136,7 +140,31 @@ public sealed class PotionInfo
 	[JsonPropertyName("index")] public int Index { get; set; }
 	[JsonPropertyName("id")] public string Id { get; set; } = "";
 	[JsonPropertyName("name")] public string Name { get; set; } = "";
-	[JsonPropertyName("usable")] public bool Usable { get; set; }
+	/// <summary>带数值的效果说明（PotionModel.DynamicDescription）。</summary>
+	[JsonPropertyName("description")] public string? Description { get; set; }
+	/// <summary>Self / AnyEnemy / AnyAlly / None ……决定 use_potion 要不要带 target。</summary>
+	[JsonPropertyName("target_type")] public string? TargetType { get; set; }
+	/// <summary>这一瓶此刻能不能用（不是玩家级全局开关）。</summary>
+	[JsonPropertyName("can_use")] public bool CanUse { get; set; }
+}
+
+/// <summary>遗物：名字 + 效果 + 层数。</summary>
+public sealed class RelicInfo
+{
+	[JsonPropertyName("index")] public int Index { get; set; }
+	[JsonPropertyName("id")] public string Id { get; set; } = "";
+	[JsonPropertyName("name")] public string Name { get; set; } = "";
+	[JsonPropertyName("description")] public string? Description { get; set; }
+	[JsonPropertyName("amount")] public int Amount { get; set; }
+}
+
+/// <summary>状态（buff/debuff）：名字 + 层数 + 说明。</summary>
+public sealed class PowerInfo
+{
+	[JsonPropertyName("id")] public string Id { get; set; } = "";
+	[JsonPropertyName("name")] public string Name { get; set; } = "";
+	[JsonPropertyName("amount")] public int Amount { get; set; }
+	[JsonPropertyName("description")] public string? Description { get; set; }
 }
 
 /// <summary>菜单项 / 商店条目共用。</summary>

@@ -121,20 +121,26 @@
 
 ### scene
 
-| scene | 含义 |
-|---|---|
-| `menu` | 主菜单（含子菜单） |
-| `char_select` | 选角色 / 选难度 |
-| `loading` | 过场（`NRun` 已建但房间还没就绪，或点完「出发」正在预载）——此时没有动作可做，等 |
-| `map` | 地图选路 |
-| `combat` | 战斗 |
-| `reward` | 战斗后奖励界面（`NRewardsScreen`） |
-| `card_reward` | 选牌（`NCardRewardSelectionScreen`） |
-| `game_over` | 结束，只有 `prompt`（`result` / `score` 字段已定义但还没填） |
-| `modal` | 弹窗（是/否） |
-| `overlay` | 其它覆盖层，只有 `prompt` + `click` |
-| `idle` | 没有可操作的根场景（主菜单之前、加载中） |
-| `error` | 采集本身抛异常，`probe.error` 有栈 |
+| scene | 含义 | 实测 |
+|---|---|---|
+| `menu` | 主菜单（含子菜单） | ✅ |
+| `char_select` | 选角色 / 选难度 | ✅ |
+| `loading` | 过场（`NRun` 已建但房间还没就绪，或点完「出发」正在预载）——此时没有动作可做，等 | ✅ |
+| `combat` | 战斗 | ✅ |
+| `reward` | 战斗后奖励界面（`NRewardsScreen`） | ✅ |
+| `card_reward` | 三选一（`NCardRewardSelectionScreen`） | ✅ |
+| `card_select` | 牌组选牌家族：`NDeckTransformSelectScreen` / `NDeckCardSelectScreen` / `NDeckEnchantSelectScreen` / `NDeckUpgradeSelectScreen` / `NChooseACardSelectionScreen` / `NChooseABundleSelectionScreen` / `NSimpleCardSelectScreen`。枚举 `NCardHolder`，动作 `select_card`，选完通常还要 `click` 那个 `NConfirmButton` | ✅ |
+| `map` | 地图选路 | ✅ |
+| `rest` | 篝火（休息 / 锻造） | ✅ |
+| `shop` | 商店（商品名/价格/类型，`buy` / `leave`） | ✅ |
+| `event` | 事件（选项走 `click`） | ✅ |
+| `game_over` | 结束，只有 `prompt`（`result` / `score` 字段已定义但还没填） | ✅ |
+| `modal` | 弹窗（是/否） | ✅（放弃存档确认框） |
+| `overlay` | 其它覆盖层，只有 `prompt` + `click` | ⚠️ 兜底 |
+| `idle` | 没有可操作的根场景（主菜单之前、加载中） | ✅ |
+| `error` | 采集本身抛异常，`probe.error` 有栈 | — |
+
+**还没验证的**：Boss 战、层间过渡（打完一层进下一层）、通关后的界面。
 
 ### available_actions
 
