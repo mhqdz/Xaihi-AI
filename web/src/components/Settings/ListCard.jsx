@@ -12,7 +12,7 @@ const fmtTime = (s) => {
 
 // 一级卡：常规配置 + 模型列表 + 工具列表 + 任务
 // 分组顺序：和 internal/toolmeta 的预置顺序一致；插件自造的分组排在后面
-const GROUP_ORDER = ['会话', '知识', '视图', '持久化', '扩展']
+const GROUP_ORDER = ['会话', '知识', '视图', '人格', '持久化', '待办', '扩展']
 function toolGroupsOf(list) {
   return [...new Set((list || []).map(t => t.category || '扩展'))].sort((a, b) => {
     const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b)

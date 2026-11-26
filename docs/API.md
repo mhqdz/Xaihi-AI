@@ -156,7 +156,7 @@ profile 里与上下文/生成相关的字段：
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `system` | — | 系统提示（唯一来源，前端可编辑） |
-| `tools` | `[]` | 该模型可用的工具名（内置 + 插件，统一在这里控制） |
+| `tools` | `[]` | 该模型可用的工具名；**空列表 = 无工具**，运行时还会复核分组约束 |
 | `keep_messages` | 16 | 压缩时至少保留的最近消息条数 |
 | `max_prompt_tokens` | 105000 | 输入 token 上限（内部按 ×1.8 换算字符） |
 | `context_window` | 0（自动） | 模型窗口；0 = 读上游 `meta.n_ctx` |
@@ -185,7 +185,7 @@ curl -s http://127.0.0.1:18400/api/conv/9 | jq '.messages[-1]'
 
 `GET /api/tools` → 每个工具含 `name / description / params / source / path`：
 
-内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·forget·list
+内置工具：bash / screenshot / recall / view_image / spawn_task / memory_save·supersede·forget·list / wiki_list·search·read·write·delete
 （handoff_fail 只在子会话里，不在列表里暴露）。
 
 
@@ -254,34 +254,50 @@ profile 里加一行即可：
 ### 人格读写
 
 ```
-GET /api/personas/<名字>     → {name, body}（纯文本全文）
-PUT /api/personas/<名字>     → {body}（保存；空内容/非法名字被拒）
+GET /api/personas/<名字>     → {name, body, memory, wiki, dreamer}
+PUT /api/personas/<名字>     → {body, memory?, wiki?, dreamer?}
+GET /api/personas            → [{name, preview, memory, wiki, dreamer}]
 ```
 
-人格是纯文本文件 `~/.data/xaihi/personas/<名字>.md`，改完不用重启——下一轮
-`agent.New` 会重新读。
+人格正文是 `~/.data/xaihi/personas/<名字>.md`，人格配置是同目录的 `<名字>.json`：
 
-### 人格（personas）与「持久化会话」
+```json
+{"name":"xaihi","memory":true,"wiki":true,"dreamer":"180-low"}
+```
 
-人格是**可插拔的文本**：`~/.data/xaihi/personas/<名字>.md`。profile 用 `persona` 字段引用，
-多个 profile 引用同一份 = 同一个她换不同模型，记忆因此是共同的。
+body-only 的旧 PUT 客户端不会改变已有 memory/wiki/dreamer 配置。修改已有 JSON 前保留 `.bak`。
+`dreamer` 引用 profiles.json 中的会话/模型 profile，保存和运行 dreaming 时均校验；
+它只提供模型参数，不继承人格、工具或记忆注入。前端集中展示 dreamer 运行错误暂未实现，
+见 `docs/DREAMING.md` 的后续事项。人格正文与配置改完不用重启——下一轮 `agent.New` 会重新读。
+
+### 会话 profile、人格 profile 与「持久化会话」
+
+会话 / 模型 profile 存在 `profiles.json`，用 `persona` 字段引用人格 profile。
+多个会话 profile 引用同一人格 = 换不同模型但共享该人格的 memory/wiki；不同人格互不共享。
 
 ```
-GET /api/personas        → [{name, preview}]（配置卡的下拉用它）
 profile.persona          "xaihi"（空 = 不用人格）
-profile.persistent       true（持久化会话：允许记忆/钩子工具，且注入记忆）
+profile.persistent       true（旧持久化开关：允许 hook/journal/todo 等工具）
+persona.memory           true（独立 memory 目录、memory_* 工具与注入）
+persona.wiki             true（独立 wiki 目录与 wiki_* 工具）
 ```
+
+人格 JSON 不存在时，memory 兼容旧 `persistent=true`；JSON 存在后以人格配置为准。wiki 默认关闭。
+记忆路径是 `memory/personas/<名字>/`，wiki 路径是 `wiki/personas/<名字>/`。
+唯一人格的旧共享记忆会复制到新目录并保留旧目录；多个人格时不自动猜测旧记忆归属。
 
 拼装顺序：**人格 → profile.system（任务指令）→ 记忆 → 已知事实 → 摘要**。
-记忆只在 `persistent=true` 时注入（纯执行用的 profile 不该带着她的记忆）。
+记忆只在 `persona.memory=true` 时注入。空 `tools=[]` 表示无工具；运行时还会复核人格、
+persistent 和图像能力，不依赖前端禁用。
 
 保存时的校验（UI 会禁用不合法的选项，这里再兜一层）：
 
 | 情况 | 结果 |
 |---|---|
 | 引用不存在的人格 / 名字带路径分隔符 | 拒绝 |
-| `tools` 里有 memory_*/hook_* 但 `persistent=false` | 拒绝：「需要先打开持久化会话」 |
-| `persistent=true` 但没选人格 | 拒绝：「人格决定记忆属于谁」 |
+| memory_* / wiki_* 未选人格，或人格未开启对应能力 | 拒绝 |
+| hook/journal/todo 等旧持久化工具在 `persistent=false` 时 | 拒绝 |
+| `persistent=true` 但没选人格 | 拒绝 |
 | `tools` 里有 image 类（screenshot/view_image）但 `input` 不含 image | 拒绝：「模型不能接收图像」 |
 
 ### 工具分类
@@ -293,12 +309,14 @@ profile.persistent       true（持久化会话：允许记忆/钩子工具，�
 | 会话 | bash / recall / spawn_task | — |
 | 知识 | kb_* / web_* | — |
 | 视图 | screenshot / view_image | 要 `input` 含 image |
-| 持久化 | memory_* / hook_* | 要 `persistent` |
+| 人格 | memory_* / wiki_* | 要选人格，且人格开启 memory / wiki |
+| 持久化 | hook_* / journal_* | 要 `persistent` |
+| 待办 | todo_* | 要 `persistent` |
 | 扩展 | 插件没声明分组时的兜底 | — |
 
 插件清单里写 `"category": "绘图"` 这种新分组名，界面会**自动出现那一组**
 （排在预置顺序之后、按名字排），不需要任何注册表。约束按分组判定：视图组要能看图、
-持久化组要开持久化会话 —— 插件只要选对分组就自动获得同样的约束。
+人格组要有人格及对应能力、持久化 / 待办组要开持久化会话。
 
 分组名用中文是安全的：Go 源码 / JSON / HTTP 全是 UTF-8，也不拿它当文件名或 URL 参数。
 配置卡里不满足约束的组会**灰掉而不是隐藏** —— 让人看见"为什么不能选"。
@@ -392,12 +410,37 @@ xaihi hook rm game-exit
 ```
 链条再长也会自己停。
 
-**长期记忆**（`internal/memory`）：一条记忆 = `~/.data/xaihi/memory/global/<id>.md`，
-front matter 是 `id / created / scope / kind / status / source`，正文人能直接改。
-每轮请求把 active 记忆按 token 预算（默认 6000）拼进 system prompt：挑的时候从新到旧、
-**拼的时候排回升序**（顺序不稳定会让上游 KV 缓存全部作废）。`memory_forget` 只标
-`archived`（文件留着，可恢复），真删是人工的 `Purge`。和 kb 的分工：**需要一直在场的
-→ 记忆；只是可能有用 → kb**。
+**长期记忆**（`internal/memory`）：一条记忆 =
+`~/.data/xaihi/memory/personas/<人格>/<scope>/<id>.md`，
+front matter 包含 `id / created / updated / scope / kind / status / source / basis /
+superseded_by / supersedes`，正文人能直接改，未知字段在状态变更时保留。
+
+- `basis=explicit|verified|inferred` 区分用户明确陈述、已验证证据和模型推断；默认 inferred。
+  它是写入时声明的依据，不代表系统自动完成了验证。
+- `memory_save` 自动把 source 记为触发工具调用的 `conv:<id>#<seq>`（拿不到 seq 时退化）。
+  source 证明写入位置，不单独证明正文为真；校对仍需回查原始用户陈述或工具观察。
+- `memory_list` 返回正文、来源、依据和文件 SHA-256 `revision`。
+- `memory_supersede(name, revision, body, ...)` 创建新版本并把旧版本标为 superseded；
+  旧正文保留，通过 `supersedes / superseded_by` 建立双向链，过期 revision 会被拒绝。
+- `memory_forget` 只标 `archived`（文件留着，可恢复），真删是人工的 `Purge`。
+
+新文件通过临时文件 + 原子 hard link 创建，已有文件通过临时文件 + 原子 rename 更新；
+同根目录使用跨 Store 互斥锁和跨进程 `flock`。替换额外检查 revision，避免覆盖并发人工编辑。
+
+每轮请求把 active 记忆按**估算 token 预算**（默认 / 封顶 6000）拼进 system prompt：
+挑的时候从新到旧、**拼的时候排回升序**（顺序不稳定会让上游 KV 缓存全部作废）。
+和 kb / wiki 的分工：**memory 是 agent 自己的经验笔记，wiki 是 agent 可重建的索引，
+kb 是人审事实、agent 只读；wiki 可以链接 kb id，但 dreaming 不直接修改 kb**。
+
+**人格 wiki**（`internal/wiki`）：页面位于 `wiki/personas/<人格>/<页面名>.md`，
+front matter 是 `name / updated / kb`，其中 kb 是逗号分隔的只读 kb id 链接。
+工具为 `wiki_list / wiki_search / wiki_read / wiki_write / wiki_delete`：更新和删除需要
+最近读取的 revision；搜索只限当前人格，不能跨人格。wiki 不注入 system prompt。
+
+**手动 dreaming**（`internal/dream`）：`xaihi dream --persona <名> (--since <时间> | --conv <id>)
+[--max-tokens N] [--apply]`。读取同一人格的受限 transcripts 和 memory，由人格 `dreamer`
+生成 DreamPlan；默认 dry-run 不写文件，`--apply` 只应用 wiki 并写不含完整转录的审计。
+memory_actions 仅输出，不应用；不支持跨人格、后台调度或自动 memory apply。详见 `docs/DREAMING.md`。
 
 ```json
 [{"name":"bash","source":"builtin","path":"","timeout_ms":0,"persistent":false},

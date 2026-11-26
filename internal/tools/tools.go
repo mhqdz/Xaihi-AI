@@ -26,6 +26,7 @@ import (
 	"xaihi/internal/store"
 	"xaihi/internal/todo"
 	"xaihi/internal/toolmeta"
+	"xaihi/internal/wiki"
 )
 
 // shotQuota 由 main 注入：看屏幕的每日配额（返回"还有没有额度"和"今天已用几张"）。
@@ -42,8 +43,9 @@ type Env struct {
 	SpawnTask func(kind string, card map[string]any) (int64, error)
 	// FailTask：子会话汇报失败事实（父会话不给这个工具）
 	FailTask func(reason, evidence string) (string, error)
-	// Memory：长期记忆（跨会话）；为 nil 时记忆工具不可用
+	// Memory / Wiki：当前人格的私有存储；为 nil 时对应工具不可用。
 	Memory *memory.Store
+	Wiki   *wiki.Store
 	// ConvID：当前会话（钩子绑会话用：在哪个会话里说"盯着X"，就在那个会话里提醒）
 	ConvID int64
 }
@@ -120,14 +122,27 @@ func Registry() map[string]*Spec {
 				"reason":   map[string]any{"type": "string", "description": "一句话事实，如 CUDA OOM"},
 				"evidence": map[string]any{"type": "string", "description": "证据：命令、退出码、日志路径"},
 			}, Required: []string{"reason"}, Run: runHandoffFail},
-		{Name: "memory_save", Category: toolmeta.GroupPersist, Description: "记住一件事（写进长期记忆，下次对话会出现在系统提示里）。" +
-			"只记「需要一直在场」的东西：偏好、关系、约定、关键经历。事实/资料类不要写这里，写 kb。" +
-			"一条只写一件事，一句话能说清；写多了会挤掉别的记忆。",
+		{Name: "memory_save", Category: toolmeta.GroupPersona, Description: "记住一件以后仍有用的事（当前 active 记忆会进 system prompt）。" +
+			"记偏好、关系、约定、关键经历、验证过的做法；一条只写一件事，写多了会挤掉别的记忆。" +
+			"外部事实可以查 kb，但 kb 对人审内容保持只读：不要声称自己写了 kb；只有实际调用 wiki_* 成功后才说建立了索引。" +
+			"source 会自动记录当前工具调用的 conv_id + seq。",
 			Params: map[string]any{
 				"body": map[string]any{"type": "string", "description": "正文：一句话，不加标题"},
-				"kind": map[string]any{"type": "string", "description": "偏好 / 约定 / 经历 / 事实（默认记录）"},
+				"kind": map[string]any{"type": "string", "description": "偏好 / 约定 / 关系 / 经历 / 经验（默认记录）"},
+				"basis": map[string]any{"type": "string", "enum": []string{memory.BasisExplicit, memory.BasisVerified, memory.BasisInferred},
+					"description": "explicit=用户明确说；verified=有工具或转录证据；inferred=模型推断（默认）。不要编造验证依据"},
 			}, Required: []string{"body"}, Run: runMemorySave},
-		{Name: "memory_forget", Category: toolmeta.GroupPersist, Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
+		{Name: "memory_supersede", Category: toolmeta.GroupPersona, Description: "用一条新记忆取代旧记忆：旧正文保留并标 superseded，新记忆进提示词。" +
+			"先用 memory_list 取得 name 和 revision；revision 冲突说明已被别处修改，必须重新读取，不能强行覆盖。",
+			Params: map[string]any{
+				"name":     map[string]any{"type": "string", "description": "旧记忆名字（memory_list 里的 name）"},
+				"revision": map[string]any{"type": "string", "description": "旧记忆的 revision（memory_list 返回值）"},
+				"body":     map[string]any{"type": "string", "description": "替换后的正文：一句话，不加标题"},
+				"kind":     map[string]any{"type": "string", "description": "类型；留空沿用旧记忆"},
+				"basis": map[string]any{"type": "string", "enum": []string{memory.BasisExplicit, memory.BasisVerified, memory.BasisInferred},
+					"description": "explicit / verified / inferred；留空沿用旧记忆"},
+			}, Required: []string{"name", "revision", "body"}, Run: runMemorySupersede},
+		{Name: "memory_forget", Category: toolmeta.GroupPersona, Description: "忘掉一条记忆（软删除：标 archived，不进提示词但文件保留、可恢复）。" +
 			"name 用 memory_list 返回的名字。",
 			Params: map[string]any{
 				"name": map[string]any{"type": "string", "description": "记忆名字（memory_list 里的 name）"},
@@ -158,9 +173,35 @@ func Registry() map[string]*Spec {
 		{Name: "todo_done", Category: toolmeta.GroupTodo, Description: "把一条待办标记为完成",
 			Params: map[string]any{"id": map[string]any{"type": "string"}}, Required: []string{"id"},
 			Run: runTodoDone},
-		{Name: "memory_list", Category: toolmeta.GroupPersist, Description: "列出记得的事（全局 + 当前项目的 active 记忆），含名字、类型、时间、正文。" +
-			"回答「你记得什么」或准备忘掉某条之前用。",
+		{Name: "memory_list", Category: toolmeta.GroupPersona, Description: "列出当前人格的 active 记忆，含名字、类型、依据、来源、revision、正文。" +
+			"回答「你记得什么」、准备忘掉某条或用 memory_supersede 替换之前用。",
 			Params: map[string]any{}, Run: runMemoryList},
+		{Name: "wiki_list", Category: toolmeta.GroupPersona, Description: "列出当前人格的 wiki 页面（派生索引，不是事实源头）。" +
+			"返回页面名、更新时间、kb id 链接和 revision；不会读取其他人格。",
+			Params: map[string]any{}, Run: runWikiList},
+		{Name: "wiki_search", Category: toolmeta.GroupPersona, Description: "只在当前人格的 wiki 内按子串搜索页面名、正文和 kb id。" +
+			"没有跨人格搜索；原始证据仍应回 memory 或 transcript 核对。",
+			Params: map[string]any{
+				"query": map[string]any{"type": "string", "description": "不区分大小写的子串"},
+				"limit": map[string]any{"type": "integer", "description": "最多 20 条，默认 10"},
+			}, Required: []string{"query"}, Run: runWikiSearch},
+		{Name: "wiki_read", Category: toolmeta.GroupPersona, Description: "读取当前人格的一页 wiki 全文和 revision。",
+			Params: map[string]any{
+				"name": map[string]any{"type": "string", "description": "wiki_list / wiki_search 返回的页面名"},
+			}, Required: []string{"name"}, Run: runWikiRead},
+		{Name: "wiki_write", Category: toolmeta.GroupPersona, Description: "新建或更新当前人格的 wiki 页面；wiki 是可重建的派生索引，可以自由整理。" +
+			"新建不带 revision；更新已存在页面必须带最近读取的 revision。kb_links 只记录 kb id，不会修改 kb。",
+			Params: map[string]any{
+				"name":     map[string]any{"type": "string", "description": "a-z0-9_-，最多 64 字"},
+				"body":     map[string]any{"type": "string", "description": "Markdown 正文，最多 20000 字"},
+				"kb_links": map[string]any{"type": "string", "description": "逗号分隔的 kb id，可留空"},
+				"revision": map[string]any{"type": "string", "description": "更新时必填；新建留空"},
+			}, Required: []string{"name", "body"}, Run: runWikiWrite},
+		{Name: "wiki_delete", Category: toolmeta.GroupPersona, Description: "删除当前人格的一页派生索引（不影响 memory、transcripts 或 kb）；必须带最近读取的 revision。",
+			Params: map[string]any{
+				"name":     map[string]any{"type": "string"},
+				"revision": map[string]any{"type": "string"},
+			}, Required: []string{"name", "revision"}, Run: runWikiDelete},
 		{Name: "recall", Description: "在**本会话**历史里检索（不跨会话）。默认在消息正文里按关键词 OR 匹配，返回命中的片段与序号。" +
 			"需要正则时加 re=true（Go RE2 语法，示例: (鹈鹕|pelican).*(车|bike)）。" +
 			"想看某条附近上下文用 around=<序号>。level=raw 才返回整段原文（贵，慎用）。" +
@@ -593,8 +634,23 @@ func runViewImage(_ context.Context, args map[string]any, _ *Env) (any, error) {
 
 // ---------- 长期记忆 ----------
 
+// memorySource 指向触发这次写入的 assistant 工具调用消息。
+// loop 会先保存工具调用、回填 seq，再执行工具，所以正常在线路径能精确到 conv_id + seq。
+func memorySource(env *Env) string {
+	if env == nil || env.ConvID <= 0 {
+		return ""
+	}
+	msgs, _ := env.Messages.([]store.Message)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" && msgs[i].Seq > 0 && len(msgs[i].ToolCalls) > 0 {
+			return fmt.Sprintf("conv:%d#%d", env.ConvID, msgs[i].Seq)
+		}
+	}
+	return fmt.Sprintf("conv:%d", env.ConvID)
+}
+
 func runMemorySave(ctx context.Context, args map[string]any, env *Env) (any, error) {
-	if env.Memory == nil {
+	if env == nil || env.Memory == nil {
 		return "✗ 记忆不可用（没有记忆根目录）", nil
 	}
 	body, _ := args["body"].(string)
@@ -602,15 +658,40 @@ func runMemorySave(ctx context.Context, args map[string]any, env *Env) (any, err
 	if strings.TrimSpace(kind) == "" {
 		kind = "记录"
 	}
-	e, err := env.Memory.Save("", kind, "", body)
+	basis, _ := args["basis"].(string)
+	e, err := env.Memory.SaveWithBasis("", kind, memorySource(env), basis, body)
 	if err != nil {
 		return "✗ " + err.Error(), nil
 	}
-	return fmt.Sprintf("已记住（%s，%s）", e.Name, e.Created()), nil
+	result := fmt.Sprintf("已记住（%s，%s，basis=%s", e.Name, e.Created(), e.Field(memory.FBasis))
+	if source := e.Field(memory.FSource); source != "" {
+		result += "，source=" + source
+	}
+	return result + "）", nil
+}
+
+func runMemorySupersede(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Memory == nil {
+		return "✗ 记忆不可用", nil
+	}
+	name, _ := args["name"].(string)
+	revision, _ := args["revision"].(string)
+	body, _ := args["body"].(string)
+	kind, _ := args["kind"].(string)
+	basis, _ := args["basis"].(string)
+	e, err := env.Memory.Replace(name, revision, kind, memorySource(env), basis, body)
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	result := fmt.Sprintf("已用 %s 取代 %s（旧记忆已标 superseded", e.Name, name)
+	if source := e.Field(memory.FSource); source != "" {
+		result += "，source=" + source
+	}
+	return result + "）", nil
 }
 
 func runMemoryForget(ctx context.Context, args map[string]any, env *Env) (any, error) {
-	if env.Memory == nil {
+	if env == nil || env.Memory == nil {
 		return "✗ 记忆不可用", nil
 	}
 	name, _ := args["name"].(string)
@@ -621,7 +702,7 @@ func runMemoryForget(ctx context.Context, args map[string]any, env *Env) (any, e
 }
 
 func runMemoryList(ctx context.Context, args map[string]any, env *Env) (any, error) {
-	if env.Memory == nil {
+	if env == nil || env.Memory == nil {
 		return "✗ 记忆不可用", nil
 	}
 	es, err := env.Memory.List()
@@ -633,13 +714,99 @@ func runMemoryList(ctx context.Context, args map[string]any, env *Env) (any, err
 	}
 	var b strings.Builder
 	for _, e := range es {
-		kind := e.Field("kind")
+		kind := e.Field(memory.FKind)
 		if kind == "" {
 			kind = "记录"
 		}
-		fmt.Fprintf(&b, "%s  [%s] %s\n    %s\n", e.Name, kind, e.Created(), e.Body)
+		fmt.Fprintf(&b, "%s  [%s] %s", e.Name, kind, e.Created())
+		if basis := e.Field(memory.FBasis); basis != "" {
+			fmt.Fprintf(&b, "  basis=%s", basis)
+		}
+		fmt.Fprintf(&b, "\n    %s\n    revision: %s\n", e.Body, e.Revision)
+		if source := e.Field(memory.FSource); source != "" {
+			fmt.Fprintf(&b, "    source: %s\n", source)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// ---------- 人格 wiki（派生索引）----------
+
+func wikiMeta(e wiki.Entry) string {
+	meta := fmt.Sprintf("%s  updated=%s  revision=%s", e.Name, e.Updated, e.Revision)
+	if len(e.KBLinks) > 0 {
+		meta += "  kb=" + strings.Join(e.KBLinks, ",")
+	}
+	return meta
+}
+
+func runWikiList(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Wiki == nil {
+		return "✗ wiki 不可用（当前人格未开启 wiki）", nil
+	}
+	pages, err := env.Wiki.List()
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	if len(pages) == 0 {
+		return "（当前人格还没有 wiki 页面）", nil
+	}
+	var b strings.Builder
+	for _, e := range pages {
+		b.WriteString(wikiMeta(e) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func runWikiSearch(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Wiki == nil {
+		return "✗ wiki 不可用（当前人格未开启 wiki）", nil
+	}
+	pages, err := env.Wiki.Search(str(args, "query"), intArg(args, "limit", 10))
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	if len(pages) == 0 {
+		return "（当前人格的 wiki 没有命中）", nil
+	}
+	var b strings.Builder
+	for _, e := range pages {
+		fmt.Fprintf(&b, "%s\n    %s\n", wikiMeta(e), truncate(e.Body, 240))
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func runWikiRead(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Wiki == nil {
+		return "✗ wiki 不可用（当前人格未开启 wiki）", nil
+	}
+	e, err := env.Wiki.Read(str(args, "name"))
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return wikiMeta(e) + "\n\n" + e.Body, nil
+}
+
+func runWikiWrite(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Wiki == nil {
+		return "✗ wiki 不可用（当前人格未开启 wiki）", nil
+	}
+	e, err := env.Wiki.Write(str(args, "name"), str(args, "body"), strings.Split(str(args, "kb_links"), ","), str(args, "revision"))
+	if err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return "已保存 wiki 页面（" + wikiMeta(e) + "）", nil
+}
+
+func runWikiDelete(ctx context.Context, args map[string]any, env *Env) (any, error) {
+	if env == nil || env.Wiki == nil {
+		return "✗ wiki 不可用（当前人格未开启 wiki）", nil
+	}
+	name := str(args, "name")
+	if err := env.Wiki.Delete(name, str(args, "revision")); err != nil {
+		return "✗ " + err.Error(), nil
+	}
+	return "已删除 wiki 页面 " + name + "（memory / transcripts / kb 未改动）", nil
 }
 
 // ---------- 钩子（触发器）----------

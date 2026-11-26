@@ -269,15 +269,34 @@ func ValidateProfileWith(p Profile, extraEndpoints map[string]bool) error {
 			hasImage = true
 		}
 	}
+	if p.Persistent && p.Persona == "" {
+		return fmt.Errorf("「持久化会话」需要先选一份人格")
+	}
 	for _, name := range p.Tools {
 		if toolmeta.NeedsPersistentTool(name) && !p.Persistent {
 			return fmt.Errorf("工具 %s 需要先打开「持久化会话」", name)
 		}
+		if toolmeta.NeedsPersonaTool(name) {
+			if p.Persona == "" {
+				return fmt.Errorf("工具 %s 需要先选择人格", name)
+			}
+			pp, err := ResolvePersonaProfile(p.Persona, p.Persistent)
+			if err != nil {
+				return err
+			}
+			switch toolmeta.Capability(name) {
+			case toolmeta.CapabilityMemory:
+				if !pp.Memory {
+					return fmt.Errorf("工具 %s 需要人格 %s 开启 memory", name, p.Persona)
+				}
+			case toolmeta.CapabilityWiki:
+				if !pp.Wiki {
+					return fmt.Errorf("工具 %s 需要人格 %s 开启 wiki", name, p.Persona)
+				}
+			}
+		}
 		if toolmeta.NeedsVisionTool(name) && !hasImage {
 			return fmt.Errorf("工具 %s 需要模型能接收图像（input 里加 image）", name)
-		}
-		if p.Persistent && p.Persona == "" {
-			return fmt.Errorf("「持久化会话」需要先选一份人格（人格决定记忆属于谁）")
 		}
 	}
 	for _, x := range p.EffortLevels {

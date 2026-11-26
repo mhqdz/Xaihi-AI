@@ -4,13 +4,13 @@ import { Section, Field, LinkRow, ChoiceGrid, SwitchRow, TagInput } from './form
 
 // 分组顺序：和 internal/toolmeta 的预置顺序一致。插件声明的新分组
 // 会出现在它们之后（按名字排）—— 不需要预先"注册"分组。
-const GROUP_ORDER = ['会话', '知识', '视图', '持久化', '扩展']
+const GROUP_ORDER = ['会话', '知识', '视图', '人格', '持久化', '待办', '扩展']
 
-// 这一组要什么才能选：视图要能看图，持久化要开会话。分组名就是约束来源，
-// 插件只要选对分组，就自动获得同样的约束。
-function groupBlock(group, { persistent, hasImage }) {
+// 整组约束与单工具约束分开：人格组先要求选人格，memory/wiki 开关再精确到工具。
+function groupBlock(group, { persistent, hasImage, persona }) {
   if (group === '视图' && !hasImage) return '先让模型能接收图像'
-  if (group === '持久化' && !persistent) return '先打开持久化会话'
+  if (group === '人格' && !persona) return '先选择人格'
+  if ((group === '持久化' || group === '待办') && !persistent) return '先打开持久化会话'
   return ''
 }
 
@@ -39,7 +39,13 @@ export default function ModelForm({ v, narrow, top }) {
       const t = (v.toolList || []).find(x => x.name === n)
       if (!t) return true // 不认识的（插件）先留着，别误删
       if (t.category === '视图' && !hasImg) return false
-      if (t.category === '持久化' && !persist) return false
+      if ((t.category === '持久化' || t.category === '待办') && !persist) return false
+      if (t.category === '人格') {
+        if (!p.persona) return false
+        const pp = (v.personas || []).find(x => x.name === p.persona)
+        if (t.name.startsWith('memory_') && !pp?.memory) return false
+        if (t.name.startsWith('wiki_') && !pp?.wiki) return false
+      }
       return true
     })
     return { ...p, tools: keep.join(',') }
@@ -59,10 +65,17 @@ export default function ModelForm({ v, narrow, top }) {
       if (ib < 0) return -1
       return ia - ib
     })
-  // 选中人格的预览（下拉下面显示一小段，确认选对了）
-  const personaPreview = editP.persona
-    ? ((v.personas || []).find(p => p.name === editP.persona) || {}).preview
+  // 选中人格的预览与能力开关（下拉下面显示一小段，确认选对了）
+  const personaInfo = editP.persona
+    ? (v.personas || []).find(p => p.name === editP.persona)
     : null
+  const personaPreview = personaInfo?.preview || null
+  const toolDisabled = (t) => {
+    if (t.category !== '人格') return false
+    if (t.name.startsWith('memory_')) return !personaInfo?.memory
+    if (t.name.startsWith('wiki_')) return !personaInfo?.wiki
+    return false
+  }
   const toggleImage = () => {
     const cur2 = editP.input || ['text']
     set('input', hasImage ? cur2.filter(x => x !== 'image') : [...new Set([...cur2, 'image'])])
@@ -203,20 +216,22 @@ export default function ModelForm({ v, narrow, top }) {
         <LinkRow label="新建人格" value="" placeholder="写一份新的人格"
           onClick={() => v.openPersonaEditor('')} />
         <SwitchRow label="持久化会话"
-          hint="记忆与钩子工具需要它；纯执行用的配置别开"
+          hint="钩子、日记与待办等持久化工具需要它；memory/wiki 在人格编辑器中开关"
           checked={!!editP.persistent}
           onChange={x => set('persistent', x)} />
 
         <Section>可用工具</Section>
-        {/* 工具按分类分组：记忆/钩子要先开「持久化会话」，图像类要有看图能力。
-            不合法的选项不是隐藏，而是灰掉 —— 让人看见"为什么不能选"。 */}
+        {/* 人格工具先要求选人格，再按人格 profile 的 memory/wiki 开关逐项禁用。 */}
         {toolGroups.map(g => {
-          const blockedMsg = groupBlock(g, { persistent: editP.persistent, hasImage })
+          const blockedMsg = groupBlock(g, { persistent: editP.persistent, hasImage, persona: editP.persona })
           return (
             <ChoiceGrid key={g}
               label={g + (blockedMsg ? '（' + blockedMsg + '）' : '')}
               options={(v.toolList || []).filter(t => (t.category || '扩展') === g)
-                .map(t => ({ value: t.name, label: t.name, hint: t.description || '', disabled: !!blockedMsg }))}
+                .map(t => ({
+                  value: t.name, label: t.name,
+                  hint: t.description || '', disabled: !!blockedMsg || toolDisabled(t),
+                }))}
               selected={tools}
               onToggle={name => set('tools', tools.includes(name)
                 ? tools.filter(x => x !== name).join(',')

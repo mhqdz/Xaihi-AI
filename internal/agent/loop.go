@@ -164,21 +164,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 	// 会话 id 作为网关要的"稳定会话"（如 x-opencode-session）：
 	// 同一个会话每轮都带同一个值，跨轮才谈得上路由与提示缓存。
 	a.llm.SessionID = c.ID
-	reg := tools.Registry()
-	if len(a.profile.Tools) > 0 {
-		for name := range reg {
-			keep := false
-			for _, t := range a.profile.Tools {
-				if t == name {
-					keep = true
-					break
-				}
-			}
-			if !keep {
-				delete(reg, name)
-			}
-		}
-	}
+	reg := tools.ForProfile(tools.Registry(), a.profile)
 	specs := tools.SchemaJSON(reg)
 
 	c.Messages = append(c.Messages, store.Message{Role: "user", Content: text, Origin: a.MsgOrigin})
@@ -242,9 +228,9 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 			logx.Info("compact conv=%s total=%d surface=%d chars=%d->%d budget=%d",
 				c.ID, len(c.Messages), len(msgs), beforeChars, afterChars, a.compactAt())
 		}
-		// 记忆只在持久化会话里注入：纯执行用的 profile 不该带着"她"的记忆
+		// 记忆是否注入由人格 profile 决定；纯执行 profile 不该带着"她"的记忆。
 		memText := ""
-		if a.profile.Persistent {
+		if a.mem != nil {
 			memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
 		}
 		if a.profile.System != "" || c.Summary != "" || memText != "" {
@@ -441,7 +427,7 @@ func (a *Agent) SendWithTools(ctx context.Context, c *store.Conversation, text s
 				}
 				t0 := time.Now()
 				res, err := spec.Run(ctx, args, &tools.Env{Messages: c.Messages, SpawnTask: a.SpawnTask, FailTask: a.FailTask,
-					Memory: a.mem, ConvID: convIDOf(c)})
+					Memory: a.mem, Wiki: a.wiki, ConvID: convIDOf(c)})
 				ms := time.Since(t0).Milliseconds()
 				toolMs[i] = ms
 				logx.Info("tool.run name=%s ms=%d", call.Function.Name, ms)
@@ -893,21 +879,7 @@ func inlineImage(img string) string {
 // ContextSize 返回"当前会发给模型的字符数"与上限（与循环里的限额检查同一算法）。
 // 供前端显示上下文占用，判断大概什么时候会被截断/压缩。
 func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
-	reg := tools.Registry()
-	if len(a.profile.Tools) > 0 {
-		for name := range reg {
-			keep := false
-			for _, t := range a.profile.Tools {
-				if t == name {
-					keep = true
-					break
-				}
-			}
-			if !keep {
-				delete(reg, name)
-			}
-		}
-	}
+	reg := tools.ForProfile(tools.Registry(), a.profile)
 	keep := a.profile.KeepMessages
 	if keep <= 0 {
 		keep = a.cfg.KeepMessages
@@ -915,7 +887,7 @@ func (a *Agent) ContextSize(c *store.Conversation) (int, int) {
 	msgs, _ := toWire(c.Messages, reg, a.llm.ReasoningField())
 	msgs = compact(msgs, keep, a.compactAt())
 	memText := ""
-	if a.profile.Persistent {
+	if a.mem != nil {
 		memText = a.mem.Render(memory.BudgetFor(a.profile.ContextWindow))
 	}
 	if a.profile.System != "" || c.Summary != "" || memText != "" {

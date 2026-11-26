@@ -31,6 +31,11 @@ export const toolSnap = (f) => {
   return JSON.stringify(o)
 }
 
+const personaDirtyOf = (p) => !!p && (
+  p.body !== p.original || !!p.memory !== !!p.originalMemory || !!p.wiki !== !!p.originalWiki ||
+  (p.dreamer || '') !== (p.originalDreamer || '')
+)
+
 const BLANK_SETTINGS = { tool_rounds_enabled: true, tool_rounds: 8 }
 const NEW_PROFILE = {
   _new: true, name: '', endpoint: '', model: '',
@@ -252,7 +257,7 @@ export function useSettings({ refresh }) {
   const draftsDirty = Object.values(drafts).some(d => snapOf(d.data) !== d.base)
   // 工具表单自己的脏标记：它有自己的保存按钮，不并进 anyDirty（那个走清单）
   const toolFormDirty = !!toolForm && toolSnap(toolForm) !== toolSnap(toolSnapShot)
-  const personaDirty = !!personaEdit && personaEdit.body !== personaEdit.original
+  const personaDirty = personaDirtyOf(personaEdit)
   const anyDirty = formDirty || editorDirty || settingsDirty || draftsDirty || toolFormDirty || editEDirty || personaDirty
   // 带着未保存修改想关面板时的提示：不弹窗，每 +1 让"取消/保存"跳两下。
   // 用计数器而不是布尔，同一个动作要能重复触发（连按两次 Esc 都该跳）。
@@ -475,17 +480,24 @@ export function useSettings({ refresh }) {
     setPersonaEdit(null)
   }
 
-  // —— 人格编辑（personas/*.md，纯文本文件）——
+  // —— 人格编辑（personas/*.md 正文 + personas/*.json 能力配置）——
   const openPersonaEditor = async (name) => {
-    if (!name) { setPersonaEdit({ name: '', body: '', original: '', isNew: true }); return }
+    if (!name) {
+      setPersonaEdit({ name: '', body: '', original: '', memory: false, wiki: false, originalMemory: false, originalWiki: false, dreamer: '', originalDreamer: '', isNew: true })
+      return
+    }
     setPersonaBusy(true)
     const r = await api('/api/personas/' + encodeURIComponent(name)).catch(() => null)
     setPersonaBusy(false)
     if (!r || r.error) { alert(r?.error || '读不到人格'); return }
-    setPersonaEdit({ name: r.name, body: r.body || '', original: r.body || '', isNew: false })
+    setPersonaEdit({
+      name: r.name, body: r.body || '', original: r.body || '',
+      memory: !!r.memory, wiki: !!r.wiki, originalMemory: !!r.memory, originalWiki: !!r.wiki,
+      dreamer: r.dreamer || '', originalDreamer: r.dreamer || '', isNew: false,
+    })
   }
   const closePersonaEditor = () => {
-    if (personaEdit && personaEdit.body !== personaEdit.original) { setNudge(n => n + 1); return }
+    if (personaDirtyOf(personaEdit)) { setNudge(n => n + 1); return }
     setPersonaEdit(null)
   }
   const savePersona = async () => {
@@ -493,10 +505,13 @@ export function useSettings({ refresh }) {
     const name = (personaEdit.name || '').trim()
     const r = await fetch('/api/personas/' + encodeURIComponent(name), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: personaEdit.body }),
+      body: JSON.stringify({ body: personaEdit.body, memory: !!personaEdit.memory, wiki: !!personaEdit.wiki, dreamer: personaEdit.dreamer || '' }),
     }).then(x => x.json()).catch(() => ({ error: '请求没发出去' }))
     if (r.error) { alert(r.error); return }
-    setPersonaEdit({ ...personaEdit, original: personaEdit.body })
+    setPersonaEdit({
+      ...personaEdit, original: personaEdit.body, originalMemory: !!personaEdit.memory,
+      originalWiki: !!personaEdit.wiki, originalDreamer: personaEdit.dreamer || '', isNew: false,
+    })
     await loadPersonas()
   }
   // —— 列表卡上的各种"打开"——

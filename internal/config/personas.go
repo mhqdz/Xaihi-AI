@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// 人格是**可插拔的文本**：personas/<名字>.md，profile 用 `persona` 字段引用。
-// 这样多个 profile（不同模型）可以共用同一个人格，记忆才是"共同的"；
-// 不引用人格的 profile（比如纯执行用的）就不会把她的记忆带进去。
+// 人格正文是 personas/<名字>.md；人格自己的 memory/wiki 配置在同名 .json。
+// 会话 profiles.json 用 `persona` 字段引用人格，多个会话 profile 因此可以共享
+// 该人格的 memory/wiki；不引用人格的纯执行 profile 不会把它们带进去。
 //
 // 人格和任务指令是两段：人格在最前（稳定），profile.system 跟在后面（可变）。
 

@@ -8,22 +8,35 @@
 // 界面按"出现过的分组"动态渲染，没见过的排在预置顺序之后。
 package toolmeta
 
+import "strings"
+
 const (
 	GroupChat      = "会话"  // bash / recall / spawn_task
 	GroupKnowledge = "知识"  // kb_* / web_*
 	GroupView      = "视图"  // screenshot / view_image
-	GroupPersist   = "持久化" // memory_* / hook_*
+	GroupPersona   = "人格"  // memory_* / wiki_*：归属人格 profile
+	GroupPersist   = "持久化" // hook_* / journal_*：旧 persistent 配置
 	GroupTodo      = "待办"  // todo_*：她记着"该提醒你什么"
 	GroupExt       = "扩展"  // 插件没声明分组时的兜底
 )
 
+const (
+	CapabilityNone   = ""
+	CapabilityMemory = "memory"
+	CapabilityWiki   = "wiki"
+)
+
 // order：预置分组的展示顺序；未知分组排在它们后面（按名字排序）。
-var order = []string{GroupChat, GroupKnowledge, GroupView, GroupPersist, GroupTodo, GroupExt}
+var order = []string{GroupChat, GroupKnowledge, GroupView, GroupPersona, GroupPersist, GroupTodo, GroupExt}
 
 // Category 按工具名归类
 func Category(name string) string {
+	switch {
+	case strings.HasPrefix(name, "memory_"), strings.HasPrefix(name, "wiki_"):
+		return GroupPersona
+	}
 	switch name {
-	case "memory_save", "memory_forget", "memory_list", "hook_add", "hook_list", "hook_rm":
+	case "hook_add", "hook_list", "hook_rm", "journal_write":
 		return GroupPersist
 	case "todo_add", "todo_list", "todo_done":
 		return GroupTodo
@@ -47,12 +60,27 @@ func Order(group string) int {
 	return -1
 }
 
-// NeedsPersistent 这一组要 profile 打开「持久化会话」
+// NeedsPersistent 这一组要会话 profile 打开旧「持久化会话」开关。
 func NeedsPersistent(group string) bool { return group == GroupPersist || group == GroupTodo }
+
+// NeedsPersona 这一组必须引用人格；memory/wiki 还要人格 profile 分别开启对应能力。
+func NeedsPersona(group string) bool { return group == GroupPersona }
 
 // NeedsVision 这一组要模型能接收图像
 func NeedsVision(group string) bool { return group == GroupView }
 
+func Capability(name string) string {
+	switch {
+	case strings.HasPrefix(name, "memory_"):
+		return CapabilityMemory
+	case strings.HasPrefix(name, "wiki_"):
+		return CapabilityWiki
+	default:
+		return CapabilityNone
+	}
+}
+
 // 兼容旧调用点：按工具名判断（内部转成按分组）
 func NeedsPersistentTool(name string) bool { return NeedsPersistent(Category(name)) }
+func NeedsPersonaTool(name string) bool    { return NeedsPersona(Category(name)) }
 func NeedsVisionTool(name string) bool     { return NeedsVision(Category(name)) }

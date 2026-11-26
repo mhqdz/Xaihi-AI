@@ -240,7 +240,12 @@ func (s *Server) Handler() http.Handler {
 			if r := []rune(preview); len(r) > 160 {
 				preview = string(r[:160]) + "…"
 			}
-			out = append(out, map[string]any{"name": n, "preview": preview})
+			pp, err := config.PersonaProfileFor(n)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			out = append(out, map[string]any{"name": n, "preview": preview, "memory": pp.Memory, "wiki": pp.Wiki, "dreamer": pp.Dreamer})
 		}
 		writeJSON(w, 200, out)
 	})
@@ -255,12 +260,25 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, 404, map[string]string{"error": "没有这个人格：" + name})
 				return
 			}
-			writeJSON(w, 200, map[string]string{"name": name, "body": body})
+			pp, err := config.PersonaProfileFor(name)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"name": name, "body": body, "memory": pp.Memory, "wiki": pp.Wiki, "dreamer": pp.Dreamer})
 		case http.MethodPut, http.MethodPost:
 			var in struct {
-				Body string `json:"body"`
+				Body    string  `json:"body"`
+				Memory  *bool   `json:"memory"`
+				Wiki    *bool   `json:"wiki"`
+				Dreamer *string `json:"dreamer"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeJSON(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			pp, err := config.PersonaProfileFor(name)
+			if err != nil {
 				writeJSON(w, 400, map[string]string{"error": err.Error()})
 				return
 			}
@@ -268,8 +286,26 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, 400, map[string]string{"error": err.Error()})
 				return
 			}
-			logx.Info("persona.save name=%s chars=%d", name, len([]rune(in.Body)))
-			writeJSON(w, 200, map[string]any{"ok": true, "name": name})
+			pp.Name = name
+			if in.Memory != nil {
+				pp.Memory = *in.Memory
+			}
+			if in.Wiki != nil {
+				pp.Wiki = *in.Wiki
+			}
+			if in.Dreamer != nil {
+				pp.Dreamer = *in.Dreamer
+			}
+			// body-only 是旧客户端：只改正文，不把各旧会话可能不同的 persistent
+			// 设置提前物化成统一人格配置。前端显式带能力字段时才写 JSON。
+			if in.Memory != nil || in.Wiki != nil || in.Dreamer != nil {
+				if err := config.SavePersonaProfile(pp); err != nil {
+					writeJSON(w, 400, map[string]string{"error": err.Error()})
+					return
+				}
+			}
+			logx.Info("persona.save name=%s chars=%d memory=%v wiki=%v dreamer=%s", name, len([]rune(in.Body)), pp.Memory, pp.Wiki, pp.Dreamer)
+			writeJSON(w, 200, map[string]any{"ok": true, "name": name, "memory": pp.Memory, "wiki": pp.Wiki, "dreamer": pp.Dreamer})
 		default:
 			writeJSON(w, 405, map[string]string{"error": "GET/PUT only"})
 		}

@@ -40,8 +40,17 @@ func TestToolmetaGroups(t *testing.T) {
 	if got := toolmeta.Category("view_image"); got != toolmeta.GroupView {
 		t.Errorf("view_image 分类 = %q", got)
 	}
-	if got := toolmeta.Category("memory_save"); got != toolmeta.GroupPersist {
+	if got := toolmeta.Category("memory_save"); got != toolmeta.GroupPersona {
 		t.Errorf("memory_save 分类 = %q", got)
+	}
+	if got := toolmeta.Category("wiki_write"); got != toolmeta.GroupPersona {
+		t.Errorf("wiki_write 分类 = %q", got)
+	}
+	if !toolmeta.NeedsPersonaTool("memory_supersede") || !toolmeta.NeedsPersonaTool("wiki_read") {
+		t.Error("memory/wiki 工具应要求人格")
+	}
+	if toolmeta.NeedsPersistentTool("memory_supersede") {
+		t.Error("memory 不再由会话 persistent 直接控制")
 	}
 	if toolmeta.Order(toolmeta.GroupChat) != 0 || toolmeta.Order(toolmeta.GroupView) != 2 {
 		t.Errorf("预置顺序不对")

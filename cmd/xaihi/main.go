@@ -5,6 +5,7 @@
 //	xaihi convs                列出会话
 //	xaihi show <id>            打印会话全文
 //	xaihi config               打印生效的配置
+//	xaihi dream --persona <名> (--since <时间> | --conv <id>) [--apply]
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -24,6 +26,7 @@ import (
 
 	"xaihi/internal/agent"
 	"xaihi/internal/config"
+	"xaihi/internal/dream"
 	"xaihi/internal/hook"
 	"xaihi/internal/llm"
 	"xaihi/internal/logx"
@@ -276,6 +279,37 @@ func main() {
 		if resp.StatusCode != 200 {
 			os.Exit(1)
 		}
+	case "dream":
+		fs := flag.NewFlagSet("dream", flag.ContinueOnError)
+		persona := fs.String("persona", "", "人格 profile 名（必填）")
+		since := fs.String("since", "", "起始时间（RFC3339 或 2006-01-02；与 --conv 至少一个）")
+		convID := fs.String("conv", "", "只读取指定会话")
+		maxTokens := fs.Int("max-tokens", 20000, "转录输入的估算 token 上限")
+		apply := fs.Bool("apply", false, "实际应用 wiki 变更；默认只显示 diff")
+		if err := fs.Parse(args); err != nil {
+			fatal(err)
+		}
+		if fs.NArg() != 0 {
+			fatal(fmt.Errorf("dream 不接受位置参数：%v", fs.Args()))
+		}
+		var sinceAt time.Time
+		if *since != "" {
+			var err error
+			sinceAt, err = parseDreamTime(*since)
+			if err != nil {
+				fatal(err)
+			}
+		}
+		r := dream.Runner{Store: st, DataDir: config.DataDir()}
+		result, err := r.Run(context.Background(), dream.Options{
+			Persona: *persona, ConversationID: *convID, Since: sinceAt, MaxTokens: *maxTokens, Apply: *apply,
+		})
+		if result != nil {
+			fmt.Print(dream.Render(result))
+		}
+		if err != nil {
+			fatal(err)
+		}
 	case "version":
 		fmt.Println("xaihi " + version)
 	case "config":
@@ -409,10 +443,21 @@ func main() {
 			"  xaihi show <id>                   看一段会话\n"+
 			"  xaihi archive|restore <id>        归档 / 恢复\n"+
 			"  xaihi rm <id> [--hard]            归档；加 --hard 才是真删\n"+
-			"  xaihi config | version            看配置 / 版本\n", cmd)
+			"  xaihi config | version            看配置 / 版本\n"+
+			"  xaihi dream --persona <名> (--since <时间> | --conv <id>) [--max-tokens N] [--apply]\n", cmd)
 		os.Exit(2)
 	}
 	_ = llm.Chunk{}
+}
+
+func parseDreamTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("--since 只支持 RFC3339 或 2006-01-02：%q", s)
 }
 
 func fatal(err error) {

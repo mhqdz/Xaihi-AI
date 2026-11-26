@@ -17,7 +17,7 @@ func newSQ(t *testing.T) *SQLiteStore {
 
 func TestSQLiteCreateAndAppend(t *testing.T) {
 	s := newSQ(t)
-	c := &Conversation{Title: "新会话"}
+	c := &Conversation{Title: "新会话", Persona: "xaihi"}
 	if err := s.Save(c); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -40,6 +40,9 @@ func TestSQLiteCreateAndAppend(t *testing.T) {
 	}
 	if len(got.Messages) != 2 {
 		t.Fatalf("期望 2 条消息（不重复插入），得到 %d", len(got.Messages))
+	}
+	if got.Persona != "xaihi" {
+		t.Errorf("persona 归属没有往返：%q", got.Persona)
 	}
 	if got.Messages[0].Seq == 0 || got.Messages[0].Seq >= got.Messages[1].Seq {
 		t.Fatalf("seq 应为递增正整数，得到 %d, %d", got.Messages[0].Seq, got.Messages[1].Seq)

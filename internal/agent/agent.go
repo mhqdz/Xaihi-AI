@@ -9,8 +9,10 @@ import (
 
 	"xaihi/internal/config"
 	"xaihi/internal/llm"
+	"xaihi/internal/logx"
 	"xaihi/internal/memory"
 	"xaihi/internal/store"
+	"xaihi/internal/wiki"
 )
 
 type Agent struct {
@@ -34,6 +36,7 @@ type Agent struct {
 	st        store.Store
 	profile   config.Profile
 	mem       *memory.Store
+	wiki      *wiki.Store
 }
 
 func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
@@ -77,19 +80,44 @@ func New(cfg config.Config, st store.Store, profile config.Profile) *Agent {
 	if key == "" {
 		key = cfg.APIKey
 	}
-	// 记忆：全局一层（跨项目累积）；项目层目录已支持，等有"项目"这个概念再启用
-	mem := memory.New(memory.DefaultRoot(config.DataDir()))
+	// memory/wiki 的主人不是会话 profile，而是它引用的人格 profile。
+	// 多个人格存在时不猜测旧共享记忆的归属；唯一人格时才复制旧数据，原目录保留。
+	var mem *memory.Store
+	var wk *wiki.Store
+	if profile.Persona != "" {
+		pp, err := config.ResolvePersonaProfile(profile.Persona, profile.Persistent)
+		if err != nil {
+			logx.Warn("persona.profile_load name=%s err=%v；memory/wiki 已失败关闭", profile.Persona, err)
+			pp = config.PersonaProfile{Name: profile.Persona}
+		}
+		if pp.Memory {
+			root := memory.OwnerRoot(config.DataDir(), profile.Persona)
+			if names := config.ListPersonas(); len(names) == 1 && names[0] == profile.Persona {
+				if n, err := memory.MigrateLegacy(root, memory.DefaultRoot(config.DataDir())); err != nil {
+					logx.Warn("memory.legacy_migrate owner=%s copied=%d err=%v", profile.Persona, n, err)
+				} else if n > 0 {
+					logx.Info("memory.legacy_migrate owner=%s copied=%d", profile.Persona, n)
+				}
+			}
+			mem = memory.New(root)
+		}
+		if pp.Wiki {
+			wk = wiki.New(wiki.OwnerRoot(config.DataDir(), profile.Persona))
+		}
+	}
 	cl := llm.New(base, key)
 	cl.SessionHeader = profile.SessionHeader
 	cl.Headers = profile.Headers
-	return &Agent{cfg: cfg, llm: cl, st: st, profile: profile, mem: mem}
+	return &Agent{cfg: cfg, llm: cl, st: st, profile: profile, mem: mem, wiki: wk}
 }
 
 func (a *Agent) Profile() config.Profile { return a.profile }
 
-// Memory 给 web 层/工具用（记忆是跨会话的，不挂在某一次 agent 实例上才合理，
-// 但早期先跟着 agent 走，等拆插件时再提到进程级）。
+// Memory 返回当前人格的记忆；未启用人格或 memory 时为 nil。
 func (a *Agent) Memory() *memory.Store { return a.mem }
+
+// Wiki 返回当前人格的可重建索引；未启用 wiki 时为 nil。
+func (a *Agent) Wiki() *wiki.Store { return a.wiki }
 
 // ModelID 是发给上游的模型名（profile.model 现在是复合键，不能直接发）
 func (a *Agent) ModelID() string { return a.profile.Resolve().ModelID }
@@ -105,11 +133,14 @@ func (a *Agent) Conversation(id string) (*store.Conversation, error) {
 			// 一个新会话，用户以为还在原会话；顺带白烧一次模型调用。
 			return nil, fmt.Errorf("会话 %q 不存在或读不出来：%w", id, err)
 		}
+		if c.Persona == "" {
+			c.Persona = a.profile.Persona
+		}
 		return c, nil
 	}
 	// 只有明确不给 id 才是「新建」
 	now := time.Now()
-	return &store.Conversation{ID: a.st.NextID(), Title: "新会话", CreatedAt: now, UpdatedAt: now}, nil
+	return &store.Conversation{ID: a.st.NextID(), Title: "新会话", CreatedAt: now, UpdatedAt: now, Persona: a.profile.Persona}, nil
 }
 
 // Send：追加用户消息 → 流式请求 → 追加助手消息 → 存盘。

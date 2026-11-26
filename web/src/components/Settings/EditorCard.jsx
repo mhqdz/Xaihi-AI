@@ -1,5 +1,6 @@
 import React from 'react'
 import Card from './Card'
+import { Field, SwitchRow } from './form'
 
 // 三级编辑卡：system 提示 / 工具说明（与二级卡同容器、同标题栏；高度填满可用区域）
 export default function EditorCard({ v, narrow, top }) {
@@ -16,9 +17,19 @@ export default function EditorCard({ v, narrow, top }) {
             <span>名字</span>
             <input value={pe.name} placeholder="a-z0-9_-"
               onChange={e => v.setPersonaEdit({ ...pe, name: e.target.value })} />
-            <span className="field-hint">存成 personas/&lt;名字&gt;.md；改名就是新建</span>
+            <span className="field-hint">正文存 personas/&lt;名字&gt;.md；配置存同名 .json；改名就是新建</span>
           </div>
         ) : null}
+        <SwitchRow label="memory · 人格记忆"
+          hint="独立记忆目录与注入；memory_* 工具还需要在会话 profile 中勾选"
+          checked={!!pe.memory} onChange={x => v.setPersonaEdit({ ...pe, memory: x })} />
+        <SwitchRow label="wiki · 派生索引"
+          hint="独立、可修改、可重建；wiki_* 工具还需要在会话 profile 中勾选"
+          checked={!!pe.wiki} onChange={x => v.setPersonaEdit({ ...pe, wiki: x })} />
+        <Field label="dreamer · 离线整理模型" hint="填 profiles.json 中的会话/模型 profile 名；只复用模型参数，不注入该配置的人格或记忆">
+          <input value={pe.dreamer || ''} placeholder="例如 180-low"
+            onChange={e => v.setPersonaEdit({ ...pe, dreamer: e.target.value })} />
+        </Field>
         <textarea className="set-area" aria-label="人格"
           value={pe.body} placeholder="她是谁、怎么说话、不做什么…"
           onChange={e => v.setPersonaEdit({ ...pe, body: e.target.value })} />

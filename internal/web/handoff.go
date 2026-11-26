@@ -97,7 +97,7 @@ func (s *Server) runChild(ctx context.Context, parent int64, profileName, card s
 	// 子会话工具固定：bash + handoff_fail（不受配方 profile 的 tools 影响）
 	prof.Tools = []string{"bash", "handoff_fail"}
 	c := &store.Conversation{Title: childTitle(card, parent), ParentID: parent, Kind: "child",
-		Profile: profileName}
+		Profile: profileName, Persona: prof.Persona}
 	if err := s.st.Save(c); err != nil {
 		return 0, "", err
 	}

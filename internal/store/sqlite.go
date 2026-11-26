@@ -37,6 +37,8 @@ func NewSQLite(dir string) (*SQLiteStore, error) {
 	_, _ = db.Exec(`ALTER TABLE conversations ADD COLUMN kv_seq TEXT NOT NULL DEFAULT ''`)
 	// 会话记住自己用哪个 profile（老库补列，重复执行是空操作）
 	_, _ = db.Exec(`ALTER TABLE conversations ADD COLUMN profile TEXT NOT NULL DEFAULT ''`)
+	// 会话创建时固化人格归属；dreaming 按它过滤 transcripts。
+	_, _ = db.Exec(`ALTER TABLE conversations ADD COLUMN persona TEXT NOT NULL DEFAULT ''`)
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS conversations(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +49,7 @@ CREATE TABLE IF NOT EXISTS conversations(
   summary_at TEXT,
   kv TEXT NOT NULL DEFAULT '{}',
   profile TEXT NOT NULL DEFAULT '',
+  persona TEXT NOT NULL DEFAULT '',
   kv_seq TEXT NOT NULL DEFAULT '', 
   archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
@@ -88,9 +91,9 @@ func (s *SQLiteStore) Get(id string) (*Conversation, error) {
 	var c Conversation
 	var kvDummy, kvSeqDummy, sat, cat, uat string
 	var kind string
-	err := s.db.QueryRow(`SELECT id,title,summary,summary_upto,summary_model,COALESCE(summary_at,''),kv,kv_seq,created_at,updated_at,parent_id,kind,profile
+	err := s.db.QueryRow(`SELECT id,title,summary,summary_upto,summary_model,COALESCE(summary_at,''),kv,kv_seq,created_at,updated_at,parent_id,kind,profile,persona
 		FROM conversations WHERE id=? AND archived=0`, n).
-		Scan(&n, &c.Title, &c.Summary, &c.SummaryUpto, &c.SummaryModel, &sat, &kvDummy, &kvSeqDummy, &cat, &uat, &c.ParentID, &kind, &c.Profile)
+		Scan(&n, &c.Title, &c.Summary, &c.SummaryUpto, &c.SummaryModel, &sat, &kvDummy, &kvSeqDummy, &cat, &uat, &c.ParentID, &kind, &c.Profile, &c.Persona)
 	c.Kind = kind
 	c.CreatedAt, _ = time.Parse(time.RFC3339Nano, cat)
 	c.UpdatedAt, _ = time.Parse(time.RFC3339Nano, uat)
@@ -208,16 +211,16 @@ func (s *SQLiteStore) Save(c *Conversation) error {
 	}
 	kv, _ := json.Marshal(c.KV)
 	if c.ID == "" {
-		res, err := tx.Exec(`INSERT INTO conversations(title,summary,summary_upto,summary_model,summary_at,kv,kv_seq,created_at,updated_at,parent_id,kind,profile)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), "", nStr, nStr, c.ParentID, c.Kind, c.Profile)
+		res, err := tx.Exec(`INSERT INTO conversations(title,summary,summary_upto,summary_model,summary_at,kv,kv_seq,created_at,updated_at,parent_id,kind,profile,persona)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), "", nStr, nStr, c.ParentID, c.Kind, c.Profile, c.Persona)
 		if err != nil {
 			return err
 		}
 		id, _ := res.LastInsertId()
 		c.ID = fmt.Sprint(id)
 	} else {
-		if _, err := tx.Exec(`UPDATE conversations SET title=?,summary=?,summary_upto=?,summary_model=?,summary_at=?,kv=?,kv_seq='',updated_at=?,parent_id=?,kind=?,profile=? WHERE id=?`,
-			c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), nStr, c.ParentID, c.Kind, c.Profile, c.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE conversations SET title=?,summary=?,summary_upto=?,summary_model=?,summary_at=?,kv=?,kv_seq='',updated_at=?,parent_id=?,kind=?,profile=?,persona=? WHERE id=?`,
+			c.Title, c.Summary, c.SummaryUpto, c.SummaryModel, sat, string(kv), nStr, c.ParentID, c.Kind, c.Profile, c.Persona, c.ID); err != nil {
 			return err
 		}
 	}

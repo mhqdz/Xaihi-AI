@@ -68,7 +68,7 @@ func (s *Server) watchConv() (int64, error) {
 			return id, nil
 		}
 	}
-	c := &store.Conversation{Title: "观察", Kind: "watch"}
+	c := &store.Conversation{Title: "观察", Kind: "watch", Persona: s.a.Profile().Persona}
 	if err := s.st.Save(c); err != nil {
 		return 0, err
 	}

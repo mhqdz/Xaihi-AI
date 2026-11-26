@@ -40,7 +40,7 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 2. **阅读栏宽度**：去掉写死的 1400 上限 → 跟舞台宽度；修掉 resize 里的"棘轮"（窗口缩一次列宽就永久变窄）；列宽铺满时右侧标尺让位。
 3. **配置卡文案/排版**：说明行统一 `.field-hint`、每字段最多一行、删掉解释腔；正文的 640px（endfield `--ef-measure`）放开；卡片内边距随列宽 13.6→36。
 4. **kb 重构**（`~/Workspace/KnowledgeBase`）：1512 行单文件 → 12 文件 → 抽独立 module `kbapp/core`；中文检索 2-gram（词序无关）、`--category` 前缀保留、空目录提示。xaihi 用 `replace kbapp/core => ../KnowledgeBase/core` 引用它的 `entry.ParseFM`。
-5. **记忆层** `internal/memory`：文件式、**全局**、预算 6000 token，`memory_save/forget/list`，注入 system prompt（挑选从新到旧、拼装升序以免打散 KV cache）。
+5. **记忆层** `internal/memory`：按人格 profile 隔离、预算 6000 估算 token，`memory_save/supersede/forget/list`，注入 system prompt（挑选从新到旧、拼装升序以免打散 KV cache）；自动记录 source / basis，替换检查 revision 并保留旧版本。另有按人格隔离、可重建的 `internal/wiki` 及 wiki_* 工具。
 6. **观察器** `internal/watch`：`hyprctl activewindow/clients` 采样、30 秒去抖、事件进 `watch.db`（不进记忆）、窗口消失回调。
 7. **触发器** `internal/hook`：`hooks/*.json` 定义（无"什么时候"字段）、配额 10/天、冷却 3 秒、**只挂 unix socket**（`~/.data/xaihi/xaihi.sock`，TCP 上 404）、CLI 注册（`xaihi hook add/list/rm`）、5 秒热重载（目录指纹轮询）、`xaihi trigger`。
 8. **前端左栏四块**：`Xaihi/16 天 | 会话 | 归档 | 本轮`，不可选中复制；第一块是门面，没有观察会话时点它弹引导页。
@@ -50,10 +50,14 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 ## 四、用户的决定（不要推翻）
 
 - 正式名 **Xaihi-AI**；数据目录也改名了。
-- **记忆是全局的**（跨项目累积），不按项目。
-- **Xaihi = profile 的人格（`profile.System`）+ 全局记忆**；"会话只是跟她说话的窗口"。所以"只允许一个观察会话"的特殊性**要去掉**（尚未做）。
-  人格**不是**全局一份，而是跟着 profile 走（同一 profile 下的所有会话共用）。**不拆成独立文件**（2026-11-10 用户确认）。
-- 持久化会话作为 **profile 的可选项**：打开后才能选记忆/钩子工具。
+- **最新决定（覆盖旧的“全局记忆 / 不拆人格文件”）**：会话 / 模型 profile 与人格 profile 分开；
+  会话 profile 引用人格 profile。memory/wiki 跟人格 profile 隔离，同一人格的多个会话 profile 共享，
+  不同人格不互通，只有 kb 共有。人格正文是 `personas/<name>.md`，人格配置是同名 `.json`。
+- memory/wiki 是人格工具组，人格未启用对应能力时不可用；跨会话 recall 后续只允许同人格搜索。
+- `persistent` 保留为 hook/journal/todo 等旧持久化工具的会话级开关，不再直接决定 memory/wiki。
+- **dreaming 第一阶段已完成**：人格 JSON 配 `dreamer`；会话固化 persona；`xaihi dream` 要显式
+  `--since` 或 `--conv`，默认 dry-run，`--apply` 只写同人格 wiki；memory_actions 仅计划。
+  详见 `docs/DREAMING.md`。前端 dreamer 错误展示、memory apply、定时 dreaming、recall 均后置。
 - 图像类工具按**模型能力**判断（`profile.input` 含 image 才给 `screenshot`/`view_image`）。
 - 触发器：**注册走 CLI**（本地 shell 权限）、**触发走 unix socket**（不开 TCP）、钩子文件由 agentd 维护（人/agent 不手写）。
 - 观察器：L3 视觉但**只事件触发**、不设定时间隔、截图配额 300/天。
@@ -72,19 +76,19 @@ sqlite3 ~/.data/xaihi/xaihi.db "select (select count(*) from conversations),(sel
 - 实测：todo_add 落盘 → 新会话问"有什么待办"能答出；journal_write 写出当天日记，
   内容里引用了时间感的"5h12m / 82 次切换"
 
-## 五、已完成：人格可插拔 + 工具分类 + 钩子工具
+## 五、旧记录：人格可插拔 + 工具分类 + 钩子工具（归属规则以第四节最新决定为准）
 
 **A 人格可插拔**（已完成）
 - `config/personas.go`：`LoadPersona/ListPersonas/SavePersona`，目录 `<data>/personas/<名字>.md`
 - `Profile.Persona` + `Profile.Persistent` 字段
 - `agent.New` 把人格拼在 `System` 前（`estimateChars`/`guardSystem` 看到的是最终内容）
-- 记忆只在 `Persistent=true` 时注入（两处拼装点）
-- 校验：人格必须存在；memory/hook 工具要 persistent；image 工具要 input 含 image；
-  persistent 必须有人格
+- 当时记忆只在 `Persistent=true` 时注入；现已改为人格 JSON 的 `memory=true` 决定
+- 当前校验：人格必须存在；memory/wiki 要人格开启对应能力；hook/todo 要 persistent；
+  image 工具要 input 含 image；空 Tools 表示无工具
 - 前端：配置卡「人格与持久化」段（下拉 + 预览 + 开关），关开关时自动摘掉依赖它的工具
 
 **B 工具分类**（已完成）
-- `/api/tools` 带 `category`/`needs`；前端按 core/memory/hook/image 四组渲染，不满足条件的**灰掉**
+- `/api/tools` 带 `category`/`needs`；前端按会话/知识/视图/人格/持久化/待办等分组渲染，不满足条件的**灰掉**
 - `/api/personas` 列表接口
 
 **C 钩子工具**（已完成）
